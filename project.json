@@ -1,0 +1,40 @@
+{
+  "name": "CYN-X",
+  "type": "Intelligent System",
+  "status": "Active Development",
+  "summary": "BARKLY LABS' flagship intelligent system.",
+  "description": "A human-centered intelligent system connecting local AI, interfaces, tools, software, vision, hardware, and future systems.",
+  "principles": [
+    "Human First",
+    "Understandable",
+    "Private Where Practical",
+    "Experimental"
+  ],
+  "technologies": [
+    "Python",
+    "FastAPI",
+    "Ollama",
+    "Astro",
+    "TypeScript"
+  ],
+  "components": [
+    "Local AI",
+    "Memory",
+    "Multimodal Interaction",
+    "Computer Vision",
+    "AI Interfaces",
+    "Human-AI Collaboration"
+  ],
+  "lifecycle": [
+    "Idea",
+    "Research",
+    "Experiment",
+    "Prototype",
+    "Community Testing",
+    "Engineering",
+    "Productization",
+    "Release",
+    "Feedback",
+    "Continued Development"
+  ]
+}
