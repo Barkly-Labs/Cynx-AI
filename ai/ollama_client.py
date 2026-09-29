@@ -43,7 +43,7 @@ class OllamaClient:
             "stream": stream,
             "options": {
                 "num_predict": max_tokens,
-                "num_ctx": 8192,
+                "num_ctx": 4096,
                 "temperature": 0.7
             },
             **kwargs
