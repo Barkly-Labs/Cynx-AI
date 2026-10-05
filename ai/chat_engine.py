@@ -474,7 +474,6 @@ class ChatEngine:
 
         tools = self.tool_router.as_ollama_tools()
 
-        # Python is authoritative for tool selection.
         detected = None
 
         if hasattr(self.tool_router, "detect"):
@@ -483,20 +482,32 @@ class ChatEngine:
             except Exception:
                 detected = None
 
-        # Casual conversation = NO tools.
-        if not detected:
-            return []
+        # Keep deterministic/stateful tools Python-authoritative.
+        # For ordinary turns, let Ollama decide whether it actually
+        # needs web_search (or calculator) instead of making Python
+        # keyword detection the sole gate for tool access.
+        if detected and detected.get("tool") in {
+            "smoke_counter",
+            "chart",
+        }:
+            allowed_tool = detected.get("tool")
 
-        allowed_tool = detected.get("tool")
+            return [
+                tool
+                for tool in tools
+                if tool.get("function", {}).get("name") == allowed_tool
+            ]
 
-        # Only expose the tool Python actually detected.
-        tools = [
+        model_optional_tools = {
+            "web_search",
+            "calculator",
+        }
+
+        return [
             tool
             for tool in tools
-            if tool.get("function", {}).get("name") == allowed_tool
+            if tool.get("function", {}).get("name") in model_optional_tools
         ]
-
-        return tools
 
     def handle_user_message(
         self,
@@ -690,6 +701,15 @@ class ChatEngine:
                 detected_tool = None
 
         tool_specs = self._ollama_tools(text)
+
+        # web_search detection is advisory: exposing the tool is enough.
+        # Ollama decides whether to call it. Deterministic/stateful tools
+        # remain Python-authoritative below.
+        if (
+            detected_tool
+            and detected_tool.get("tool") == "web_search"
+        ):
+            detected_tool = None
 
         if tool_specs:
 

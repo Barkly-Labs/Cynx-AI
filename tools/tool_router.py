@@ -138,6 +138,26 @@ class ToolRouter:
                     }
                 }
 
+            elif getattr(tool, "name", None) == "calculator":
+
+                schema = {
+                    "type": "function",
+                    "function": {
+                        "name": "calculator",
+                        "description": "Evaluate an arithmetic expression safely.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "expression": {
+                                    "type": "string",
+                                    "description": "Arithmetic expression to evaluate."
+                                }
+                            },
+                            "required": ["expression"]
+                        }
+                    }
+                }
+
             elif getattr(tool, "name", None) == "web_search":
 
                 schema = {
@@ -777,30 +797,8 @@ class ToolRouter:
             "search online",
             "find out",
             "latest information",
-            "recent information",
-
-
-            "latest news",
-            "recent news",
-            "current news",
-            "current information",
-            "current events",
-            "recent updates",
-            "latest updates",
-            "today's news",
-            "todays news",
-            "news today",
-            "what happened today",
-            "what happened recently",
-            "what is happening today",
-            "what's happening today",
-            "right now",
-            "currently",
-            "as of today",
-            "this week",
-            "this month's news",
-            "breaking news"
-                    ]
+            "recent information"
+        ]
 
 
         research_question_patterns = [
