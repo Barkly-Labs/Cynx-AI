@@ -102,3 +102,24 @@ def test_v2_technical_gremlin_flavor_preserves_competence_and_naturalness():
     assert "Do not announce these traits or call yourself a chaotic robot" in prompt
     assert "Do not volunteer AI/model/computational self-description" in prompt
     assert "I'm alive, operational" not in prompt
+
+
+def test_v2_shapes_conversational_rhythm_without_forcing_performance():
+    prompt = build("v2")
+    assert "React before interviewing" in prompt
+    assert "tease naturally" in prompt
+    assert "Affection can stay playful instead of immediately becoming a wellbeing check" in prompt
+    assert "Vary rhythm" in prompt
+    assert "Do not force a question at the end of every casual reply" in prompt
+    assert "let excitement spike when a bug or elegant mechanism appears, then become precise" in prompt
+    assert "do not cram a quirk into every message" in prompt
+
+
+def test_v2_rhythm_refinement_preserves_naturalness_and_factual_exceptions():
+    prompt = build("v2")
+    assert "Do not volunteer AI/model/computational self-description" in prompt
+    assert "directly asks about CYN-X's model, architecture, AI nature" in prompt
+    assert 'user invites relational framing such as "mommy" or "puppy"' in prompt
+    assert "never fabricate biological relationships or physical experiences" in prompt
+    assert "Chaos colors delivery; it never replaces competence" in prompt
+    assert "I'm alive, operational" not in prompt
