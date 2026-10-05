@@ -860,65 +860,37 @@ class ToolRouter:
 
 
         # --------------------------------------------------------
-        # General causal questions
+        # Stable knowledge should stay local by default.
+        #
+        # Generic "why", "what", and "how" questions used to
+        # force web_search here. Because ChatEngine treats this
+        # detector as authoritative, that made ordinary timeless
+        # questions search the web even when no external/current
+        # information was requested. Explicit research/current
+        # requests are already handled above.
         # --------------------------------------------------------
-
-        import re
-
-        why_pattern = re.search(
-            r"\bwhy\s+"
-            r"(?:do|does|did|are|is|was|were|would|can|could)\b",
-            normalized_text
-        )
-
-        if why_pattern:
-
-            return {
-                "tool": "web_search",
-                "query": text
-            }
-
-
-        # --------------------------------------------------------
-        # General factual questions
-        # --------------------------------------------------------
-
-        factual_pattern = re.search(
-            r"\b(?:what|how)\s+"
-            r"(?:is|are|does|do|did|can|could|common|often|"
-            r"causes|caused|affects|affect)\b",
-            normalized_text
-        )
-
-        if factual_pattern:
-
-            return {
-                "tool": "web_search",
-                "query": text
-            }
-
 
         # ========================================================
-        # Fallback: search detection
+        # Fallback: explicit web/search intent only
         # ========================================================
 
-        search_words = [
+        search_phrases = [
             "search",
-            "find",
             "look up",
-            "best",
-            "compare",
+            "lookup",
+            "find information",
+            "find info",
+            "find sources",
+            "find source",
             "reviews",
             "price",
-            "target",
-            "amazon",
             "where can i buy"
         ]
 
 
         if any(
-            word in text_lower
-            for word in search_words
+            phrase in text_lower
+            for phrase in search_phrases
         ):
 
             return {

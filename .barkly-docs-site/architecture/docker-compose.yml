@@ -1,0 +1,15 @@
+services:
+  structurizr-lite:
+    image: structurizr/lite:latest
+    ports:
+      - "${STRUCTURIZR_PORT:-8080}:8080"
+    volumes:
+      - ./workspace.dsl:/usr/local/structurizr/workspace.dsl:ro
+    restart: unless-stopped
+  barkly-docs-site:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    ports:
+      - "${BARKLY_DOCS_PORT:-8000}:80"
+    restart: unless-stopped
