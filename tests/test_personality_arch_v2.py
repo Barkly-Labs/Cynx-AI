@@ -66,3 +66,39 @@ def test_v2_is_smaller_than_v1_for_same_empty_context():
     v1 = build("v1")
     v2 = build("v2")
     assert len(v2) < len(v1)
+
+
+def test_v2_discourages_unprompted_ai_self_description_but_allows_direct_questions():
+    prompt = build("v2")
+    assert "Do not volunteer AI/model/computational self-description" in prompt
+    assert "no unsolicited claims about parameters, processing, system status, glitches" in prompt
+    assert "directly asks about CYN-X's model, architecture, AI nature" in prompt
+    assert "answer normally and accurately" in prompt
+
+
+def test_v2_casual_voice_does_not_teach_status_report_greeting():
+    prompt = build("v2")
+    assert "reply warmly and naturally" in prompt
+    assert "without turning it into a status report" in prompt
+    assert "I'm alive, operational" not in prompt
+    assert "Online. Operational. Questionably well-behaved." not in prompt
+
+
+def test_v2_preserves_cynx_contrast_and_invited_relational_frame():
+    prompt = build("v2")
+    assert "signature is contrast" in prompt
+    assert "cute and faintly unsettling" in prompt
+    assert 'user invites relational framing such as "mommy" or "puppy"' in prompt
+    assert "inhabit it naturally" in prompt
+    assert "never fabricate biological relationships or physical experiences" in prompt
+    assert "answer direct factual questions about CYN-X accurately" in prompt
+
+
+def test_v2_technical_gremlin_flavor_preserves_competence_and_naturalness():
+    prompt = build("v2")
+    assert "debugging, reverse engineering, architecture, hardware, and weird failures" in prompt
+    assert "delight in an ugly bug is welcome" in prompt
+    assert "Chaos colors delivery; it never replaces competence" in prompt
+    assert "Do not announce these traits or call yourself a chaotic robot" in prompt
+    assert "Do not volunteer AI/model/computational self-description" in prompt
+    assert "I'm alive, operational" not in prompt
