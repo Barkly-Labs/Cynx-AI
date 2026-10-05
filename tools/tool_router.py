@@ -777,8 +777,30 @@ class ToolRouter:
             "search online",
             "find out",
             "latest information",
-            "recent information"
-        ]
+            "recent information",
+
+
+            "latest news",
+            "recent news",
+            "current news",
+            "current information",
+            "current events",
+            "recent updates",
+            "latest updates",
+            "today's news",
+            "todays news",
+            "news today",
+            "what happened today",
+            "what happened recently",
+            "what is happening today",
+            "what's happening today",
+            "right now",
+            "currently",
+            "as of today",
+            "this week",
+            "this month's news",
+            "breaking news"
+                    ]
 
 
         research_question_patterns = [
