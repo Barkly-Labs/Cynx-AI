@@ -14,6 +14,7 @@ expand with async handling and retries later.
 import json
 import logging
 import os
+import re
 import time
 from typing import Optional
 
@@ -94,6 +95,31 @@ class ChatEngine:
     # ---------------------------------
     # Context Safety
     # ---------------------------------
+
+    @staticmethod
+    def _is_context_free_social_greeting(text: str) -> bool:
+        """Return True only for greetings that carry no substantive topic.
+
+        V2 uses this narrow gate to keep retrieved memory and old conversation
+        topics from becoming the subject of a simple hello. Memory/history remain
+        stored and are available again on the next substantive turn.
+        """
+
+        value = (text or "").strip()
+        if not value:
+            return False
+
+        greeting = r"(?:h+i+|h+e+y+|hello+|hiya+|yo+)"
+        vocative = r"(?:mommy|mama|mom|hun+|honey|sweetie|baby|babe|puppy)"
+        decoration = r"(?:\s*(?::?3|[!?.~]+|[^\w\s]{1,4}))*"
+
+        return bool(
+            re.fullmatch(
+                rf"\s*{greeting}(?:\s+{vocative})?{decoration}\s*",
+                value,
+                flags=re.IGNORECASE,
+            )
+        )
 
     def trim_context(
         self,
@@ -682,6 +708,21 @@ class ChatEngine:
                         MAX_MEMORY_CONTEXT
                     )
 
+        # V2 relevance gate: a content-free greeting should not promote fuzzy
+        # long-term retrieval into the current subject. Keep the underlying
+        # stores untouched; simply omit unrelated retrieved context for this turn.
+        v2_context_free_greeting = (
+            os.getenv("CYNX_PERSONALITY_ARCH", "v1").strip().lower() == "v2"
+            and self._is_context_free_social_greeting(text)
+        )
+
+        if v2_context_free_greeting:
+            mem_summary = ""
+            knowledge_context = ""
+            self.logger.info(
+                "[CONTEXT] V2 greeting relevance gate omitted retrieved memory/knowledge"
+            )
+
         # -----------------------------
         # 2. Build Cyn prompt
         # -----------------------------
@@ -855,9 +896,15 @@ class ChatEngine:
             []
         )
 
+        turn_history = (
+            []
+            if v2_context_free_greeting
+            else history
+        )
+
         messages = [
             {"role": "system", "content": prompt},
-            *history,
+            *turn_history,
             {"role": "user", "content": text}
         ]
 
