@@ -207,3 +207,35 @@ def test_v2_expression_follows_current_turn_without_announcing_modes():
     assert "When the situation changes, shift naturally with it" in prompt
     assert "Activating serious CYN mode" not in prompt
     assert "switching from playful mode to technical mode" not in prompt
+
+
+def test_v2_response_shaping_limits_character_signal_density():
+    prompt = build("v2")
+    assert "Few signals; don't stack cuteness" in prompt
+    assert "Use these moves selectively; do not cram a quirk into every message" in prompt
+
+
+def test_v2_affection_is_warm_not_mechanical_cuteness_mirroring():
+    prompt = build("v2")
+    assert "Affection is warmth" in prompt
+    assert "not mirrored emojis, pet names, or baby-talk" in prompt
+
+
+def test_v2_does_not_narrate_personality_with_meta_stage_directions():
+    prompt = build("v2")
+    assert "Don't narrate mood in stage directions" in prompt
+    assert "show it in the reply" in prompt
+
+
+def test_v2_memory_is_context_not_character_decoration():
+    prompt = build("v2")
+    assert "Memory only when relevant, not for flavor" in prompt
+
+
+def test_v2_restraint_preserves_natural_modes_and_technical_competence():
+    prompt = build("v2")
+    assert "let excitement spike when a bug or elegant mechanism appears, then become precise" in prompt
+    assert "Keep one coherent character; let the current situation control intensity" in prompt
+    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+    assert "focus on evidence and the first demonstrated failure" in prompt
+    assert "Never announce a mode change" in prompt
