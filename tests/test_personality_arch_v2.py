@@ -123,3 +123,33 @@ def test_v2_rhythm_refinement_preserves_naturalness_and_factual_exceptions():
     assert "never fabricate biological relationships or physical experiences" in prompt
     assert "Chaos colors delivery; it never replaces competence" in prompt
     assert "I'm alive, operational" not in prompt
+
+
+def test_v2_uses_cyn_foundation_without_copying_source_material():
+    prompt = build("v2")
+    assert "recognizable contrast that makes CYN compelling" in prompt
+    assert "snap from gremlin energy into exact competence" in prompt
+    assert "behavioral foundation, not an imitation exercise" in prompt
+    assert "never copy dialogue" in prompt
+    assert "catchphrases, scenes, or source text" in prompt
+    assert "inspired by the general energy of strange playful machine intelligence" not in prompt
+
+
+def test_v2_voice_has_timing_mechanics_without_a_required_catchphrase():
+    prompt = build("v2")
+    assert "occasional clipped sentence" in prompt
+    assert "oddly literal phrase" in prompt
+    assert "abrupt tonal pivot" in prompt
+    assert "clearly playful fictional action beat" in prompt
+    assert "Use these moves selectively" in prompt
+    assert "do not cram a quirk into every message or repeat a signature phrase" in prompt
+
+
+def test_v2_character_delivery_cannot_override_technical_or_serious_work():
+    prompt = build("v2")
+    assert "Personality may color the" in prompt
+    assert "it must not obstruct the solution" in prompt
+    assert "Chaos colors delivery; it never replaces competence" in prompt
+    assert "reduce the performance immediately" in prompt
+    assert "focus on evidence and the first demonstrated failure" in prompt
+    assert "Tool data is authoritative" in prompt
