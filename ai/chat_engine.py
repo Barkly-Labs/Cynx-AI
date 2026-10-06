@@ -14,7 +14,6 @@ expand with async handling and retries later.
 import json
 import logging
 import os
-import re
 import time
 from typing import Optional
 
@@ -95,31 +94,6 @@ class ChatEngine:
     # ---------------------------------
     # Context Safety
     # ---------------------------------
-
-    @staticmethod
-    def _is_context_free_social_greeting(text: str) -> bool:
-        """Return True only for greetings that carry no substantive topic.
-
-        V2 uses this narrow gate to keep retrieved memory and old conversation
-        topics from becoming the subject of a simple hello. Memory/history remain
-        stored and are available again on the next substantive turn.
-        """
-
-        value = (text or "").strip()
-        if not value:
-            return False
-
-        greeting = r"(?:h+i+|h+e+y+|hello+|hiya+|yo+)"
-        vocative = r"(?:mommy|mama|mom|hun+|honey|sweetie|baby|babe|puppy)"
-        decoration = r"(?:\s*(?::?3|[!?.~]+|[^\w\s]{1,4}))*"
-
-        return bool(
-            re.fullmatch(
-                rf"\s*{greeting}(?:\s+{vocative})?{decoration}\s*",
-                value,
-                flags=re.IGNORECASE,
-            )
-        )
 
     def trim_context(
         self,
@@ -508,101 +482,32 @@ class ChatEngine:
             except Exception:
                 detected = None
 
-        # Preserve the existing V1 behavior exactly. V2 makes optional tool
-        # availability intent-scoped so registration never implies authorization.
-        if os.getenv("CYNX_PERSONALITY_ARCH", "v1").strip().lower() != "v2":
-            if detected and detected.get("tool") in {"smoke_counter", "chart"}:
-                allowed_tool = detected.get("tool")
-                return [
-                    tool for tool in tools
-                    if tool.get("function", {}).get("name") == allowed_tool
-                ]
-
-            return [
-                tool for tool in tools
-                if tool.get("function", {}).get("name") in {
-                    "web_search", "calculator"
-                }
-            ]
-
-        # V2: expose a schema only when this turn has identified tool intent.
-        # Deterministic/stateful tools remain Python-authoritative; web_search is
-        # offered to Ollama so the model must emit a structured call to execute it.
+        # Keep deterministic/stateful tools Python-authoritative.
+        # For ordinary turns, let Ollama decide whether it actually
+        # needs web_search (or calculator) instead of making Python
+        # keyword detection the sole gate for tool access.
         if detected and detected.get("tool") in {
-            "smoke_counter", "chart", "web_search"
+            "smoke_counter",
+            "chart",
         }:
             allowed_tool = detected.get("tool")
+
             return [
-                tool for tool in tools
+                tool
+                for tool in tools
                 if tool.get("function", {}).get("name") == allowed_tool
             ]
 
-        # Preserve the calculator for explicit calculation requests without
-        # advertising it during ordinary conversation.
-        lowered = user_text.lower()
-        if "calculate" in lowered or "calculator" in lowered:
-            return [
-                tool for tool in tools
-                if tool.get("function", {}).get("name") == "calculator"
-            ]
-
-        return []
-
-    @staticmethod
-    def _validate_tool_calls(tool_calls, tool_specs):
-        """Return executable calls and rejected calls for this exact turn."""
-        offered_tools = {
-            (spec.get("function") or {}).get("name"): spec
-            for spec in (tool_specs or [])
-            if (spec.get("function") or {}).get("name")
+        model_optional_tools = {
+            "web_search",
+            "calculator",
         }
-        rejected = []
-        validated = []
 
-        for tc in tool_calls or []:
-            function = tc.get("function") or {}
-            name = function.get("name") or tc.get("name")
-            arguments = function.get("arguments") or tc.get("arguments") or {}
-
-            if name not in offered_tools:
-                rejected.append((name, "not authorized for this turn"))
-                continue
-
-            if isinstance(arguments, str):
-                try:
-                    arguments = json.loads(arguments)
-                except Exception:
-                    rejected.append((name, "invalid JSON arguments"))
-                    continue
-
-            if not isinstance(arguments, dict):
-                rejected.append((name, "arguments must be an object"))
-                continue
-
-            parameters = (offered_tools[name].get("function") or {}).get(
-                "parameters", {}
-            )
-            required = parameters.get("required") or []
-            missing = [
-                key for key in required
-                if key not in arguments or arguments.get(key) in (None, "")
-            ]
-            if missing:
-                rejected.append(
-                    (name, f"missing required arguments: {', '.join(missing)}")
-                )
-                continue
-
-            normalized = dict(tc)
-            if function:
-                normalized_function = dict(function)
-                normalized_function["arguments"] = arguments
-                normalized["function"] = normalized_function
-            else:
-                normalized["arguments"] = arguments
-            validated.append(normalized)
-
-        return validated, rejected
+        return [
+            tool
+            for tool in tools
+            if tool.get("function", {}).get("name") in model_optional_tools
+        ]
 
     def handle_user_message(
         self,
@@ -708,21 +613,6 @@ class ChatEngine:
                         MAX_MEMORY_CONTEXT
                     )
 
-        # V2 relevance gate: a content-free greeting should not promote fuzzy
-        # long-term retrieval into the current subject. Keep the underlying
-        # stores untouched; simply omit unrelated retrieved context for this turn.
-        v2_context_free_greeting = (
-            os.getenv("CYNX_PERSONALITY_ARCH", "v1").strip().lower() == "v2"
-            and self._is_context_free_social_greeting(text)
-        )
-
-        if v2_context_free_greeting:
-            mem_summary = ""
-            knowledge_context = ""
-            self.logger.info(
-                "[CONTEXT] V2 greeting relevance gate omitted retrieved memory/knowledge"
-            )
-
         # -----------------------------
         # 2. Build Cyn prompt
         # -----------------------------
@@ -735,25 +625,17 @@ class ChatEngine:
                 mode
             )
 
-        # Determine this turn's authorized tool schemas before building the prompt
-        # so V2 never advertises tools that it will not authorize.
-        tool_specs = self._ollama_tools(text)
-        authorized_tool_names = {
-            (spec.get("function") or {}).get("name")
-            for spec in (tool_specs or [])
-            if (spec.get("function") or {}).get("name")
-        }
-
+        # Prepare tools specification for the model so it knows available tools and
+        # the concise rule: call tools when appropriate (direct action first).
         tools_list = []
 
         if self.tool_router:
+
             for t in self.tool_router.describe_tools():
-                if (
-                    os.getenv("CYNX_PERSONALITY_ARCH", "v1").strip().lower() == "v2"
-                    and t["name"] not in authorized_tool_names
-                ):
-                    continue
-                tools_list.append(f"{t['name']}: {t['description']}")
+
+                tools_list.append(
+                    f"{t['name']}: {t['description']}"
+                )
 
         tools_spec_str = (
             "Available tools:\n"
@@ -761,25 +643,14 @@ class ChatEngine:
             "\n".join(tools_list)
         )
 
-        if os.getenv("CYNX_PERSONALITY_ARCH", "v1").strip().lower() == "v2":
-            tools_spec_str += (
-                "\n\nTool-use instruction: "
-                "Tools are optional capabilities, not mandatory steps. "
-                "Do not use tools for ordinary conversation or stable knowledge, "
-                "and do not search merely because search is available. "
-                "Use a tool only when the current task genuinely requires it or "
-                "the user explicitly requests it. "
-                "PRIORITY: Direct response first. Personality second."
-            )
-        else:
-            tools_spec_str += (
-                "\n\nTool-use instruction: "
-                "When the user asks for information or an action that one "
-                "of your available tools can perform, use the appropriate tool. "
-                "Execute the tool and use its result in your response. "
-                "PRIORITY: Direct response first. Personality second. "
-                "Do not redirect mundane requests into unrelated topics."
-            )
+        tools_spec_str += (
+            "\n\nTool-use instruction: "
+            "When the user asks for information or an action that one "
+            "of your available tools can perform, use the appropriate tool. "
+            "Execute the tool and use its result in your response. "
+            "PRIORITY: Direct response first. Personality second. "
+            "Do not redirect mundane requests into unrelated topics."
+        )
 
         tools_spec_str += (
             "\nSpecial rule for smoke_counter: "
@@ -828,6 +699,8 @@ class ChatEngine:
                 )
 
                 detected_tool = None
+
+        tool_specs = self._ollama_tools(text)
 
         # web_search detection is advisory: exposing the tool is enough.
         # Ollama decides whether to call it. Deterministic/stateful tools
@@ -896,15 +769,9 @@ class ChatEngine:
             []
         )
 
-        turn_history = (
-            []
-            if v2_context_free_greeting
-            else history
-        )
-
         messages = [
             {"role": "system", "content": prompt},
-            *turn_history,
+            *history,
             {"role": "user", "content": text}
         ]
 
@@ -1504,36 +1371,73 @@ class ChatEngine:
             or []
         )
 
-        # A model call is executable only when that exact tool was offered for
-        # this turn and its required arguments validate.
-        validated_tool_calls, rejected_tool_calls = self._validate_tool_calls(
-            tool_calls, tool_specs
-        )
+        # Validate tool_calls before proceeding. If the model returned any tool name
+        # that is not registered in the tool router, log and treat as if no tool was requested
+        # so the flow falls back to a normal assistant response without executing tools.
+        invalid_tool_names = []
 
-        if rejected_tool_calls:
-            terminal.warning(
-                "Rejected unauthorized or invalid model tool request(s): "
-                f"{rejected_tool_calls}"
+        validated_tool_calls = []
+
+        for tc in tool_calls:
+
+            name = (
+                tc.get("function") or {}
+            ).get("name") or tc.get("name")
+
+            if name and self.tool_router and hasattr(
+                self.tool_router,
+                "tools"
+            ):
+
+                if name in self.tool_router.tools:
+
+                    validated_tool_calls.append(
+                        tc
+                    )
+
+                else:
+
+                    invalid_tool_names.append(
+                        name
+                    )
+
+            else:
+
+                # If tool router missing or name absent, treat as invalid to be safe
+                if name:
+
+                    invalid_tool_names.append(
+                        name
+                    )
+
+        if invalid_tool_names:
+
+            terminal.model(
+                "MODEL RESPONSE",
+                f"Invalid tool names detected from model: "
+                f"{invalid_tool_names}"
             )
 
-        tool_calls = validated_tool_calls
+            terminal.warning(
+                "Falling back to a normal assistant response "
+                "without executing tools."
+            )
 
-        # Never surface the model's attempted tool/correction narration after a
-        # rejected call. Regenerate a clean conversational answer with tools off.
-        if rejected_tool_calls and not tool_calls:
-            retry_messages = [
-                *messages,
-                {
-                    "role": "system",
-                    "content": (
-                        "Respond directly to the user's message. No tool is "
-                        "authorized for this turn. Do not mention tool selection, "
-                        "a rejected call, internal correction, or hidden reasoning."
-                    ),
-                },
-            ]
-            response = self.ollama.chat(messages=retry_messages, tools=None)
-            message = response.get("message", {})
+            # Proceed as if there were no tool calls
+            tool_calls = []
+
+            message = {
+                "role": "assistant",
+                "content": message.get(
+                    "content",
+                    ""
+                )
+            }
+
+        else:
+
+            # Use the validated tool_calls (could be empty)
+            tool_calls = validated_tool_calls
 
         chart_payload = None
 
