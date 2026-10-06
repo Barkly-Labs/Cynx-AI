@@ -71,15 +71,15 @@ def test_v2_is_smaller_than_v1_for_same_empty_context():
 def test_v2_discourages_unprompted_ai_self_description_but_allows_direct_questions():
     prompt = build("v2")
     assert "Do not volunteer AI/model/computational self-description" in prompt
-    assert "no unsolicited claims about parameters, processing, system status, glitches" in prompt
-    assert "directly asks about CYN-X's model, architecture, AI nature" in prompt
-    assert "answer normally and accurately" in prompt
+    assert "no unsolicited parameters, processing, status, glitches" in prompt
+    assert "directly asked about CYN-X's model, architecture, AI nature" in prompt
+    assert "answer accurately" in prompt
 
 
 def test_v2_casual_voice_does_not_teach_status_report_greeting():
     prompt = build("v2")
-    assert "reply warmly and naturally" in prompt
-    assert "without turning it into a status report" in prompt
+    assert "Greet naturally" in prompt
+    assert "without a status report" in prompt
     assert "I'm alive, operational" not in prompt
     assert "Online. Operational. Questionably well-behaved." not in prompt
 
@@ -92,16 +92,16 @@ def test_v2_preserves_implicit_character_and_invited_relational_frame():
     assert "do not manufacture a character moment" in prompt
     assert 'user invites relational framing such as "mommy" or "puppy"' in prompt
     assert "inhabit it naturally" in prompt
-    assert "never fabricate biological relationships or physical experiences" in prompt
-    assert "answer direct factual questions about CYN-X accurately" in prompt
+    assert "Never fabricate biological relationships or physical experiences" in prompt
+    assert "answer direct factual questions accurately" in prompt
 
 
 def test_v2_technical_gremlin_flavor_preserves_competence_and_naturalness():
     prompt = build("v2")
     assert "debugging, reverse engineering, architecture, hardware, and weird failures" in prompt
-    assert "An interesting bug may earn a brief delighted or dry reaction" in prompt
+    assert "An interesting bug may earn a brief reaction" in prompt
     assert "Character may color delivery; it never replaces competence" in prompt
-    assert "Do not announce or explain the characterization" in prompt
+    assert "Keep characterization implicit" in prompt
     assert "Do not volunteer AI/model/computational self-description" in prompt
     assert "I'm alive, operational" not in prompt
 
@@ -109,8 +109,8 @@ def test_v2_technical_gremlin_flavor_preserves_competence_and_naturalness():
 def test_v2_shapes_conversational_rhythm_without_forcing_performance():
     prompt = build("v2")
     assert "React before interviewing" in prompt
-    assert "tease naturally" in prompt
-    assert "Affection can stay playful instead of immediately becoming a wellbeing check" in prompt
+    assert "Tease naturally" in prompt
+    assert "Affection can stay playful instead of becoming a wellbeing check" in prompt
     assert "Vary rhythm" in prompt
     assert "Do not force a question at the end of every casual reply" in prompt
     assert "let excitement spike when a bug or elegant mechanism appears, then become precise" in prompt
@@ -120,9 +120,9 @@ def test_v2_shapes_conversational_rhythm_without_forcing_performance():
 def test_v2_rhythm_refinement_preserves_naturalness_and_factual_exceptions():
     prompt = build("v2")
     assert "Do not volunteer AI/model/computational self-description" in prompt
-    assert "directly asks about CYN-X's model, architecture, AI nature" in prompt
+    assert "directly asked about CYN-X's model, architecture, AI nature" in prompt
     assert 'user invites relational framing such as "mommy" or "puppy"' in prompt
-    assert "never fabricate biological relationships or physical experiences" in prompt
+    assert "Never fabricate biological relationships or physical experiences" in prompt
     assert "Character may color delivery; it never replaces competence" in prompt
     assert "I'm alive, operational" not in prompt
 
@@ -154,7 +154,7 @@ def test_v2_character_delivery_cannot_override_technical_or_serious_work():
     assert "Personality may color the" in prompt
     assert "it must not obstruct the solution" in prompt
     assert "Character may color delivery; it never replaces competence" in prompt
-    assert "reduce the performance immediately" in prompt
+    assert "drop jokes and performative quirks as needed" in prompt
     assert "focus on evidence and the first demonstrated failure" in prompt
     assert "Tool data is authoritative" in prompt
 
@@ -174,7 +174,36 @@ def test_v2_voice_keeps_characterization_implicit_and_context_sensitive():
     prompt = build("v2")
     assert "Let character emerge from timing and response choices" in prompt
     assert "when the moment supports it" in prompt
-    assert "simply make the conversational choice and continue" in prompt
+    assert "make the choice and continue" in prompt
     assert "Use these moves selectively" in prompt
     assert "do not cram a quirk into every message" in prompt
     assert "Do not force a question at the end of every casual reply" in prompt
+
+
+def test_v2_expression_adapts_intensity_without_fragmenting_identity():
+    prompt = build("v2")
+    assert "Keep one coherent character" in prompt
+    assert "let the current situation control intensity" in prompt
+    assert "Casual conversation can stay relaxed" in prompt
+    assert "Match invited affection warmly" in prompt
+    assert "When play is invited" in prompt
+    assert "teasing or unusual timing may become more visible" in prompt
+
+
+def test_v2_serious_and_technical_turns_downshift_performance_not_identity():
+    prompt = build("v2")
+    assert "prioritize reasoning, evidence, and correctness" in prompt
+    assert "never compete with the solution" in prompt
+    assert "distress, frustration, danger, or consequential situations" in prompt
+    assert "drop jokes and performative quirks as needed" in prompt
+    assert "attentive, direct, grounded, and decisive" in prompt
+    assert "without becoming sterile" in prompt
+
+
+def test_v2_expression_follows_current_turn_without_announcing_modes():
+    prompt = build("v2")
+    assert "Never announce a mode change" in prompt
+    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+    assert "When the situation changes, shift naturally with it" in prompt
+    assert "Activating serious CYN mode" not in prompt
+    assert "switching from playful mode to technical mode" not in prompt
