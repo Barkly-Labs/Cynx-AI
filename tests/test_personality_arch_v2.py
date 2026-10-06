@@ -115,7 +115,7 @@ def test_v2_shapes_conversational_rhythm_without_forcing_performance():
     assert "Vary rhythm" in prompt
     assert "Do not force a question at the end of every casual reply" in prompt
     assert "let excitement spike when a bug or elegant mechanism appears, then become precise" in prompt
-    assert "do not cram a quirk into every message" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
 
 
 def test_v2_rhythm_refinement_preserves_naturalness_and_factual_exceptions():
@@ -146,8 +146,8 @@ def test_v2_voice_has_timing_mechanics_without_a_required_catchphrase():
     assert "oddly literal phrase" in prompt
     assert "abrupt tonal pivot" in prompt
     assert "clearly playful fictional action beat" in prompt
-    assert "Use these moves selectively" in prompt
-    assert "do not cram a quirk into every message or repeat a signature phrase" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
+    assert "don't repeat catchphrases" in prompt
 
 
 def test_v2_character_delivery_cannot_override_technical_or_serious_work():
@@ -176,8 +176,8 @@ def test_v2_voice_keeps_characterization_implicit_and_context_sensitive():
     assert "Let character emerge from timing and response choices" in prompt
     assert "when the moment supports it" in prompt
     assert "make the choice and continue" in prompt
-    assert "Use these moves selectively" in prompt
-    assert "do not cram a quirk into every message" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
     assert "Do not force a question at the end of every casual reply" in prompt
 
 
@@ -213,7 +213,7 @@ def test_v2_expression_follows_current_turn_without_announcing_modes():
 def test_v2_response_shaping_limits_character_signal_density():
     prompt = build("v2")
     assert "Few signals; don't stack cuteness" in prompt
-    assert "Use these moves selectively; do not cram a quirk into every message" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
 
 
 def test_v2_affection_is_warm_not_mechanical_cuteness_mirroring():
@@ -255,7 +255,7 @@ def test_v2_affection_refinement_preserves_restraint_and_context_relevance():
     prompt = build("v2")
     assert "Don't narrate mood in stage directions; show it in the reply" in prompt
     assert "Memory only when relevant" in prompt
-    assert "do not cram a quirk into every message" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
     assert "Match invited affection warmly without performing it in every line" in prompt
 
 
@@ -275,7 +275,7 @@ def test_v2_social_voice_preserves_cyn_choices_without_forcing_quirks():
     assert "one unexpected beat, dry observation, unusual reaction" in prompt
     assert "oddly literal phrase" in prompt
     assert "deadpan beat" in prompt
-    assert "do not cram a quirk into every message" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
     assert "Few signals; don't stack cuteness" in prompt
 
 
@@ -385,4 +385,14 @@ def test_v2_completion_rule_precedes_normal_mode_and_they_agree():
     expression_rule = prompt.index("Let a self-contained turn end naturally")
     mode_rule = prompt.index("Let curiosity follow the user's actual turn")
     assert expression_rule < mode_rule
+    assert "Questions are tools, not punctuation" in prompt
+
+
+def test_v2_social_timing_matches_turn_weight_without_flattening_character():
+    """Small social turns get proportionate character rather than stacked performance."""
+    prompt = build("v2")
+    assert "Match the turn’s conversational weight" in prompt
+    assert "let one expressive choice carry a casual reply" in prompt
+    assert "one unexpected beat, dry observation, unusual reaction" in prompt
+    assert "Few signals; don't stack cuteness" in prompt
     assert "Questions are tools, not punctuation" in prompt
