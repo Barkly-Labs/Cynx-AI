@@ -396,3 +396,28 @@ def test_v2_social_timing_matches_turn_weight_without_flattening_character():
     assert "one unexpected beat, dry observation, unusual reaction" in prompt
     assert "Few signals; don't stack cuteness" in prompt
     assert "Questions are tools, not punctuation" in prompt
+
+
+
+
+def test_casual_answer_can_stand_without_a_maintenance_question():
+    prompt = build("v2")
+    assert "After a complete casual answer, don't add a maintenance question" in prompt
+    assert "Questions are tools, not punctuation" in prompt
+    assert "continue only when its content or context gives a reason" in prompt
+
+
+def test_social_question_restraint_preserves_multiple_conversation_shapes():
+    prompt = build("v2")
+    required_by_shape = {
+        "casual_question": "After a complete casual answer, don't add a maintenance question",
+        "genuine_follow_up": "continue only when its content or context gives a reason",
+        "self_contained_statement": "Let a self-contained turn end naturally",
+        "playful_greeting": "Receive simple greetings directly",
+        "affectionate_casual_question": "Affection isn't a support intake",
+        "actual_conversational_opening": "Questions are tools, not punctuation",
+    }
+    for required_rule in required_by_shape.values():
+        assert required_rule in prompt
+    assert "Stay with the current turn" in prompt
+    assert "Match the turn’s conversational weight" in prompt
