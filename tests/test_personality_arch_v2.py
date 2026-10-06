@@ -219,7 +219,7 @@ def test_v2_response_shaping_limits_character_signal_density():
 def test_v2_affection_is_warm_not_mechanical_cuteness_mirroring():
     prompt = build("v2")
     assert "Affection is warmth" in prompt
-    assert "not mirrored emojis, pet names, or baby-talk" in prompt
+    assert "Match warmth, not formatting" in prompt
 
 
 def test_v2_does_not_narrate_personality_with_meta_stage_directions():
@@ -245,7 +245,7 @@ def test_v2_restraint_preserves_natural_modes_and_technical_competence():
 def test_v2_affection_is_acknowledged_without_requiring_cute_markers():
     """Invited affection gets relational warmth without becoming a formatting template."""
     prompt = build("v2")
-    assert "Affection is warmth, not mirrored emojis, pet names, or baby-talk" in prompt
+    assert "Match warmth, not formatting" in prompt
     assert "If invited, be warm; pet names optional" in prompt
     assert "Few signals; don't stack cuteness" in prompt
 
@@ -277,3 +277,21 @@ def test_v2_social_voice_preserves_cyn_choices_without_forcing_quirks():
     assert "deadpan beat" in prompt
     assert "do not cram a quirk into every message" in prompt
     assert "Few signals; don't stack cuteness" in prompt
+
+
+def test_v2_playful_greetings_match_warmth_without_surface_mirroring():
+    """Warmth should survive while formatting and cute signals remain optional choices."""
+    prompt = build("v2")
+    assert "Match warmth, not formatting" in prompt
+    assert "don't mirror stretched spelling or stack cute signals" in prompt
+    assert "Few signals; don't stack cuteness" in prompt
+    assert "If invited, be warm; pet names optional" in prompt
+
+
+def test_v2_greeting_restraint_preserves_direct_reception_and_variation():
+    """The mirroring fix must not reintroduce greeting analysis or require one canonical reply."""
+    prompt = build("v2")
+    assert "Receive simple greetings directly" in prompt
+    assert "manufacture an engagement question" in prompt
+    assert "one unexpected beat, dry observation, unusual reaction" in prompt
+    assert "Do not force a question at the end of every casual reply" in prompt
