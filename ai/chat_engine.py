@@ -12,6 +12,7 @@ expand with async handling and retries later.
 """
 
 import json
+import re
 import logging
 import os
 import time
@@ -644,12 +645,39 @@ class ChatEngine:
         )
 
         tools_spec_str += (
-            "\n\nTool-use instruction: "
-            "When the user asks for information or an action that one "
-            "of your available tools can perform, use the appropriate tool. "
-            "Execute the tool and use its result in your response. "
-            "PRIORITY: Direct response first. Personality second. "
-            "Do not redirect mundane requests into unrelated topics."
+            "\n\n## TOOL USE — IMPORTANT\n"
+            "Do NOT use a tool by default. Your normal behavior is to answer "
+            "directly without calling any tool. Having a tool available does NOT "
+            "mean you should use it. Only call a tool when there is a specific "
+            "reason it is required for a reliable answer.\n\n"
+            "WEB SEARCH:\n"
+            "Call web_search ONLY when the user explicitly asks you to search, "
+            "look up, browse, verify, check online, inspect a website, or find a "
+            "source; when the requested information must be current or recent; "
+            "when the answer depends on external information unavailable in the "
+            "conversation/context or your existing knowledge; or when the user "
+            "provides a website/source and asks you to inspect it. Otherwise, DO "
+            "NOT call web_search. Do not search merely because the user mentions "
+            "a company, project, person, place, or website; asks 'tell me about' "
+            "or 'what is'; searching might add detail; or web_search is available. "
+            "If conversation, supplied context, memory/context, or existing "
+            "knowledge is sufficient, answer directly. When uncertain whether "
+            "search is necessary, do NOT search; answer directly and state any "
+            "relevant uncertainty.\n\n"
+            "CALCULATOR:\n"
+            "Use calculator only when exact arithmetic materially benefits from "
+            "calculation. Do not call it merely because it is available.\n\n"
+            "Examples: 'Tell me about Barkly Labs.', 'What is Python?', and "
+            "'What do you know about Detroit?' -> answer directly, NO tool. "
+            "'What's Barkly Labs doing right now?' and 'Search the web for Barkly "
+            "Labs.' -> web_search. 'Go to barklylabs.space and tell me what's on "
+            "the homepage.' and 'Is Barkly Labs currently showing X on its "
+            "website?' -> web_search. 'What is 123 * 456?' -> answer directly if "
+            "reliable; calculator is optional when materially useful. "
+            "'Show my smoke counter.' -> smoke_counter as selected by Python. "
+            "'Make a chart of this data.' -> chart as selected by Python.\n\n"
+            "Tools available does NOT mean tools required. The default is NO TOOL "
+            "CALL."
         )
 
         tools_spec_str += (
@@ -1377,6 +1405,7 @@ class ChatEngine:
         invalid_tool_names = []
 
         validated_tool_calls = []
+        blocked_optional_web_search = False
 
         for tc in tool_calls:
 
@@ -1410,6 +1439,41 @@ class ChatEngine:
                         name
                     )
 
+        retrieval_cue = re.compile(
+            r"\b(?:search|look\s+up|lookup|browse|verify|check|online|"
+            r"website|webpage|latest|current|currently|today|right\s+now|"
+            r"recent|news)\b",
+            re.IGNORECASE,
+        )
+
+        if not retrieval_cue.search(text):
+
+            filtered_tool_calls = []
+
+            for tc in validated_tool_calls:
+
+                tc_name = (
+                    tc.get("function") or {}
+                ).get("name") or tc.get("name")
+
+                if tc_name == "web_search":
+
+                    blocked_optional_web_search = True
+
+                else:
+
+                    filtered_tool_calls.append(tc)
+
+            validated_tool_calls = filtered_tool_calls
+
+            if blocked_optional_web_search:
+
+                terminal.warning(
+                    "Skipping optional web_search: "
+                    "no explicit/current retrieval need "
+                    "in the user request."
+                )
+
         if invalid_tool_names:
 
             terminal.model(
@@ -1438,6 +1502,18 @@ class ChatEngine:
 
             # Use the validated tool_calls (could be empty)
             tool_calls = validated_tool_calls
+
+        if blocked_optional_web_search and not tool_calls:
+
+            response = self.ollama.chat(
+                messages=messages,
+                tools=None
+            )
+
+            message = response.get(
+                "message",
+                {}
+            )
 
         chart_payload = None
 
