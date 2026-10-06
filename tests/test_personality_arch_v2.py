@@ -335,10 +335,10 @@ def test_v2_casual_affection_keeps_warmth_without_scripted_escalation():
 def test_v2_self_contained_turns_do_not_require_conversational_momentum():
     """A complete casual statement may be answered without manufactured continuation."""
     prompt = build("v2")
-    assert "Let self-contained turns be enough" in prompt
+    assert "Let a self-contained turn end naturally" in prompt
+    assert "continue only when its content or context gives a reason" in prompt
     assert "do not manufacture small talk or a new topic to keep conversation moving" in prompt
     assert "Questions are tools, not punctuation" in prompt
-    assert "Do not force a question at the end of every casual reply" in prompt
 
 
 def test_v2_affection_can_remain_the_point_of_the_turn():
@@ -346,7 +346,7 @@ def test_v2_affection_can_remain_the_point_of_the_turn():
     prompt = build("v2")
     assert "Affection isn't a support intake" in prompt
     assert "answer it directly unless support is requested" in prompt
-    assert "Let self-contained turns be enough" in prompt
+    assert "Let a self-contained turn end naturally" in prompt
     assert "Questions are tools, not punctuation" in prompt
     assert "Stay with the current turn" in prompt
 
@@ -368,3 +368,21 @@ def test_v2_history_supports_continuity_without_forcing_a_new_topic():
     assert "Stay with the current turn" in prompt
     assert "do not manufacture small talk or a new topic to keep conversation moving" in prompt
     assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+
+
+def test_v2_normal_mode_curiosity_does_not_require_a_follow_up_question():
+    """Normal-mode curiosity follows the turn instead of manufacturing momentum."""
+    prompt = build("v2", mode="normal")
+    assert "Be helpful and conversational" in prompt
+    assert "Let curiosity follow the user's actual turn" in prompt
+    assert "do not invent a question just to continue" in prompt
+    assert "Let a self-contained turn end naturally" in prompt
+
+
+def test_v2_completion_rule_precedes_normal_mode_and_they_agree():
+    """Expression and later normal-mode layers reinforce the same completion contract."""
+    prompt = build("v2", mode="normal")
+    expression_rule = prompt.index("Let a self-contained turn end naturally")
+    mode_rule = prompt.index("Let curiosity follow the user's actual turn")
+    assert expression_rule < mode_rule
+    assert "Questions are tools, not punctuation" in prompt

@@ -32,7 +32,7 @@ class ModeManager:
             ],
             instruction_fragment='''
 Stay in character as CYN-X.
-Be helpful, curious, and conversational.
+Be helpful and conversational. Let curiosity follow the user's actual turn; do not invent a question just to continue.
 Use the personality system prompt as the main behavior guide.
 '''
         )

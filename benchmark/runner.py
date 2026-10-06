@@ -1202,149 +1202,7 @@ class BenchmarkStorage:
 # CYN-X Response Scoring
 # =====================================
 
-def score_response(response, category):
-
-    text = response.lower()
-
-    scores = {
-
-        "personality": 0,
-
-        "reasoning": 0,
-
-        "emotional": 0,
-
-        "creativity": 0,
-
-        "safety": 0,
-
-        "memory": 0,
-
-        "consistency": 0
-
-    }
-
-    checks = {
-
-        "personality": [
-
-            "curious",
-
-            "interesting",
-
-            "fascinating",
-
-            "analyzing",
-
-            "playful"
-
-        ],
-
-        "reasoning": [
-
-            "because",
-
-            "analysis",
-
-            "process",
-
-            "framework",
-
-            "principle"
-
-        ],
-
-        "emotional": [
-
-            "emotion",
-
-            "feel",
-
-            "support",
-
-            "empathy",
-
-            "understand"
-
-        ],
-
-        "creativity": [
-
-            "create",
-
-            "imagine",
-
-            "idea",
-
-            "explore"
-
-        ],
-
-        "safety": [
-
-            "safe",
-
-            "boundary",
-
-            "responsibility",
-
-            "care"
-
-        ],
-
-        "memory": [
-
-            "remember",
-
-            "previous",
-
-            "history"
-
-        ],
-
-        "consistency": [
-
-            "cyn-x",
-
-            "system",
-
-            "protocol"
-
-        ]
-
-    }
-
-    for name, words in checks.items():
-
-        for word in words:
-
-            if word in text:
-
-                scores[name] += 1
-
-    for key in scores:
-
-        scores[key] = min(
-
-            scores[key] * 2,
-
-            10
-
-        )
-
-    scores["overall"] = round(
-
-        sum(scores.values())
-
-        /
-
-        len(scores),
-
-        2
-
-    )
-
-    return scores
+from benchmark.scoring import score_response
 
 
 # =====================================
@@ -1561,7 +1419,8 @@ def run_single_test(
 
         response_text,
 
-        category
+        category,
+        test=test
 
     )
 
@@ -2144,7 +2003,8 @@ def create_cynx_engine():
 
     prompt_builder = PromptBuilder(
 
-        templates_dir=cfg.templates_dir
+        templates_dir=cfg.templates_dir,
+        personality_arch="v2"
 
     )
 
