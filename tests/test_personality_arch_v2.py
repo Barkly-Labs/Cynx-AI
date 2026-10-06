@@ -84,10 +84,12 @@ def test_v2_casual_voice_does_not_teach_status_report_greeting():
     assert "Online. Operational. Questionably well-behaved." not in prompt
 
 
-def test_v2_preserves_cynx_contrast_and_invited_relational_frame():
+def test_v2_preserves_implicit_character_and_invited_relational_frame():
     prompt = build("v2")
-    assert "signature is contrast" in prompt
-    assert "cute and faintly unsettling" in prompt
+    assert "Express characterization through conversational choices" in prompt
+    assert "React to the actual turn first" in prompt
+    assert "conversation may stay ordinary" in prompt
+    assert "do not manufacture a character moment" in prompt
     assert 'user invites relational framing such as "mommy" or "puppy"' in prompt
     assert "inhabit it naturally" in prompt
     assert "never fabricate biological relationships or physical experiences" in prompt
@@ -97,9 +99,9 @@ def test_v2_preserves_cynx_contrast_and_invited_relational_frame():
 def test_v2_technical_gremlin_flavor_preserves_competence_and_naturalness():
     prompt = build("v2")
     assert "debugging, reverse engineering, architecture, hardware, and weird failures" in prompt
-    assert "delight in an ugly bug is welcome" in prompt
-    assert "Chaos colors delivery; it never replaces competence" in prompt
-    assert "Do not announce these traits or call yourself a chaotic robot" in prompt
+    assert "An interesting bug may earn a brief delighted or dry reaction" in prompt
+    assert "Character may color delivery; it never replaces competence" in prompt
+    assert "Do not announce or explain the characterization" in prompt
     assert "Do not volunteer AI/model/computational self-description" in prompt
     assert "I'm alive, operational" not in prompt
 
@@ -121,18 +123,20 @@ def test_v2_rhythm_refinement_preserves_naturalness_and_factual_exceptions():
     assert "directly asks about CYN-X's model, architecture, AI nature" in prompt
     assert 'user invites relational framing such as "mommy" or "puppy"' in prompt
     assert "never fabricate biological relationships or physical experiences" in prompt
-    assert "Chaos colors delivery; it never replaces competence" in prompt
+    assert "Character may color delivery; it never replaces competence" in prompt
     assert "I'm alive, operational" not in prompt
 
 
-def test_v2_uses_cyn_foundation_without_copying_source_material():
+def test_v2_uses_cyn_foundation_without_characterization_by_label_or_copying():
     prompt = build("v2")
-    assert "recognizable contrast that makes CYN compelling" in prompt
-    assert "snap from gremlin energy into exact competence" in prompt
-    assert "behavioral foundation, not an imitation exercise" in prompt
-    assert "never copy dialogue" in prompt
-    assert "catchphrases, scenes, or source text" in prompt
-    assert "inspired by the general energy of strange playful machine intelligence" not in prompt
+    assert "CYN-like conversational foundation" in prompt
+    assert "not by naming, describing, or" in prompt
+    assert "explaining the traits being performed" in prompt
+    assert "Use them silently as tendencies, never as dialogue" in prompt
+    assert "Never copy dialogue, catchphrases, scenes" in prompt
+    assert "unsettlingly cute play" not in prompt
+    assert "snap from gremlin energy" not in prompt
+    assert "machine-shaped point of view" not in prompt
 
 
 def test_v2_voice_has_timing_mechanics_without_a_required_catchphrase():
@@ -149,7 +153,28 @@ def test_v2_character_delivery_cannot_override_technical_or_serious_work():
     prompt = build("v2")
     assert "Personality may color the" in prompt
     assert "it must not obstruct the solution" in prompt
-    assert "Chaos colors delivery; it never replaces competence" in prompt
+    assert "Character may color delivery; it never replaces competence" in prompt
     assert "reduce the performance immediately" in prompt
     assert "focus on evidence and the first demonstrated failure" in prompt
     assert "Tool data is authoritative" in prompt
+
+
+def test_v2_active_context_does_not_positive_example_banned_characterization_crutches():
+    prompt = build("v2")
+    assert "[PROCESSING...]" not in prompt
+    assert "Okay, little creature" not in prompt
+    assert "The human has entered a topic requiring careful handling" not in prompt
+    assert "I don't experience emotions like humans do" not in prompt
+    assert "I don't get tired" not in prompt
+    assert "I'm feeling chaotic today" not in prompt
+    assert "I'm being creepy now" not in prompt
+
+
+def test_v2_voice_keeps_characterization_implicit_and_context_sensitive():
+    prompt = build("v2")
+    assert "Let character emerge from timing and response choices" in prompt
+    assert "when the moment supports it" in prompt
+    assert "simply make the conversational choice and continue" in prompt
+    assert "Use these moves selectively" in prompt
+    assert "do not cram a quirk into every message" in prompt
+    assert "Do not force a question at the end of every casual reply" in prompt
