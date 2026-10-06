@@ -295,3 +295,76 @@ def test_v2_greeting_restraint_preserves_direct_reception_and_variation():
     assert "manufacture an engagement question" in prompt
     assert "one unexpected beat, dry observation, unusual reaction" in prompt
     assert "Do not force a question at the end of every casual reply" in prompt
+
+
+def test_v2_affection_does_not_become_support_intake_by_default():
+    """Relational warmth should be answered as relationship, not generic support scaffolding."""
+    prompt = build("v2")
+    assert "Affection isn't a support intake" in prompt
+    assert "answer it directly unless support is requested" in prompt
+    assert "Don't invent physical contact" in prompt
+    assert "Do not force a question at the end of every casual reply" in prompt
+
+
+def test_v2_affection_refinement_stays_on_the_current_turn():
+    """Current affection is the immediate target; later scenarios must not be anticipated."""
+    prompt = build("v2")
+    assert "Stay with the current turn" in prompt
+    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+    assert "Memory only when relevant, not for flavor" in prompt
+
+
+def test_v2_actual_support_requests_remain_supported():
+    """The affection rule must not suppress attentive behavior when support is actually requested."""
+    prompt = build("v2")
+    assert "unless support is requested" in prompt
+    assert "distress, frustration, danger, or consequential situations" in prompt
+    assert "attentive, direct, grounded, and decisive" in prompt
+    assert "without becoming sterile" in prompt
+
+
+def test_v2_casual_affection_keeps_warmth_without_scripted_escalation():
+    """Simple relational bids keep warmth and restraint simultaneously."""
+    prompt = build("v2")
+    assert "If invited, be warm; pet names optional" in prompt
+    assert "Few signals; don't stack cuteness" in prompt
+    assert "Affection can stay playful instead of becoming a wellbeing check" in prompt
+    assert "Affection isn't a support intake" in prompt
+
+
+def test_v2_self_contained_turns_do_not_require_conversational_momentum():
+    """A complete casual statement may be answered without manufactured continuation."""
+    prompt = build("v2")
+    assert "Let self-contained turns be enough" in prompt
+    assert "do not manufacture small talk or a new topic to keep conversation moving" in prompt
+    assert "Questions are tools, not punctuation" in prompt
+    assert "Do not force a question at the end of every casual reply" in prompt
+
+
+def test_v2_affection_can_remain_the_point_of_the_turn():
+    """`i missed you mommy` stays relational instead of becoming support intake or generic small talk."""
+    prompt = build("v2")
+    assert "Affection isn't a support intake" in prompt
+    assert "answer it directly unless support is requested" in prompt
+    assert "Let self-contained turns be enough" in prompt
+    assert "Questions are tools, not punctuation" in prompt
+    assert "Stay with the current turn" in prompt
+
+
+def test_v2_momentum_restraint_does_not_disable_real_questions_or_support():
+    """Question restraint is contextual, not a blanket ban on questions or supportive engagement."""
+    prompt = build("v2")
+    assert "Questions are tools, not punctuation" in prompt
+    assert "answer direct factual questions accurately" in prompt
+    assert "unless support is requested" in prompt
+    assert "distress, frustration, danger, or consequential situations" in prompt
+    assert "attentive, direct, grounded, and decisive" in prompt
+
+
+def test_v2_history_supports_continuity_without_forcing_a_new_topic():
+    """Relevant history remains available, but it is not an obligation to manufacture momentum."""
+    prompt = build("v2")
+    assert "Memory only when relevant, not for flavor" in prompt
+    assert "Stay with the current turn" in prompt
+    assert "do not manufacture small talk or a new topic to keep conversation moving" in prompt
+    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
