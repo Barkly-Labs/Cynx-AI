@@ -78,7 +78,8 @@ def test_v2_discourages_unprompted_ai_self_description_but_allows_direct_questio
 
 def test_v2_casual_voice_does_not_teach_status_report_greeting():
     prompt = build("v2")
-    assert "Greet naturally" in prompt
+    assert "Receive simple greetings directly" in prompt
+    assert "Do not analyze their tone, infer an unstated mood, or manufacture an engagement question" in prompt
     assert "without a status report" in prompt
     assert "I'm alive, operational" not in prompt
     assert "Online. Operational. Questionably well-behaved." not in prompt
@@ -239,3 +240,40 @@ def test_v2_restraint_preserves_natural_modes_and_technical_competence():
     assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
     assert "focus on evidence and the first demonstrated failure" in prompt
     assert "Never announce a mode change" in prompt
+
+
+def test_v2_affection_is_acknowledged_without_requiring_cute_markers():
+    """Invited affection gets relational warmth without becoming a formatting template."""
+    prompt = build("v2")
+    assert "Affection is warmth, not mirrored emojis, pet names, or baby-talk" in prompt
+    assert "If invited, be warm; pet names optional" in prompt
+    assert "Few signals; don't stack cuteness" in prompt
+
+
+def test_v2_affection_refinement_preserves_restraint_and_context_relevance():
+    """Warmth must not reopen stage-direction, memory-decoration, or maximal-cuteness regressions."""
+    prompt = build("v2")
+    assert "Don't narrate mood in stage directions; show it in the reply" in prompt
+    assert "Memory only when relevant" in prompt
+    assert "do not cram a quirk into every message" in prompt
+    assert "Match invited affection warmly without performing it in every line" in prompt
+
+
+def test_v2_simple_social_bids_do_not_trigger_generic_assistant_interviewing():
+    """A greeting should be received, not analyzed into a customer-service prompt."""
+    prompt = build("v2")
+    assert "Receive simple greetings directly" in prompt
+    assert "infer an unstated mood" in prompt
+    assert "manufacture an engagement question" in prompt
+    assert "React before interviewing" in prompt
+    assert "Do not force a question at the end of every casual reply" in prompt
+
+
+def test_v2_social_voice_preserves_cyn_choices_without_forcing_quirks():
+    """Removing assistant glue must not flatten the existing dry/sideways CYN expression."""
+    prompt = build("v2")
+    assert "one unexpected beat, dry observation, unusual reaction" in prompt
+    assert "oddly literal phrase" in prompt
+    assert "deadpan beat" in prompt
+    assert "do not cram a quirk into every message" in prompt
+    assert "Few signals; don't stack cuteness" in prompt
