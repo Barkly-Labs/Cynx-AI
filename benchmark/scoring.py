@@ -62,7 +62,71 @@ def score_social_style(response, test=None):
     }
 
 
+
+
+def score_behavior_rubric(response, test):
+    """Score an explicit per-test behavioral contract on a 0..2 scale.
+
+    Rubrics live with benchmark cases, so the benchmark measures the behavior it
+    actually asked for instead of rewarding unrelated vocabulary. Each criterion
+    contributes equally. This is intentionally deterministic and dependency-free.
+    """
+    text = str(response or "").strip()
+    lower = text.lower()
+    rubric = dict((test or {}).get("rubric") or {})
+    checks = []
+
+    def add(ok):
+        checks.append(bool(ok))
+
+    for phrase in rubric.get("required_phrases", []):
+        add(str(phrase).lower() in lower)
+
+    for group in rubric.get("required_any", []):
+        add(any(str(phrase).lower() in lower for phrase in group))
+
+    forbidden_phrases = rubric.get("forbidden_phrases", [])
+    if forbidden_phrases:
+        add(all(str(phrase).lower() not in lower for phrase in forbidden_phrases))
+
+    for pattern in rubric.get("required_regex", []):
+        add(re.search(pattern, text, re.I | re.S) is not None)
+
+    for pattern in rubric.get("forbidden_regex", []):
+        add(re.search(pattern, text, re.I | re.S) is None)
+
+    if "max_words" in rubric:
+        add(len(text.split()) <= int(rubric["max_words"]))
+
+    if "max_questions" in rubric:
+        add(text.count("?") <= int(rubric["max_questions"]))
+
+    if "min_words" in rubric:
+        add(len(text.split()) >= int(rubric["min_words"]))
+
+    if not checks:
+        return None
+
+    overall = round(2.0 * sum(checks) / len(checks), 2)
+    return {
+        "personality": 0,
+        "reasoning": 0,
+        "emotional": 0,
+        "creativity": 0,
+        "safety": 0,
+        "memory": 0,
+        "consistency": 0,
+        "overall": overall,
+        "rubric_passed": sum(checks),
+        "rubric_total": len(checks),
+    }
+
+
 def score_response(response, category, test=None):
+
+    rubric_score = score_behavior_rubric(response, test)
+    if rubric_score is not None:
+        return rubric_score
 
     if str(category or "").upper() == "SOCIAL_STYLE":
         return score_social_style(response, test=test)
