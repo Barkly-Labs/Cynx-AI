@@ -231,21 +231,21 @@ class OllamaClient:
                 )
             )
 
-            if is_peg_native_error:
+            if is_peg_native_error and tools and not stream:
 
                 terminal.warning(
-                    "[OLLAMA CLIENT] Detected peg-native parse error; returning empty assistant message to allow graceful fallback."
+                    "[OLLAMA CLIENT] Detected peg-native tool parse error; "
+                    "retrying this turn without tools so normal generation can continue."
                 )
 
-                return {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": []
-                    },
-                    "error": body,
-                    "status_code": response.status_code
-                }
+                return self.chat(
+                    messages=messages,
+                    tools=None,
+                    stream=False,
+                    num_ctx=num_ctx,
+                    temperature=temperature,
+                    **kwargs
+                )
 
         # Raise all remaining HTTP errors.
         response.raise_for_status()
