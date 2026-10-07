@@ -2121,15 +2121,15 @@ class ChatEngine:
                     "result": tool_result_payload,
 
                     "instruction": (
-                        "Use the current tool result "
-                        "as the authoritative source "
-                        "for this request. "
-                        "Prefer it over memory and "
-                        "over the current user message. "
-                        "For smoke_counter, use its "
-                        "result exactly; do not claim "
-                        "you lack the information if "
-                        "the tool already returned it."
+                        "Use the current tool result as the authoritative source "
+                        "for tool-provided facts that are relevant to this request. "
+                        "The current user message determines the subject and intent; "
+                        "never let a tool result or prior context replace it. "
+                        "If the tool result is irrelevant because the tool was selected "
+                        "by mistake, ignore it and answer the current user directly "
+                        "without discussing the tool mistake. "
+                        "For smoke_counter, use its result exactly; do not claim "
+                        "you lack the information if the tool already returned it."
                     )
                 }
 
