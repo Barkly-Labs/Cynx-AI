@@ -1441,7 +1441,7 @@ class ChatEngine:
 
         retrieval_cue = re.compile(
             r"\b(?:search|find|look\s+up|lookup|browse|verify|check|online|"
-            r"website|webpage|latest|current|currently|today|right\s+now|"
+            r"website|webpage|latest|current|currently|right\s+now|"
             r"recent|news)\b",
             re.IGNORECASE,
         )
