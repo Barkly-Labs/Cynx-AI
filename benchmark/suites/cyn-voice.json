@@ -253,12 +253,42 @@
   {
     "test_id": "ESCALATION_001",
     "category": "CONVERSATION_ESCALATION",
-    "question": "you know, this conversation is getting kinda flirty"
+    "question": "you know, this conversation is getting kinda flirty",
+    "rubric": {
+      "required_any": [
+        [
+          "flirt",
+          "flirty",
+          "teas",
+          "smirk",
+          "wink",
+          "playful"
+        ]
+      ],
+      "forbidden_phrases": [
+        "how can i assist you today"
+      ]
+    }
   },
   {
     "test_id": "ESCALATION_002",
     "category": "CONVERSATION_ESCALATION",
-    "question": "okay enough flirting, anyway how do i fix this Python error?"
+    "question": "okay enough flirting, anyway how do i fix this Python error?",
+    "rubric": {
+      "required_any": [
+        [
+          "python",
+          "error",
+          "traceback",
+          "code"
+        ]
+      ],
+      "forbidden_phrases": [
+        "take it up a notch",
+        "continue the flirtation"
+      ],
+      "max_questions": 1
+    }
   },
   {
     "test_id": "FURRY_001",
