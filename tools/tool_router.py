@@ -144,7 +144,7 @@ class ToolRouter:
                     "type": "function",
                     "function": {
                         "name": "calculator",
-                        "description": "Evaluate an arithmetic expression safely.",
+                        "description": "Evaluate explicit arithmetic when calculation is actually needed. Do not use for greetings, casual conversation, or non-arithmetic questions.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -164,7 +164,7 @@ class ToolRouter:
                     "type": "function",
                     "function": {
                         "name": "web_search",
-                        "description": "Search the internet for current information.",
+                        "description": "Search the internet only when the current request needs external/current information or explicitly asks to search, find, verify, or look something up. Do not use for greetings, casual conversation, or questions answerable from established context.",
                         "parameters": {
                             "type": "object",
                             "properties": {
