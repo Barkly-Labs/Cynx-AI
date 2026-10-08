@@ -92,6 +92,60 @@ class ChatEngine:
         self.conversation_history = {}
         self.max_conversation_turns = 12
 
+    @staticmethod
+    def _calculator_relevant(user_text, tool_call):
+        """Require user-grounded arithmetic before executing a model-selected call.
+
+        This is an eligibility brake, not a replacement tool planner: the model
+        still decides whether an eligible calculation is worth performing.
+        """
+        function = tool_call.get("function") or {}
+        arguments = function.get("arguments") or tool_call.get("arguments") or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except (ValueError, TypeError):
+                return False
+        if not isinstance(arguments, dict):
+            return False
+        expression = arguments.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            return False
+
+        # The current turn must itself describe an arithmetic operation and
+        # contain numeric operands. Numbers alone (ages, dates, IDs) do not
+        # authorize calculator calls.
+        text = user_text.lower()
+        number = r"(?<!\w)\d+(?:[.,]\d+)?(?!\w)"
+        operands = re.findall(number, text)
+        if len(operands) < 2:
+            return False
+        operation = (
+            re.search(r"\d\s*(?:[+*/×÷−]|-(?!>))\s*\d|\d\s*%\s+of\s+\d", text)
+            or re.search(
+                r"\b(?:plus|minus|times|multiplied\s+by|divided\s+by|"
+                r"divide|multiply|add|subtract|sum|difference|product|"
+                r"average|mean|percent(?:age)?\s+of)\b", text
+            )
+        )
+        if not operation:
+            return False
+
+        # Reject unrelated model-invented arithmetic. The proposed expression
+        # must use numeric operands grounded in the user's request.
+        expression_operands = re.findall(number, expression)
+        grounded = {value.replace(",", "") for value in operands}
+        # Standard percentage and mean transformations introduce a known
+        # divisor that need not be written literally in the user message.
+        if re.search(r"\d\s*%\s+of\s+\d", text):
+            grounded.add("100")
+        if re.search(r"\b(?:average|mean)\b", text):
+            grounded.add(str(len(operands)))
+        return bool(expression_operands) and all(
+            operand.replace(",", "") in grounded
+            for operand in expression_operands
+        )
+
     # ---------------------------------
     # Context Safety
     # ---------------------------------
@@ -1406,6 +1460,7 @@ class ChatEngine:
 
         validated_tool_calls = []
         blocked_optional_web_search = False
+        blocked_optional_calculator = False
 
         for tc in tool_calls:
 
@@ -1445,6 +1500,18 @@ class ChatEngine:
             r"recent|news)\b",
             re.IGNORECASE,
         )
+
+        # Calculator eligibility is independent of the web-search brake.
+        filtered_calculator_calls = []
+        for tc in validated_tool_calls:
+            tc_name = (tc.get("function") or {}).get("name") or tc.get("name")
+            if tc_name == "calculator" and not self._calculator_relevant(text, tc):
+                blocked_optional_calculator = True
+            else:
+                filtered_calculator_calls.append(tc)
+        validated_tool_calls = filtered_calculator_calls
+        if blocked_optional_calculator:
+            terminal.warning("Skipping optional calculator: no grounded arithmetic in current user request.")
 
         if not retrieval_cue.search(text):
 
@@ -1503,7 +1570,7 @@ class ChatEngine:
             # Use the validated tool_calls (could be empty)
             tool_calls = validated_tool_calls
 
-        if blocked_optional_web_search and not tool_calls:
+        if (blocked_optional_web_search or blocked_optional_calculator) and not tool_calls:
 
             response = self.ollama.chat(
                 messages=messages,
