@@ -8,3 +8,5 @@ __pycache__/
 *.logs
 *.png
 results/
+# Large benchmark artifacts
+/runbenchmark.zip
