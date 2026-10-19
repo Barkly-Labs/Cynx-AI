@@ -1,6 +1,7 @@
 """CYN-X light control using the existing LeproDevice implementation."""
 import asyncio
 import json
+import concurrent.futures
 from .base import BaseTool, ToolResult
 
 class LeproLightsTool(BaseTool):
@@ -50,4 +51,11 @@ class LeproLightsTool(BaseTool):
     def call(self, args):
         # ChatEngine is synchronous, including its tool execution loop.
         # A dedicated event loop is used in this synchronous entry point.
-        return asyncio.run(self.execute(args))
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.execute(args))
+        # ChatEngine is synchronous; never nest asyncio.run in an active event loop.
+        # Run this single Bluetooth operation in a worker with its own event loop.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(self.execute(args))).result()
