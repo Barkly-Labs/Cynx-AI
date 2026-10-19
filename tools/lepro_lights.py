@@ -83,92 +83,32 @@ class LeproLightsTool(BaseTool):
             },
         }
 
-    async def execute(
-        self,
-        arguments: dict[str, Any],
-    ) -> ToolResult:
-        """Execute a light-control request."""
-
+    async def execute(self, arguments: dict[str, Any]) -> ToolResult:
+        """Validate model arguments before any Bluetooth operation."""
+        if not isinstance(arguments, dict):
+            return ToolResult(False, "LEPRO arguments must be an object")
         action = arguments.get("action")
+        if action not in ("on", "off", "color"):
+            return ToolResult(False, f"Unsupported LEPRO action: {action!r}")
+
+        def integer(key: str, default: int | None, low: int, high: int) -> int:
+            value = arguments.get(key, default)
+            if type(value) is not int or not low <= value <= high:
+                raise ValueError(f"{key} must be an integer from {low} to {high}")
+            return value
 
         try:
-            if action == "on":
-                brightness = int(
-                    arguments.get("brightness", 1000)
-                )
-
-                await self.device.turn_on(
-                    brightness=brightness
-                )
-
-                return ToolResult(
-                    success=True,
-                    data={
-                        "action": "on",
-                        "brightness": brightness,
-                    },
-                )
-
             if action == "off":
                 await self.device.turn_off()
-
-                return ToolResult(
-                    success=True,
-                    data={
-                        "action": "off",
-                    },
-                )
-
-            if action == "color":
-                if not all(
-                    key in arguments
-                    for key in (
-                        "red",
-                        "green",
-                        "blue",
-                    )
-                ):
-                    return ToolResult(
-                        success=False,
-                        error=(
-                            "Color requires red, green, "
-                            "and blue values."
-                        ),
-                    )
-
-                red = int(arguments["red"])
-                green = int(arguments["green"])
-                blue = int(arguments["blue"])
-
-                brightness = int(
-                    arguments.get("brightness", 1000)
-                )
-
-                await self.device.set_color_rgb(
-                    red=red,
-                    green=green,
-                    blue=blue,
-                    brightness=brightness,
-                )
-
-                return ToolResult(
-                    success=True,
-                    data={
-                        "action": "color",
-                        "red": red,
-                        "green": green,
-                        "blue": blue,
-                        "brightness": brightness,
-                    },
-                )
-
-            return ToolResult(
-                success=False,
-                error=f"Unknown light action: {action}",
-            )
-
+                return ToolResult(True, "LEPRO lights turned off", {"action": "off"})
+            brightness = integer("brightness", 1000, 10, 1000)
+            if action == "on":
+                await self.device.turn_on(brightness=brightness)
+                return ToolResult(True, "LEPRO lights turned on", {"action": "on", "brightness": brightness})
+            red = integer("red", None, 0, 255)
+            green = integer("green", None, 0, 255)
+            blue = integer("blue", None, 0, 255)
+            await self.device.set_color_rgb(red=red, green=green, blue=blue, brightness=brightness)
+            return ToolResult(True, "LEPRO color set", {"action": "color", "red": red, "green": green, "blue": blue, "brightness": brightness})
         except Exception as exc:
-            return ToolResult(
-                success=False,
-                error=str(exc),
-            )
+            return ToolResult(False, f"LEPRO operation failed: {exc}")

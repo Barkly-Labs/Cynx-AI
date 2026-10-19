@@ -8,6 +8,10 @@ ToolRouter:
 """
 
 from typing import Dict, Any
+import asyncio
+import logging
+import os
+import re
 from tools.base import BaseTool, ToolResult
 
 
@@ -20,6 +24,24 @@ class ToolRouter:
     def register_tool(self, tool: BaseTool):
         self.tools[tool.name] = tool
 
+
+    def register_configured_lepro(self):
+        """Optional environment-based device registration; never connects on startup."""
+        name = os.getenv("CYNX_LEPRO_NAME", "").strip()
+        mac = os.getenv("CYNX_LEPRO_MAC", "").strip()
+        if not name and not mac:
+            logging.getLogger(__name__).info("LEPRO disabled: set CYNX_LEPRO_NAME and CYNX_LEPRO_MAC to enable")
+            return False
+        if not name or not re.fullmatch(r"[0-9a-fA-F]{2}([:-][0-9a-fA-F]{2}){5}", mac):
+            logging.getLogger(__name__).warning("LEPRO disabled: set a nonempty CYNX_LEPRO_NAME and six-byte CYNX_LEPRO_MAC")
+            return False
+        try:
+            from tools.lepro_lights import LeproLightsTool
+            self.register_tool(LeproLightsTool(name, mac))
+            return True
+        except Exception as exc:
+            logging.getLogger(__name__).warning("LEPRO disabled: %s", exc)
+            return False
 
     def list_tools(self):
         return list(self.tools.keys())
@@ -44,7 +66,10 @@ class ToolRouter:
 
         for tool in self.tools.values():
 
-            if getattr(tool, "name", None) == "smoke_counter":
+            if getattr(tool, "name", None) == "lepro_lights":
+                schema = tool.schema()
+
+            elif getattr(tool, "name", None) == "smoke_counter":
 
                 schema = {
                     "type": "function",
@@ -216,7 +241,10 @@ class ToolRouter:
 
         try:
 
-            result = tool.call(args)
+            if name == "lepro_lights":
+                result = asyncio.run(tool.execute(args))
+            else:
+                result = tool.call(args)
 
             print(
                 f"[RESULT] {result.output}"

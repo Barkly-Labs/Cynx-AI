@@ -4,6 +4,8 @@ cd /d "C:\Users\nickk\Documents\CYNX-AI\moddelfiles"
 echo Setting CYN-X personality architecture to v2...
 set CYNX_PERSONALITY_ARCH=v2
 
+
+
 echo Creating CYN-X model...
 ollama create cyn-x -f Modelfile
 

@@ -556,6 +556,7 @@ class ChatEngine:
         model_optional_tools = {
             "web_search",
             "calculator",
+            "lepro_lights",
         }
 
         return [

@@ -100,6 +100,7 @@ memory_extractor = MemoryExtractor(
 
 
 tool_router = ToolRouter()
+tool_router.register_configured_lepro()
 
 
 tool_router.register_tool(
