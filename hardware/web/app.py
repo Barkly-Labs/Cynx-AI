@@ -100,7 +100,12 @@ memory_extractor = MemoryExtractor(
 
 
 tool_router = ToolRouter()
-tool_router.register_configured_lepro()
+
+from hardware.lepro.integration import register_selected
+try:
+    register_selected(tool_router)
+except Exception as exc:
+    print(f"[LEPRO] Optional registration unavailable: {exc}")
 
 
 tool_router.register_tool(

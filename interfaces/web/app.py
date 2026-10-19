@@ -102,6 +102,12 @@ memory_extractor = MemoryExtractor(
 
 tool_router = ToolRouter()
 
+from hardware.lepro.integration import register_selected
+try:
+    register_selected(tool_router)
+except Exception as exc:
+    print(f"[LEPRO] Optional registration unavailable: {exc}")
+
 
 tool_router.register_tool(
     WebSearchTool()
@@ -305,3 +311,33 @@ async def chat(data:dict):
             prompt_builder.get_prompt_layers()
 
     }
+
+
+@app.get("/api/lepro/devices")
+async def lepro_devices():
+    from hardware.lepro.discovery import discover
+    try:
+        return {"devices": await discover(), "error": None}
+    except Exception as exc:
+        return {"devices": [], "error": str(exc)}
+
+@app.get("/api/lepro/selection")
+async def lepro_selection():
+    from hardware.lepro.integration import CONFIG
+    devices = CONFIG.list_devices()
+    return {"selected": ({"name":devices[0]["name"],"mac":devices[0]["mac"]} if devices else None),
+            "registered": "lepro_lights" in tool_router.tools}
+
+@app.post("/api/lepro/select")
+async def lepro_select(data: dict):
+    from hardware.lepro.integration import select_device
+    from hardware.lepro.discovery import discover
+    try:
+        candidates = await discover()
+        selected = next((d for d in candidates if d["mac"] == data.get("mac")), None)
+        if selected is None:
+            return {"ok": False, "error":"Device not found in current BLE discovery"}
+        select_device(tool_router, selected["mac"], selected["name"])
+        return {"ok":True, "name":selected["name"]}
+    except Exception as exc:
+        return {"ok":False,"error":str(exc)}
