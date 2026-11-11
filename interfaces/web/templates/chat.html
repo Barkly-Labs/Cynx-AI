@@ -3,6 +3,8 @@
 
 <head>
 
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>CYN-X</title>
 
     <link
@@ -389,10 +391,17 @@
                 aria-labelledby="pipeline-title"
             >
                 <div class="loading-content">
-                    <div class="system-header" id="pipeline-title">
-                        [CYN-X CORE LIVE PIPELINE]
+                    <div class="pipeline-topline">
+                        <div class="pipeline-brand">
+                            <span class="pipeline-paw" aria-hidden="true">🐾</span>
+                            <span>CYN-X CORE</span>
+                        </div>
+                        <span class="pipeline-live">LIVE REQUEST TRACE</span>
                     </div>
 
+                    <div class="system-header" id="pipeline-title">
+                        REQUEST PIPELINE
+                    </div>
                     <div
                         id="pipeline-status"
                         class="pipeline-status"
@@ -400,53 +409,61 @@
                         aria-live="polite"
                     >Waiting for request events</div>
                     <button id="pipeline-cancel" class="pipeline-cancel" type="button">
-                        Cancel request
+                        Cancel request <span aria-hidden="true">×</span>
                     </button>
 
                     <ol id="decision-pipeline" class="decision-pipeline">
-                        <li class="pipeline-stage" data-stage="request_received" data-status="waiting">
+                        <li class="pipeline-stage" data-stage="request_received" data-status="pending">
                             <span class="stage-indicator" aria-hidden="true"></span>
                             <span class="stage-label">Request received</span>
+                            <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
-                        <li class="pipeline-stage" data-stage="understanding" data-status="waiting">
+                        <li class="pipeline-stage" data-stage="understanding" data-status="pending">
                             <span class="stage-indicator" aria-hidden="true"></span>
                             <span class="stage-label">Understanding request and context</span>
+                            <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
-                        <li class="pipeline-stage" data-stage="evaluating_capabilities" data-status="waiting">
+                        <li class="pipeline-stage" data-stage="evaluating_capabilities" data-status="pending">
                             <span class="stage-indicator" aria-hidden="true"></span>
                             <span class="stage-label">Evaluating available capabilities</span>
+                            <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
-                        <li class="pipeline-stage" data-stage="decision" data-status="waiting">
+                        <li class="pipeline-stage" data-stage="decision" data-status="pending">
                             <span class="stage-indicator" aria-hidden="true"></span>
                             <span class="stage-label">Decision</span>
+                            <span class="stage-state">Pending</span>
                             <div class="stage-detail"></div>
                             <time class="stage-time"></time>
                         </li>
-                        <li class="pipeline-stage" data-stage="tool_execution" data-status="waiting">
+                        <li class="pipeline-stage" data-stage="tool_execution" data-status="pending">
                             <span class="stage-indicator" aria-hidden="true"></span>
                             <span class="stage-label">Tool execution</span>
+                            <span class="stage-state">Pending</span>
+                            <div class="stage-detail"></div>
                             <ul id="pipeline-tools" class="pipeline-tools"></ul>
                             <time class="stage-time"></time>
                         </li>
-                        <li class="pipeline-stage" data-stage="generating_response" data-status="waiting">
+                        <li class="pipeline-stage" data-stage="generating_response" data-status="pending">
                             <span class="stage-indicator" aria-hidden="true"></span>
                             <span class="stage-label">Generating response</span>
+                            <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
-                        <li class="pipeline-stage" data-stage="completed" data-status="waiting">
+                        <li class="pipeline-stage" data-stage="completed" data-status="pending">
                             <span class="stage-indicator" aria-hidden="true"></span>
                             <span class="stage-label">Completed</span>
+                            <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
                     </ol>
 
                     <div class="diagnostic-footer">
-                        Elapsed:
-                        <span id="timer">0.0</span>
-                        seconds
+                        <span>CORE ELAPSED</span>
+                        <time id="timer">0.0</time>
+                        <span>SEC</span>
                     </div>
                 </div>
             </div>

@@ -13,6 +13,8 @@ let startTime = null;
 
 let lastResponseTime = 0;
 let activePipelineRequestId = null;
+let pipelineUsesTools = false;
+let pipelineToolFailed = false;
 
 const toolSummaries = {
     web_search: "Searches current public web information.",
@@ -31,6 +33,14 @@ const pipelineStageLabels = {
     tool_execution: "Tool execution",
     generating_response: "Generating response",
     completed: "Completed"
+};
+
+const pipelineStateLabels = {
+    pending: "Pending",
+    active: "In progress",
+    completed: "Completed",
+    failed: "Failed",
+    cancelled: "Cancelled"
 };
 
 const pipelineTools = new Map();
@@ -989,10 +999,14 @@ function initializePromptLayers(){
 
 function resetPipeline(){
     pipelineTools.clear();
+    pipelineUsesTools = false;
+    pipelineToolFailed = false;
     document.querySelectorAll(".pipeline-stage").forEach((item) => {
-        item.dataset.status = "waiting";
+        item.dataset.status = "pending";
         const label = item.querySelector(".stage-label");
         if(label) label.textContent = pipelineStageLabels[item.dataset.stage];
+        const state = item.querySelector(".stage-state");
+        if(state) state.textContent = pipelineStateLabels.pending;
         const detail = item.querySelector(".stage-detail");
         const time = item.querySelector(".stage-time");
         if(detail) detail.textContent = "";
@@ -1013,12 +1027,17 @@ function setPipelineStage(stage, status, event){
     if(!item) return;
 
     item.dataset.status = status;
+    const state = item.querySelector(".stage-state");
+    if(state){
+        state.textContent = pipelineStateLabels[status] || status;
+    }
     if(event && event.timestamp){
         const time = item.querySelector(".stage-time");
         if(time){
-            const date = new Date(event.timestamp);
-            time.dateTime = date.toISOString();
-            time.textContent = date.toLocaleTimeString();
+            time.dateTime = event.timestamp;
+            time.textContent = Number.isFinite(event.elapsed_seconds)
+                ? `T+${Number(event.elapsed_seconds).toFixed(1)}s`
+                : "";
         }
     }
 
@@ -1069,6 +1088,18 @@ function renderPipelineTools(){
 function handlePipelineEvent(event){
     if(event.type === "stage"){
         setPipelineStage(event.stage, event.status, event);
+        if(event.stage === "generating_response" && pipelineUsesTools){
+            const activeTool = Array.from(pipelineTools.values()).some(
+                (tool) => tool.status === "started"
+            );
+            if(!activeTool){
+                setPipelineStage(
+                    "tool_execution",
+                    pipelineToolFailed ? "failed" : "completed",
+                    event
+                );
+            }
+        }
         if(event.stage === "request_received" && event.status === "completed"){
             const status = document.getElementById("pipeline-status");
             if(status) status.textContent = "Request received by CYN-X Core";
@@ -1083,17 +1114,18 @@ function handlePipelineEvent(event){
         const item = document.querySelector('.pipeline-stage[data-stage="decision"]');
         const detail = item && item.querySelector(".stage-detail");
         const names = Array.isArray(event.tools) ? event.tools.filter(Boolean) : [];
+        pipelineUsesTools = event.action === "use_tools" && names.length > 0;
         if(detail){
-            detail.textContent = event.action === "use_tools" && names.length
-                ? `Using ${names.join(", ")}`
+            detail.textContent = pipelineUsesTools
+                ? `Selected: ${names.join(", ")}`
                 : "Answering directly; no tool selected.";
         }
-        if(event.action !== "use_tools" || names.length === 0){
+        if(!pipelineUsesTools){
             setPipelineStage("tool_execution", "completed", event);
-            const toolStage = document.querySelector(
-                '.pipeline-stage[data-stage="tool_execution"] .stage-label'
+            const toolDetail = document.querySelector(
+                '.pipeline-stage[data-stage="tool_execution"] .stage-detail'
             );
-            if(toolStage) toolStage.textContent = "Tool execution — not needed";
+            if(toolDetail) toolDetail.textContent = "Not needed for this request.";
         }
         return;
     }
@@ -1117,15 +1149,14 @@ function handlePipelineEvent(event){
                 ? event.elapsed_seconds
                 : (pipelineTools.get(id) || {}).completedElapsed
         });
+        if(event.status === "failed"){
+            pipelineToolFailed = true;
+        }
         renderPipelineTools();
         if(event.status === "started"){
             setPipelineStage("tool_execution", "active", event);
         }else if(event.status === "failed"){
             setPipelineStage("tool_execution", "failed", event);
-        }else if(!Array.from(pipelineTools.values()).some(
-            (tool) => tool.status === "started"
-        )){
-            setPipelineStage("tool_execution", "completed", event);
         }
         return;
     }
@@ -1152,9 +1183,13 @@ function handlePipelineEvent(event){
 
     if(event.type === "request_cancelled"){
         document.querySelectorAll('.pipeline-stage[data-status="active"]').forEach(
-            (active) => active.dataset.status = "failed"
+            (active) => {
+                active.dataset.status = "cancelled";
+                const state = active.querySelector(".stage-state");
+                if(state) state.textContent = pipelineStateLabels.cancelled;
+            }
         );
-        setPipelineStage("completed", "failed", event);
+        setPipelineStage("completed", "cancelled", event);
         const status = document.getElementById("pipeline-status");
         if(status) status.textContent = event.message || "Request cancelled.";
         const cancelButton = document.getElementById("pipeline-cancel");
@@ -1164,7 +1199,11 @@ function handlePipelineEvent(event){
 
     if(event.type === "request_failed"){
         document.querySelectorAll('.pipeline-stage[data-status="active"]').forEach(
-            (active) => active.dataset.status = "failed"
+            (active) => {
+                active.dataset.status = "failed";
+                const state = active.querySelector(".stage-state");
+                if(state) state.textContent = pipelineStateLabels.failed;
+            }
         );
         setPipelineStage("completed", "failed", event);
         const status = document.getElementById("pipeline-status");
@@ -1201,8 +1240,9 @@ function startLoading(requestId){
     if(thinking) thinking.style.display = "flex";
     activePipelineRequestId = requestId;
     resetPipeline();
-    startTime = Date.now();
+    startTime = performance.now();
     clearInterval(timerInterval);
+    updateTimer();
     timerInterval = setInterval(updateTimer, 100);
 }
 
@@ -1210,7 +1250,7 @@ function stopLoading(requestId){
     if(requestId !== activePipelineRequestId) return;
     const thinking = document.getElementById("thinking");
     if(thinking) thinking.style.display = "none";
-    if(startTime) lastResponseTime = (Date.now() - startTime) / 1000;
+    if(startTime) lastResponseTime = (performance.now() - startTime) / 1000;
     clearInterval(timerInterval);
     updateResponseTime();
 }
@@ -1284,7 +1324,7 @@ function updateTimer(){
 
             (
 
-                Date.now()
+                performance.now()
 
                 -
 
@@ -1439,7 +1479,7 @@ async function send(){
     ).catch((error) => {
         if(!eventController.signal.aborted && requestId === activePipelineRequestId){
             document.querySelectorAll('.pipeline-stage[data-status="active"]').forEach(
-                (active) => active.dataset.status = "failed"
+                (active) => setPipelineStage(active.dataset.stage, "failed")
             );
             setPipelineStage("completed", "failed");
             const status = document.getElementById("pipeline-status");
@@ -1640,7 +1680,8 @@ async function send(){
             '.pipeline-stage[data-status="active"]'
         );
         if(active && requestId === activePipelineRequestId){
-            active.dataset.status = "failed";
+            setPipelineStage(active.dataset.stage, "failed");
+            setPipelineStage("completed", "failed");
             const status = document.getElementById("pipeline-status");
             if(status) status.textContent = error.message;
         }
