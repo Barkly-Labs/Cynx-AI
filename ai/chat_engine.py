@@ -12,6 +12,7 @@ expand with async handling and retries later.
 """
 
 import json
+import hashlib
 import re
 import logging
 import os
@@ -116,6 +117,7 @@ class ChatEngine:
         pipeline_callback,
         invocation_id=None,
         cancellation_check=None,
+        trace_callback=None,
     ):
         self._raise_if_cancelled(cancellation_check)
         self._emit_pipeline_event(
@@ -131,9 +133,26 @@ class ChatEngine:
             name=name,
             invocation_id=invocation_id,
         )
+        if trace_callback:
+            try:
+                trace_callback({"stage": "tool_execution", "status": "started",
+                                "tool_name": name, "invocation_id": invocation_id,
+                                "arguments": arguments})
+            except Exception:
+                pass
+        tool_started = time.perf_counter()
         try:
             result = self.tool_router.call_tool(name, arguments)
-        except Exception:
+        except Exception as exc:
+            if trace_callback:
+                try:
+                    trace_callback({"stage": "tool_execution", "status": "failed",
+                                    "tool_name": name, "invocation_id": invocation_id,
+                                    "duration_seconds": round(time.perf_counter() - tool_started, 4),
+                                    "failure_explanation": "Tool execution failed; see developer logs.",
+                                    "error_type": type(exc).__name__})
+                except Exception:
+                    pass
             self._emit_pipeline_event(
                 pipeline_callback,
                 "tool",
@@ -150,6 +169,18 @@ class ChatEngine:
             name=name,
             invocation_id=invocation_id,
         )
+        if trace_callback:
+            try:
+                trace_callback({"stage": "tool_execution", "status": "completed" if result.success else "failed",
+                                "tool_name": name, "invocation_id": invocation_id,
+                                "duration_seconds": round(time.perf_counter() - tool_started, 4),
+                                "output_reference": invocation_id or name,
+                                "output_reference_scope": "pair this invocation ID with the trace request ID",
+                                "output_capture": "omitted from trace; inspect developer logs if available",
+                                "failure_explanation": str(result.output)[:500] if not result.success and result.output else None,
+                                "included_in_model_context": None})
+            except Exception:
+                pass
         self._raise_if_cancelled(cancellation_check)
         return result
 
@@ -642,6 +673,7 @@ class ChatEngine:
         request_id: Optional[str] = None,
         pipeline_callback=None,
         cancellation_check=None,
+        trace_callback=None,
     ) -> str:
 
         """
@@ -661,12 +693,32 @@ class ChatEngine:
 
         self._raise_if_cancelled(cancellation_check)
         generation_started = False
+        generation_started_at = None
+
+        def trace(stage, status="completed", **details):
+            if trace_callback is None:
+                return
+            try:
+                trace_callback({"stage": stage, "status": status, **details})
+            except Exception as exc:
+                self.logger.warning("[PERSONALITY TRACE ERROR] %s", exc)
+
+        trace("request_received", user_message=text)
+        trace(
+            "configuration_loaded",
+            architecture=getattr(self.prompt_builder, "personality_arch", None),
+            prompt_layers=(self.prompt_builder.get_prompt_layers()
+                           if hasattr(self.prompt_builder, "get_prompt_layers") else None),
+            preset="not exposed by the current request pipeline",
+        )
 
         def on_model_output():
-            nonlocal generation_started
+            nonlocal generation_started, generation_started_at
             if generation_started:
                 return
             generation_started = True
+            generation_started_at = time.perf_counter()
+            trace("first_model_output", status="observed", ttft_seconds=round(generation_started_at - start, 4))
             self._emit_pipeline_event(
                 pipeline_callback,
                 "stage",
@@ -693,6 +745,7 @@ class ChatEngine:
         mem_summary = ""
 
         knowledge_context = ""
+        context_started = time.perf_counter()
 
         if self.context_manager:
 
@@ -701,6 +754,16 @@ class ChatEngine:
                 context = self.context_manager.build_context(
                     user_id,
                     text
+                )
+
+                trace(
+                    "context_retrieved",
+                    status="completed",
+                    sources=[name for name in ("memory", "knowledge") if context.get(name)],
+                    memory_text=context.get("memory", ""),
+                    knowledge_text=context.get("knowledge", ""),
+                    source_identifiers="not exposed by ContextManager",
+                    duration_seconds=round(time.perf_counter() - context_started, 4),
                 )
 
                 mem_summary = self.trim_context(
@@ -722,6 +785,14 @@ class ChatEngine:
                     MAX_KNOWLEDGE_CONTEXT
                 )
 
+                trace("context_prepared", status="completed",
+                      memory_characters_retrieved=len(str(context.get("memory", "") or "")),
+                      memory_characters_included=len(mem_summary),
+                      knowledge_characters_retrieved=len(str(context.get("knowledge", "") or "")),
+                      knowledge_characters_included=len(knowledge_context),
+                      truncation_detected=(len(str(context.get("memory", "") or "")) > len(mem_summary)
+                                           or len(str(context.get("knowledge", "") or "")) > len(knowledge_context)))
+
                 self.logger.info(
                     "[CONTEXT] Loaded dynamic context"
                 )
@@ -732,6 +803,11 @@ class ChatEngine:
                 )
 
             except Exception as e:
+
+                trace("context_retrieved", status="failed",
+                      error="Context retrieval failed; see developer logs.",
+                      error_type=type(e).__name__,
+                      duration_seconds=round(time.perf_counter() - context_started, 4))
 
                 self.logger.error(
                     f"[CONTEXT ERROR] {e}"
@@ -749,6 +825,10 @@ class ChatEngine:
                 )
 
                 if memories:
+
+                    trace("context_retrieved", sources=["legacy_memory"], memory_count=len(memories),
+                          memory_text=self.memory_manager.format_for_prompt(memories),
+                          source_identifiers="not exposed by MemoryManager")
 
                     self.logger.info(
                         f"[MEMORY] Loaded {len(memories)} memories"
@@ -842,6 +922,7 @@ class ChatEngine:
             "Use total_units exactly as returned by smoke_counter."
         )
 
+        instruction_build_started = time.perf_counter()
         prompt = self.prompt_builder.build_prompt(
             user_input=text,
 
@@ -854,6 +935,21 @@ class ChatEngine:
             knowledge_context=knowledge_context,
 
             tools_spec=tools_spec_str
+        )
+
+        trace(
+            "instructions_assembled",
+            architecture=getattr(self.prompt_builder, "personality_arch", None),
+            sources=getattr(self.prompt_builder, "last_prompt_components", None),
+            system_prompt=prompt,
+            instruction_version="sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            personality_configuration_version="sha256:" + hashlib.sha256(json.dumps({
+                "architecture": getattr(self.prompt_builder, "personality_arch", None),
+                "layers": self.prompt_builder.get_prompt_layers() if hasattr(self.prompt_builder, "get_prompt_layers") else None,
+                "sources": [item for item in (getattr(self.prompt_builder, "last_prompt_components", None) or [])
+                            if item.get("source") in {"identity", "personality", "expression", "mode", "safety", "assembled_system_prompt"}],
+            }, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest(),
+            duration_seconds=round(time.perf_counter() - instruction_build_started, 4),
         )
 
         self.logger.info(
@@ -968,6 +1064,9 @@ class ChatEngine:
             *history,
             {"role": "user", "content": text}
         ]
+        trace("conversation_context_assembled", messages=messages,
+              message_count=len(messages), token_count=None,
+              token_count_status="not instrumented")
 
         terminal.user(text)
 
@@ -1059,6 +1158,7 @@ class ChatEngine:
                 pipeline_callback,
                 invocation_id="web_search",
                 cancellation_check=cancellation_check,
+                trace_callback=trace_callback,
             )
 
             tool_result_payload = (
@@ -1154,6 +1254,8 @@ class ChatEngine:
                     )
                 }
             )
+            trace("tool_context_included", tool_name="web_search", invocation_id="web_search", included_in_model_context=True,
+                  output_contents="redacted/omitted from this event")
 
             # Protect the final research request from context overflow.
             messages = self._trim_ollama_messages(
@@ -1179,12 +1281,18 @@ class ChatEngine:
             )
             self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
+            trace("model_request_constructed", phase="post_tool", messages=messages,
+                  model=getattr(self.ollama, "model", None), streaming=False,
+                  context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
+            trace("generation_started", phase="post_tool")
 
             final_response = self.ollama.chat(
                 messages=messages,
                 tools=None
             )
             self._raise_if_cancelled(cancellation_check)
+            trace("model_response_received", output=(final_response.get("message") or {}).get("content", ""),
+                  generation_duration_seconds=round(time.perf_counter() - final_start, 4), tool_calls=[])
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -1199,6 +1307,8 @@ class ChatEngine:
                 or final_response.get("text")
                 or str(final_response)
             )
+            trace("response_transformation", original_model_output=assistant_text,
+                  final_user_facing_response=assistant_text, modifications=[])
             self._emit_pipeline_event(
                 pipeline_callback,
                 "stage",
@@ -1375,6 +1485,7 @@ class ChatEngine:
                 pipeline_callback,
                 invocation_id="smoke_counter",
                 cancellation_check=cancellation_check,
+                trace_callback=trace_callback,
             )
 
             smoke_payload = (
@@ -1495,6 +1606,12 @@ class ChatEngine:
             )
             self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
+            trace("tool_context_included", tool_name="smoke_counter", invocation_id="smoke_counter", included_in_model_context=True,
+                  output_contents="redacted/omitted from this event")
+            trace("model_request_constructed", phase="post_tool", messages=smoke_final_messages,
+                  model=getattr(self.ollama, "model", None), streaming=False,
+                  context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
+            trace("generation_started", phase="post_tool")
 
             final_response = self.ollama.chat(
                 messages=smoke_final_messages,
@@ -1599,11 +1716,20 @@ class ChatEngine:
         messages = self._trim_ollama_messages(
             messages
         )
+        trace("model_request_constructed", messages=messages, message_count=len(messages),
+              context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None,
+              truncation="Inspect included messages; token-level truncation metadata is not exposed.",
+              excluded_conversation_message_count=max(0, len(history) + 2 - len([m for m in messages if m.get("role") in {"user", "assistant"}])),
+              model=getattr(self.ollama, "model", None), streaming=bool(
+                  pipeline_callback is not None and getattr(self.ollama, "supports_streaming_observer", False)))
 
         # Call Ollama with a real chat tool schema. If the model issues a tool call,
         # execute it in Python and then send the tool result back to Ollama.
         self._raise_if_cancelled(cancellation_check)
         start = time.perf_counter()
+        generation_started_at = None
+        trace("generation_started", streaming=bool(
+            pipeline_callback is not None and getattr(self.ollama, "supports_streaming_observer", False)))
 
         if (
             pipeline_callback is not None
@@ -1626,6 +1752,18 @@ class ChatEngine:
             f"[FIRST OLLAMA TIME] "
             f"{time.perf_counter() - start:.2f}s"
         )
+        trace("generation_response_received", status="completed",
+              model=getattr(self.ollama, "model", None),
+              generation_duration_seconds=round(time.perf_counter() - start, 4),
+              ttft_seconds=round(generation_started_at - start, 4) if generation_started_at else None,
+              tokens_generated=response.get("eval_count"),
+              generation_duration_nanoseconds=response.get("eval_duration"),
+              tool_calls=[{"name": ((tc.get("function") or {}).get("name") or tc.get("name")),
+                           "arguments": (tc.get("function") or {}).get("arguments")}
+                          for tc in (response.get("message") or {}).get("tool_calls", [])],
+              output=(response.get("message") or {}).get("content", "")
+                     if not (response.get("message") or {}).get("tool_calls") else
+                     "Model returned tool-call metadata; internal reasoning text is not captured.")
 
         message = response.get(
             "message",
@@ -1773,6 +1911,15 @@ class ChatEngine:
             stage="evaluating_capabilities",
             status="completed",
         )
+        trace("routing_decision", action="use_tools" if tool_calls else "answer_directly",
+              tools=[(call.get("function") or {}).get("name") or call.get("name") for call in tool_calls],
+              tool_selection_source="python_authoritative" if detected_tool else "model_selected",
+              invocation_reason="not returned as structured metadata by the current tool selection path",
+              potentially_unnecessary="review recommended" if tool_calls and not detected_tool else False,
+              rejected_tool_names=invalid_tool_names,
+              blocked_optional_web_search=blocked_optional_web_search,
+              blocked_optional_calculator=blocked_optional_calculator,
+              policy_classification="not instrumented in this request path")
         self._emit_pipeline_event(
             pipeline_callback,
             "decision",
@@ -2140,6 +2287,7 @@ class ChatEngine:
                             or f"{name}-{len(messages)}"
                         ),
                         cancellation_check=cancellation_check,
+                        trace_callback=trace_callback,
                     )
 
                     tool_result_payload = (
@@ -2467,6 +2615,10 @@ class ChatEngine:
                 messages.append(
                     tool_message
                 )
+                trace("tool_context_included", tool_name=name,
+                      invocation_id=tool_call.get("id") or f"{name}-{len(messages)}",
+                      included_in_model_context=True,
+                      output_contents="redacted/omitted from this event")
 
             self._emit_pipeline_event(
                 pipeline_callback,
@@ -2559,6 +2711,9 @@ class ChatEngine:
                 final_messages.extend(
                     tool_messages
                 )
+                trace("model_request_constructed", phase="post_tool", messages=final_messages,
+                      model=getattr(self.ollama, "model", None), streaming=False,
+                      context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
 
                 if request_id:
 
@@ -2580,6 +2735,10 @@ class ChatEngine:
                 messages = self._trim_ollama_messages(
                     messages
                 )
+                trace("model_request_constructed", phase="post_tool", messages=messages,
+                      model=getattr(self.ollama, "model", None), streaming=False,
+                      context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None,
+                      truncation="Token-level truncation metadata is not exposed.")
 
                 final_response = self.ollama.chat(
                     messages=messages,
@@ -2599,6 +2758,11 @@ class ChatEngine:
                 or
                 str(final_response)
             )
+            trace("model_response_received", output=assistant_text,
+                  generation_duration_seconds=round(time.perf_counter() - final_start, 4),
+                  model=getattr(self.ollama, "model", None), tool_calls=[])
+            trace("response_transformation", original_model_output=assistant_text,
+                  final_user_facing_response=assistant_text, modifications=[])
             self._emit_pipeline_event(
                 pipeline_callback,
                 "stage",
@@ -2678,6 +2842,11 @@ class ChatEngine:
             or response.get("text")
             or str(response)
         )
+        trace("model_response_received", output=assistant_text,
+              generation_duration_seconds=round(time.perf_counter() - start, 4),
+              model=getattr(self.ollama, "model", None), tool_calls=[])
+        trace("response_transformation", original_model_output=assistant_text,
+              final_user_facing_response=assistant_text, modifications=[])
         self._emit_pipeline_event(
             pipeline_callback,
             "stage",

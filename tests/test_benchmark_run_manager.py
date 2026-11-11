@@ -122,6 +122,41 @@ def test_failed_question_is_not_reported_as_a_successful_run(tmp_path):
     assert run["counts"]["failed"] == 1
 
 
+def test_personality_trace_is_question_scoped_persisted_and_redacted(tmp_path):
+    def dispatch(payload):
+        callback = manager.trace_callback(payload["request_id"])
+        callback({"stage": "instructions_assembled", "status": "completed",
+                  "system_prompt": "Be helpful. api_key=secret-value",
+                  "policy_classification": "not instrumented"})
+        callback({"stage": "model_response_received", "status": "completed",
+                  "output": "<think>private hidden thought</think>Actual response"})
+        return {"response": "Actual response", "response_time": 0.01}
+
+    manager = _manager(tmp_path, dispatch)
+    started = manager.start("small.json", "automatic", "trace-run-request-0001")
+    run = _wait(manager, started["run_id"], lambda value: value["status"] == "completed")
+
+    first, second = run["questions"]
+    assert first["personality_trace"]["available"] is True
+    assert second["personality_trace"]["available"] is True
+    assert first["personality_trace"]["events"] is not second["personality_trace"]["events"]
+    for question in (first, second):
+        events = question["personality_trace"]["events"]
+        assert {event["stage"] for event in events} == {"instructions_assembled", "model_response_received"}
+        assert all(event["run_id"] == run["run_id"] for event in events)
+        assert all(event["question_id"] == question["question_id"] for event in events)
+        assert all(event["request_id"] == question["request_id"] for event in events)
+        prompt = events[0]["details"]["system_prompt"]
+        assert "secret-value" not in prompt
+        assert "[REDACTED]" in prompt
+        output = events[1]["details"]["output"]
+        assert "private hidden thought" not in output
+        assert "HIDDEN REASONING REDACTED" in output
+
+    historical = manager.get(run["run_id"])
+    assert historical["questions"][0]["personality_trace"] == first["personality_trace"]
+
+
 def test_stop_cancels_current_request_and_preserves_completed_question(tmp_path):
     suites = tmp_path / "suites"; suites.mkdir()
     results = tmp_path / "results"

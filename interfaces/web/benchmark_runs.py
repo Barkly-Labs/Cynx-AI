@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import threading
 import time
 import uuid
@@ -22,6 +23,35 @@ from benchmark.scoring import score_response
 
 
 logger = logging.getLogger("cynx.web.benchmark")
+
+_SECRET_PATTERNS = (
+    re.compile(r"(?i)(api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|secret|authorization)\s*([:=])\s*([^\s,;]+)"),
+    re.compile(r"(?i)bearer\s+[a-z0-9._~+/=-]{12,}"),
+    re.compile(r"\b(?:sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|AIza[A-Za-z0-9_-]{24,})\b"),
+)
+_HIDDEN_REASONING = re.compile(r"(?is)<think>.*?</think>|<analysis>.*?</analysis>")
+_STACK_TRACE = re.compile(r"(?s)Traceback \(most recent call last\):.*$")
+
+
+def _redact_trace(value):
+    """Keep trace content useful while removing common credential forms."""
+    if isinstance(value, dict):
+        return {
+            str(key): ("[REDACTED]" if re.search(r"(?i)(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|credential)([_-]|$)", str(key))
+                       else _redact_trace(item))
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_trace(item) for item in value[:500]]
+    if isinstance(value, str):
+        result = _STACK_TRACE.sub("[RAW STACK TRACE REDACTED]", value[:50000])
+        result = _HIDDEN_REASONING.sub("[HIDDEN REASONING REDACTED]", result)
+        for pattern in _SECRET_PATTERNS:
+            result = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]" if m.lastindex and m.lastindex >= 3 else "Bearer [REDACTED]", result)
+        return result
+    if value is None or isinstance(value, (bool, int, float)):
+        return value
+    return str(value)[:500]
 
 
 def _now() -> str:
@@ -61,6 +91,7 @@ class BenchmarkRunManager:
         self.dispatch = dispatch
         self._lock = threading.RLock()
         self._threads: dict[str, threading.Thread] = {}
+        self._trace_callbacks: dict[str, Callable] = {}
         self.results_dir.mkdir(parents=True, exist_ok=True)
         self._recover_interrupted_runs()
 
@@ -97,6 +128,34 @@ class BenchmarkRunManager:
             "timestamp": _now(),
             **details,
         })
+
+    def record_personality_trace(self, run_id: str, question_id: str, request_id: str, details: dict) -> None:
+        """Persist an observed runtime trace event against its owning question."""
+        with self._lock:
+            try:
+                run = self._read(run_id)
+            except KeyError:
+                return
+            question = next((q for q in run.get("questions", []) if q.get("question_id") == question_id), None)
+            if question is None or question.get("request_id") != request_id:
+                return
+            trace = question.setdefault("personality_trace", {"schema": "cynx-personality-trace-v1", "events": []})
+            safe = _redact_trace(details)
+            event = {
+                "event_id": str(uuid.uuid4()), "run_id": run_id,
+                "question_id": question_id, "request_id": request_id,
+                "stage": safe.pop("stage", "unknown"), "status": safe.pop("status", "observed"),
+                "timestamp": _now(), "details": safe,
+            }
+            trace["events"].append(event)
+            trace["available"] = True
+            self._append(run, "personality_trace_updated", question_id=question_id,
+                         request_id=request_id, trace_event_id=event["event_id"])
+            self._write(run)
+
+    def trace_callback(self, request_id: str):
+        with self._lock:
+            return self._trace_callbacks.get(request_id)
 
     @staticmethod
     def _tool_summary(events: list[dict]) -> list[dict]:
@@ -235,6 +294,7 @@ class BenchmarkRunManager:
                     "analysis": None,
                     "error": None,
                     "request_id": None,
+                    "personality_trace": {"schema": "cynx-personality-trace-v1", "available": False, "events": []},
                     "tools": [],
                     "metrics": {"response_time_seconds": None, "ttft_seconds": None, "tokens_generated": None, "tokens_per_second": None},
                     "started_at": None,
@@ -324,9 +384,15 @@ class BenchmarkRunManager:
                 self._append(run, "question_started", question_id=question["question_id"], position=question["position"], request_id=request_id)
                 self._write(run)
                 payload = {"message": question["question"], "request_id": request_id}
+                self._trace_callbacks[request_id] = (
+                    lambda details, rid=run_id, qid=question["question_id"], req=request_id:
+                    self.record_personality_trace(rid, qid, req, details)
+                )
 
             try:
                 result = self.dispatch(payload)
+                with self._lock:
+                    self._trace_callbacks.pop(request_id, None)
                 response_text = str(result.get("response", "") or "")
                 events = self.pipeline_events.read(request_id).get("events", [])
                 tools = self._tool_summary(events)
@@ -360,6 +426,8 @@ class BenchmarkRunManager:
                     for event in events
                 ]
             except Exception:
+                with self._lock:
+                    self._trace_callbacks.pop(request_id, None)
                 logger.exception("Benchmark question failed; run_id=%s request_id=%s", run_id, request_id)
                 response_text = ""
                 tools = []
@@ -392,6 +460,8 @@ class BenchmarkRunManager:
                 question["error"] = error
                 question["tools"] = tools
                 question["request_events"] = request_trace
+                if question.get("personality_trace") is not None:
+                    question["personality_trace"]["available"] = bool(question["personality_trace"].get("events"))
                 question["finished_at"] = now
                 question["duration_seconds"] = _elapsed_since(question.get("started_at"))
                 question["metrics"]["response_time_seconds"] = response_time if response_time is not None else question["duration_seconds"]

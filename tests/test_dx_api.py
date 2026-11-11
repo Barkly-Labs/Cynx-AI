@@ -21,6 +21,18 @@ def test_dx_shell_and_real_benchmark_catalog_are_served():
     assert len(questions.json()["cases"]) == 27
 
 
+def test_personality_trace_view_is_shipped_with_dx_assets():
+    client = TestClient(web_app.app)
+    page = client.get("/dx")
+    script = client.get("/static/dx.js")
+    styles = client.get("/static/dx.css")
+
+    assert page.status_code == script.status_code == styles.status_code == 200
+    assert "Personality Trace" in script.text
+    assert "copy-personality-trace" in script.text
+    assert ".bench-tabs" in styles.text
+
+
 def test_dx_tool_explorer_uses_registered_router():
     client = TestClient(web_app.app)
     response = client.get("/api/dx/tools")
@@ -114,3 +126,40 @@ def test_backend_benchmark_runs_after_start_response_and_uses_chat_dispatcher(tm
     assert latest["questions"][0]["response"] == "Actual generated benchmark answer."
     delta = client.get(f"/api/dx/benchmark/runs/{run_id}/updates?after_event=1").json()
     assert any(question["status"] == "completed" for question in delta["questions"])
+
+
+def test_benchmark_dispatch_persists_chat_engine_trace_events(tmp_path, monkeypatch):
+    suites = tmp_path / "suites"
+    runs = tmp_path / "runs"
+    suites.mkdir()
+    (suites / "trace.json").write_text(json.dumps([
+        {"test_id": "TRACE", "category": "SOCIAL_STYLE", "question": "Trace this real request."}
+    ]), encoding="utf-8")
+    monkeypatch.setattr(web_app.benchmark_runs, "suites_dir", suites)
+    monkeypatch.setattr(web_app.benchmark_runs, "results_dir", runs)
+
+    def fake_engine(**kwargs):
+        kwargs["trace_callback"]({"stage": "instructions_assembled", "status": "completed", "system_prompt": "captured"})
+        kwargs["pipeline_callback"]({"type": "decision", "action": "answer_directly", "tools": []})
+        return "Traceable answer."
+
+    monkeypatch.setattr(web_app.chat_engine, "handle_user_message", fake_engine)
+    client = TestClient(web_app.app)
+    started = client.post("/api/dx/benchmark/start", json={
+        "suite": "trace.json", "mode": "automatic", "idempotency_key": "trace-api-key-00001"
+    })
+    assert started.status_code == 200
+    run_id = started.json()["run_id"]
+
+    deadline = time.monotonic() + 2
+    run = started.json()
+    while time.monotonic() < deadline and run["status"] not in {"completed", "completed_with_failures", "failed"}:
+        time.sleep(0.01)
+        run = client.get(f"/api/dx/benchmark/runs/{run_id}").json()
+
+    question = run["questions"][0]
+    assert question["response"] == "Traceable answer."
+    assert question["personality_trace"]["available"] is True
+    assert {event["stage"] for event in question["personality_trace"]["events"]} >= {
+        "configuration_loaded", "instructions_assembled", "routing_decision", "response_returned"
+    }

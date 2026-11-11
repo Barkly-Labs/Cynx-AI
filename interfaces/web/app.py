@@ -525,6 +525,18 @@ async def _dispatch_chat(data: dict):
         request_id = str(uuid.UUID(str(requested_id)))
     except (ValueError, TypeError, AttributeError):
         request_id = str(uuid.uuid4())
+    stored_trace_callback = benchmark_runs.trace_callback(request_id)
+    observed_trace_stages = set()
+    if stored_trace_callback:
+        def personality_trace_callback(details):
+            try:
+                if details.get("stage"):
+                    observed_trace_stages.add(details["stage"])
+                stored_trace_callback(details)
+            except Exception as exc:
+                web_logger.warning("[PERSONALITY TRACE STORE ERROR] request_id=%s error=%s", request_id, exc)
+    else:
+        personality_trace_callback = None
 
     pipeline_events.create(request_id)
 
@@ -568,21 +580,43 @@ async def _dispatch_chat(data: dict):
 
                 print(f"[PROMPT LAYERS] {prompt_builder.get_prompt_layers()}")
 
+                if personality_trace_callback:
+                    personality_trace_callback({
+                        "stage": "configuration_loaded", "status": "completed",
+                        "architecture": getattr(prompt_builder, "personality_arch", None),
+                        "prompt_layers": prompt_builder.get_prompt_layers(),
+                        "preset": prompt_preset or "not specified",
+                        "configuration_overrides": prompt_layers or {},
+                        "model": getattr(ollama_client, "model", None),
+                        "generation_parameters": "not exposed by the active Ollama client",
+                    })
+
+                def publish_pipeline(event):
+                    event_type = event.pop("type")
+                    if event_type == "decision" and personality_trace_callback and "routing_decision" not in observed_trace_stages:
+                        personality_trace_callback({
+                            "stage": "routing_decision", "status": "completed",
+                            "action": event.get("action"), "tools": event.get("tools", []),
+                            "policy_classification": "not instrumented in this request path",
+                        })
+                    pipeline_events.publish(request_id, event_type, **event)
+
                 response = chat_engine.handle_user_message(
                     user_id="web_user",
                     text=message,
                     request_id=request_id,
-                    pipeline_callback=lambda event: pipeline_events.publish(
-                        request_id,
-                        event.pop("type"),
-                        **event,
-                    ),
+                    pipeline_callback=publish_pipeline,
                     cancellation_check=lambda: pipeline_events.is_cancelled(
                         request_id
                     ),
+                    trace_callback=personality_trace_callback,
                 )
                 elapsed = round(time.perf_counter() - start, 3)
                 pipeline_events.publish(request_id, "request_completed")
+                if personality_trace_callback:
+                    personality_trace_callback({"stage": "response_returned", "status": "completed",
+                                                "final_response": response,
+                                                "transformation": "No separate response normalization stage is instrumented."})
                 print(f"[CHAT COMPLETE] id={request_id} elapsed={elapsed}s")
                 return {
                     "response": response,
@@ -597,6 +631,8 @@ async def _dispatch_chat(data: dict):
                     "request_cancelled",
                     message="Request cancelled before a response was ready.",
                 )
+                if personality_trace_callback:
+                    personality_trace_callback({"stage": "request_cancelled", "status": "cancelled"})
                 return {
                     "response": "",
                     "response_time": elapsed,
@@ -611,6 +647,9 @@ async def _dispatch_chat(data: dict):
                     "request_failed",
                     message="CYN-X Core could not complete this request.",
                 )
+                if personality_trace_callback:
+                    personality_trace_callback({"stage": "request_failed", "status": "failed",
+                                                "error": "See sanitized request diagnostics; raw stack traces are not stored in Personality Trace."})
                 raise
 
     return await run_in_threadpool(process_request)

@@ -253,6 +253,9 @@ class PromptBuilder:
         self.prompt_layers = dict(
             self.DEFAULT_PROMPT_LAYERS
         )
+        # Runtime-only snapshot of the last system prompt assembly. ChatEngine
+        # reads this immediately after build_prompt while holding its request lock.
+        self.last_prompt_components = None
 
 
     # ---------------------------------------------
@@ -737,6 +740,10 @@ class PromptBuilder:
                 tools=tools_spec,
                 prompt_layers=layers,
             )
+            self.last_prompt_components = [
+                {"source": component.name, "text": component.content}
+                for component in bundle.components if component.content
+            ]
             return bundle.render()
 
 
@@ -758,6 +765,8 @@ class PromptBuilder:
             prompt_layers=layers
 
         )
+
+        self.last_prompt_components = [{"source": "assembled_system_prompt", "text": system}]
 
 
         sections.append({
