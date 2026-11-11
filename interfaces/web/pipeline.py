@@ -75,6 +75,37 @@ class PipelineEventStore:
                 "done": request["done"],
             }
 
+    def list_recent(self, limit=40):
+        """Return lightweight, sanitized summaries for the developer inspector."""
+        with self._lock:
+            items = []
+            for request_id, request in sorted(
+                self._requests.items(),
+                key=lambda item: item[1]["started"],
+                reverse=True,
+            )[:max(1, min(int(limit), 100))]:
+                events = request["events"]
+                last = events[-1] if events else {}
+                stages = [
+                    {
+                        "stage": event.get("stage"),
+                        "status": event.get("status"),
+                        "elapsed_seconds": event.get("elapsed_seconds"),
+                        "tool_name": event.get("tool_name"),
+                    }
+                    for event in events
+                    if event.get("type") == "stage"
+                ]
+                items.append({
+                    "request_id": request_id,
+                    "done": request["done"],
+                    "cancel_requested": request["cancel_requested"],
+                    "elapsed_seconds": last.get("elapsed_seconds", 0),
+                    "last_event": last.get("type", ""),
+                    "stages": stages,
+                })
+            return items
+
     def _prune(self, now):
         completed = [
             (request_id, value["started"])

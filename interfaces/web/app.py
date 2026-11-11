@@ -11,6 +11,7 @@ import time
 import logging
 import threading
 import uuid
+import asyncio
 import json
 from pathlib import Path
 
@@ -50,6 +51,7 @@ from tools.SmokeCounterTool import smoke_counter
 from tools.ChartTool import chart_tool
 from tools.filesystem import FilesystemTool
 from interfaces.web.pipeline import PipelineEventStore
+from interfaces.web.benchmark_runs import BenchmarkRunManager
 
 
 
@@ -369,15 +371,98 @@ def dx_save_benchmark_run(data: dict):
 
 @app.get("/api/dx/benchmark/runs")
 def dx_benchmark_runs():
-    DX_BENCHMARK_RUNS.mkdir(parents=True, exist_ok=True)
-    output = []
-    for path in sorted(DX_BENCHMARK_RUNS.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:25]:
-        try:
-            run = json.loads(path.read_text(encoding="utf-8"))
-            output.append({key: run.get(key) for key in ("run_id", "created_at", "suite", "mode", "attempted", "successful", "failed", "tool_failures", "partial_tool_failures", "average_response_time", "median_response_time", "average_score")})
-        except (OSError, ValueError):
-            continue
-    return {"runs": output}
+    return {"runs": benchmark_runs.list_runs()}
+
+
+@app.post("/api/dx/benchmark/start")
+def dx_start_benchmark(data: dict):
+    from fastapi import HTTPException
+    try:
+        run = benchmark_runs.start(
+            str(data.get("suite", "")),
+            str(data.get("mode", "automatic")),
+            str(data.get("idempotency_key", "")),
+        )
+        return run
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=f"A benchmark is already active ({exc}).")
+
+
+@app.get("/api/dx/benchmark/active")
+def dx_active_benchmark():
+    return {"run": benchmark_runs.active()}
+
+
+@app.get("/api/dx/benchmark/latest")
+def dx_latest_benchmark():
+    return {"run": benchmark_runs.latest()}
+
+
+@app.get("/api/dx/benchmark/runs/{run_id}")
+def dx_benchmark_run(run_id: str, after_event: int = 0):
+    from fastapi import HTTPException
+    try:
+        return benchmark_runs.get(run_id, after_event=max(0, after_event))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+
+
+@app.get("/api/dx/benchmark/runs/{run_id}/updates")
+def dx_benchmark_run_updates(run_id: str, after_event: int = 0):
+    from fastapi import HTTPException
+    try:
+        return benchmark_runs.updates(run_id, after_event=max(0, after_event))
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+
+
+@app.post("/api/dx/benchmark/runs/{run_id}/pause")
+def dx_pause_benchmark(run_id: str):
+    from fastapi import HTTPException
+    try:
+        return benchmark_runs.pause(run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/dx/benchmark/runs/{run_id}/resume")
+def dx_resume_benchmark(run_id: str):
+    from fastapi import HTTPException
+    try:
+        return benchmark_runs.resume(run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/dx/benchmark/runs/{run_id}/next")
+def dx_next_benchmark_question(run_id: str):
+    from fastapi import HTTPException
+    try:
+        return benchmark_runs.resume(run_id, next_question=True)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/dx/benchmark/runs/{run_id}/stop")
+def dx_stop_benchmark(run_id: str):
+    from fastapi import HTTPException
+    try:
+        return benchmark_runs.stop(run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+
+
+@app.delete("/api/dx/benchmark/runs")
+def dx_clear_benchmark_results():
+    return {"deleted": benchmark_runs.delete_completed()}
 
 
 @app.get("/api/dx/tools")
@@ -425,6 +510,11 @@ chat_request_count = 0
 
 @app.post("/chat")
 async def chat(data:dict):
+
+    return await _dispatch_chat(data)
+
+
+async def _dispatch_chat(data: dict):
 
     global chat_request_count
 
@@ -524,6 +614,19 @@ async def chat(data:dict):
                 raise
 
     return await run_in_threadpool(process_request)
+
+
+def _dispatch_benchmark_question(data: dict):
+    """Run through the exact dispatcher shared by the ordinary /chat route."""
+    return asyncio.run(_dispatch_chat(data))
+
+
+benchmark_runs = BenchmarkRunManager(
+    BENCHMARK_SUITES,
+    DX_BENCHMARK_RUNS,
+    pipeline_events,
+    _dispatch_benchmark_question,
+)
 
 
 @app.get("/chat/events/{request_id}")

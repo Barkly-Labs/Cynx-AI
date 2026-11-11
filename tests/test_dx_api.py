@@ -1,0 +1,116 @@
+import json
+import time
+
+from fastapi.testclient import TestClient
+
+from interfaces.web import app as web_app
+
+
+def test_dx_shell_and_real_benchmark_catalog_are_served():
+    client = TestClient(web_app.app)
+
+    page = client.get("/dx")
+    suites = client.get("/api/dx/benchmark/suites")
+    questions = client.get("/api/dx/benchmark/suites/questions.json")
+
+    assert page.status_code == 200
+    assert "Benchmark Lab" in page.text
+    assert suites.status_code == 200
+    assert len(suites.json()["suites"]) >= 1
+    assert questions.status_code == 200
+    assert len(questions.json()["cases"]) == 27
+
+
+def test_dx_tool_explorer_uses_registered_router():
+    client = TestClient(web_app.app)
+    response = client.get("/api/dx/tools")
+
+    assert response.status_code == 200
+    tools = response.json()["tools"]
+    assert {tool["name"] for tool in tools} == set(web_app.tool_router.list_tools())
+    assert all("schema" in tool for tool in tools)
+
+
+def test_dx_benchmark_saves_existing_scorer_output(tmp_path, monkeypatch):
+    monkeypatch.setattr(web_app, "DX_BENCHMARK_RUNS", tmp_path)
+    monkeypatch.setattr(web_app.benchmark_runs, "results_dir", tmp_path)
+    client = TestClient(web_app.app)
+
+    response = client.post("/api/dx/benchmark/runs", json={
+        "suite": "social-style.json",
+        "mode": "manual",
+        "results": [{
+            "test_id": "SOCIAL_TEST",
+            "category": "SOCIAL_STYLE",
+            "question": "ugh this coffee sucks",
+            "response": "Yeah, burnt coffee can ruin the whole morning.",
+            "response_time": 0.25,
+            "tools": [{"name": "web_search", "status": "failed"}],
+            "test": {"social_style": {"self_contained": True, "low_stakes": True}},
+        }],
+    })
+
+    assert response.status_code == 200
+    result = response.json()
+    assert result["attempted"] == 1
+    assert result["successful"] == 1
+    assert result["tool_failures"] == 1
+    assert result["partial_tool_failures"] == 1
+    assert result["results"][0]["scores"]["overall"] == 2.0
+    saved = json.loads((tmp_path / f"{result['run_id']}.json").read_text())
+    assert saved["results"][0]["response"] == "Yeah, burnt coffee can ruin the whole morning."
+
+    history = client.get("/api/dx/benchmark/runs")
+    assert history.status_code == 200
+    assert history.json()["runs"][0]["run_id"] == result["run_id"]
+
+
+def test_dx_suite_route_rejects_path_traversal():
+    client = TestClient(web_app.app)
+    response = client.get("/api/dx/benchmark/suites/%2e%2e%2fconfig.py")
+
+    assert response.status_code == 404
+
+
+def test_backend_benchmark_runs_after_start_response_and_uses_chat_dispatcher(tmp_path, monkeypatch):
+    suites = tmp_path / "suites"
+    runs = tmp_path / "runs"
+    suites.mkdir()
+    (suites / "one.json").write_text(json.dumps([
+        {"test_id": "ONE", "category": "SOCIAL_STYLE", "question": "The actual suite question."}
+    ]), encoding="utf-8")
+    monkeypatch.setattr(web_app.benchmark_runs, "suites_dir", suites)
+    monkeypatch.setattr(web_app.benchmark_runs, "results_dir", runs)
+    seen = []
+
+    async def fake_chat_dispatch(data):
+        seen.append(data)
+        web_app.pipeline_events.create(data["request_id"])
+        web_app.pipeline_events.publish(data["request_id"], "stage", stage="generating_response", status="active")
+        web_app.pipeline_events.publish(data["request_id"], "request_completed")
+        return {"request_id": data["request_id"], "response": "Actual generated benchmark answer.", "response_time": 0.41}
+
+    monkeypatch.setattr(web_app, "_dispatch_chat", fake_chat_dispatch)
+    client = TestClient(web_app.app)
+    start = client.post("/api/dx/benchmark/start", json={
+        "suite": "one.json", "mode": "automatic", "idempotency_key": "api-start-key-0001"
+    })
+    assert start.status_code == 200
+    run_id = start.json()["run_id"]
+
+    deadline = time.monotonic() + 2
+    state = start.json()
+    while time.monotonic() < deadline and state["status"] not in {"completed", "completed_with_failures", "failed"}:
+        time.sleep(0.01)
+        state = client.get(f"/api/dx/benchmark/runs/{run_id}").json()
+
+    assert state["status"] == "completed"
+    assert state["questions"][0]["response"] == "Actual generated benchmark answer."
+    assert state["questions"][0]["metrics"]["response_time_seconds"] == 0.41
+    assert seen == [{"message": "The actual suite question.", "request_id": state["questions"][0]["request_id"]}]
+    assert json.loads((runs / f"{run_id}.json").read_text())["questions"][0]["response"] == "Actual generated benchmark answer."
+    latest = client.get("/api/dx/benchmark/latest").json()["run"]
+    assert latest["run_id"] == run_id
+    assert latest["questions"][0]["response"] == "Actual generated benchmark answer."
+    delta = client.get(f"/api/dx/benchmark/runs/{run_id}/updates?after_event=1").json()
+    assert any(question["status"] == "completed" for question in delta["questions"])
