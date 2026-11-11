@@ -11,11 +11,16 @@ import time
 import logging
 import threading
 import uuid
+import json
+from pathlib import Path
+
+import requests
 
 from starlette.concurrency import run_in_threadpool
 
 from ai.knowledge.store import KnowledgeStore
 from memory.sqlite import connect
+from config import get_config
 
 
 
@@ -218,6 +223,198 @@ def dashboard(request:Request):
         name="dashboard.html",
         context={}
     )
+
+
+@app.get("/dx")
+def dx_home(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="dx.html",
+        context={},
+    )
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+BENCHMARK_SUITES = PROJECT_ROOT / "benchmark" / "suites"
+DX_BENCHMARK_RUNS = PROJECT_ROOT / "benchmark" / "results" / "dx_runs"
+
+
+@app.get("/api/dx/health")
+def dx_health():
+    """Report live local service state without returning URLs or secrets."""
+    config = get_config()
+    try:
+        response = requests.get(
+            f"{ollama_client.base_url}/api/tags", timeout=2
+        )
+        response.raise_for_status()
+        ollama_ok = True
+        models = [m.get("name", "") for m in response.json().get("models", [])]
+    except Exception:
+        ollama_ok = False
+        models = []
+    try:
+        conn.execute("SELECT 1").fetchone()
+        database_ok = True
+    except Exception:
+        database_ok = False
+    active = getattr(ollama_client, "model", config.model_name)
+    return {
+        "backend": "online",
+        "ollama": "online" if ollama_ok else "offline",
+        "model": active,
+        "model_available": active in models if models else None,
+        "models": models,
+        "database": "online" if database_ok else "offline",
+        "tools": tool_router.describe_tools(),
+        "tool_count": len(tool_router.list_tools()),
+        "environment": "local",
+        "hardware": {"available": False, "reason": "No supported telemetry provider is configured."},
+    }
+
+
+@app.get("/api/dx/benchmark/suites")
+def dx_benchmark_suites():
+    suites = []
+    for path in sorted(BENCHMARK_SUITES.glob("*.json")):
+        try:
+            cases = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(cases, list):
+                suites.append({"id": path.name, "name": path.stem.replace("_", " ").replace("-", " "), "count": len(cases)})
+        except (OSError, ValueError):
+            continue
+    return {"suites": suites}
+
+
+@app.get("/api/dx/benchmark/suites/{suite_id}")
+def dx_benchmark_suite(suite_id: str):
+    # Accept only a filename present in the benchmark suite directory.
+    path = (BENCHMARK_SUITES / suite_id).resolve()
+    if path.parent != BENCHMARK_SUITES.resolve() or path.suffix.lower() != ".json" or not path.is_file():
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Benchmark suite not found")
+    try:
+        cases = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Benchmark suite could not be read")
+    if not isinstance(cases, list):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail="Benchmark suite format is invalid")
+    return {"id": suite_id, "cases": cases}
+
+
+@app.post("/api/dx/benchmark/runs")
+def dx_save_benchmark_run(data: dict):
+    """Score results using existing benchmark code and persist a DX run."""
+    from benchmark.analyzer import analyze_response
+    from benchmark.scoring import score_response
+    import statistics
+    run_id = str(uuid.uuid4())
+    cases = data.get("results", [])
+    if not isinstance(cases, list) or len(cases) > 500:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Invalid benchmark results")
+    scored = []
+    for item in cases:
+        if not isinstance(item, dict):
+            continue
+        response_text = str(item.get("response", ""))[:50000]
+        question = str(item.get("question", ""))[:10000]
+        category = str(item.get("category", ""))[:200]
+        analysis = analyze_response(response_text)
+        scores = score_response(response_text, category, test=item.get("test"))
+        scored.append({
+            "test_id": str(item.get("test_id", ""))[:200],
+            "category": category,
+            "question": question,
+            "response": response_text,
+            "response_time": max(0, float(item.get("response_time", 0) or 0)),
+            "failed": bool(item.get("failed", False)),
+            "error": "Request failed" if item.get("failed") else None,
+            "tools": item.get("tools", []) if isinstance(item.get("tools", []), list) else [],
+            "analysis": analysis,
+            "scores": scores,
+        })
+    timings = [row["response_time"] for row in scored]
+    tool_failures = sum(
+        1 for row in scored
+        for tool_event in row["tools"]
+        if isinstance(tool_event, dict) and tool_event.get("status") == "failed"
+    )
+    summary = {
+        "run_id": run_id,
+        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        "suite": str(data.get("suite", ""))[:200],
+        "mode": "manual" if data.get("mode") == "manual" else "automatic",
+        "attempted": len(scored),
+        "successful": sum(not row["failed"] for row in scored),
+        "failed": sum(row["failed"] for row in scored),
+        "tool_failures": tool_failures,
+        "partial_tool_failures": sum(
+            not row["failed"] and any(
+                isinstance(event, dict) and event.get("status") == "failed"
+                for event in row["tools"]
+            ) for row in scored
+        ),
+        "average_response_time": round(statistics.mean(timings), 3) if timings else 0,
+        "median_response_time": round(statistics.median(timings), 3) if timings else 0,
+        "average_score": round(statistics.mean([r["scores"].get("overall", 0) for r in scored]), 2) if scored else 0,
+        "results": scored,
+    }
+    DX_BENCHMARK_RUNS.mkdir(parents=True, exist_ok=True)
+    (DX_BENCHMARK_RUNS / f"{run_id}.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    return summary
+
+
+@app.get("/api/dx/benchmark/runs")
+def dx_benchmark_runs():
+    DX_BENCHMARK_RUNS.mkdir(parents=True, exist_ok=True)
+    output = []
+    for path in sorted(DX_BENCHMARK_RUNS.glob("*.json"), key=lambda p: p.stat().st_mtime, reverse=True)[:25]:
+        try:
+            run = json.loads(path.read_text(encoding="utf-8"))
+            output.append({key: run.get(key) for key in ("run_id", "created_at", "suite", "mode", "attempted", "successful", "failed", "tool_failures", "partial_tool_failures", "average_response_time", "median_response_time", "average_score")})
+        except (OSError, ValueError):
+            continue
+    return {"runs": output}
+
+
+@app.get("/api/dx/tools")
+def dx_tools():
+    schemas = tool_router.as_ollama_tools()
+    by_name = {x.get("function", {}).get("name"): x.get("function", {}) for x in schemas}
+    return {"tools": [{**tool, "schema": by_name.get(tool["name"], {})} for tool in tool_router.describe_tools()]}
+
+
+@app.get("/api/dx/requests")
+def dx_requests():
+    return {"requests": pipeline_events.list_recent()}
+
+
+@app.get("/api/dx/requests/{request_id}")
+def dx_request(request_id: str):
+    return pipeline_events.read(request_id)
+
+
+@app.post("/api/dx/model")
+def dx_select_model(data: dict):
+    model = str(data.get("model", ""))
+    if not model or len(model) > 200 or any(c in model for c in "\r\n\\"):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="Choose a valid installed model")
+    try:
+        response = requests.get(f"{ollama_client.base_url}/api/tags", timeout=2)
+        response.raise_for_status()
+        installed = {m.get("name") for m in response.json().get("models", [])}
+    except Exception:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=503, detail="Ollama is unavailable")
+    if model not in installed:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=400, detail="That model is not installed in Ollama")
+    ollama_client.model = model
+    return {"ok": True, "model": model, "persistence": "runtime"}
 
 
 

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>CYN-X DX · Developer Workstation</title>
+  <link rel="stylesheet" href="/static/dx.css?v=1">
+</head>
+<body>
+  <div class="dx-shell">
+    <aside class="rail" aria-label="Developer tools navigation">
+      <a class="brand" href="/dx" aria-label="CYN-X DX home"><span class="brand-paw">✣</span><span>CYN-X <b>DX</b></span></a>
+      <div class="nav-label">WORKSPACE</div>
+      <nav id="navigation">
+        <button class="nav-item active" data-view="overview"><span>⌂</span>Overview</button>
+        <button class="nav-item" data-view="model"><span>◉</span>Model Lab</button>
+        <button class="nav-item" data-view="benchmark"><span>▤</span>Benchmark Lab</button>
+        <button class="nav-item" data-view="tools"><span>⌘</span>Tool Explorer</button>
+        <button class="nav-item" data-view="requests"><span>⌁</span>Request Inspector</button>
+        <button class="nav-item" data-view="diagnostics"><span>✳</span>System Diagnostics</button>
+        <button class="nav-item" data-view="configuration"><span>⚙</span>Configuration</button>
+        <button class="nav-item" data-view="history"><span>◷</span>History</button>
+      </nav>
+      <div class="mascot-wrap"><img src="/static/puppygirl%20asset.png" alt="CYN-X puppy-girl mascot"><div class="mascot-note"><strong>Core companion</strong><span id="companion-message">Ready to inspect the system.</span></div></div>
+      <a class="back-link" href="/">← Back to CYN-X chat</a>
+    </aside>
+    <main class="main">
+      <header class="topbar"><div><div class="eyebrow">BARKLY LABS · DEVELOPER WORKSTATION</div><h1 id="page-title">System overview</h1></div><div class="top-actions"><span class="live-pill"><i></i> LOCAL CORE</span><button id="refresh" class="quiet-btn">↻ Refresh</button></div></header>
+      <div class="health-strip" id="health-strip" aria-live="polite"><span>Checking local services…</span></div>
+      <section id="view" class="view" tabindex="-1"></section>
+      <footer class="footnote"><span>CYN-X DX</span><span>Technology should adapt to people.</span></footer>
+    </main>
+    <aside class="context" id="context-panel"><div class="context-head"><div><span class="eyebrow">CONTEXT PANEL</span><h2>System snapshot</h2></div><button class="icon-btn" id="toggle-context" aria-label="Collapse context panel" title="Collapse context panel">›</button></div><div id="context-content" class="context-content"></div></aside>
+  </div>
+  <script src="/static/dx.js?v=1" defer></script>
+</body>
+</html>
