@@ -29,11 +29,12 @@
     position: relative;
     display: grid;
     grid-template-columns: minmax(240px, .78fr) minmax(0, 1.22fr);
-    grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto auto auto minmax(0, 1fr) auto;
     grid-template-areas:
         "topline topline"
         "mascot heading"
         "mascot actions"
+        "mascot outcome"
         "mascot stages"
         "mascot footer";
     gap: 12px clamp(18px, 3vw, 42px);
@@ -164,6 +165,16 @@
     background: rgba(15, 8, 25, .76);
 }
 
+#thinking .pipeline-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 7px;
+}
+
+#thinking [hidden] { display: none !important; }
+
 #thinking .pipeline-request-state {
     color: var(--trace-muted);
     font-size: 9px;
@@ -217,6 +228,104 @@
     border-radius: 5px;
     font-size: 14px;
     line-height: 1;
+}
+
+#thinking .pipeline-secondary-control {
+    -webkit-appearance: none;
+    appearance: none;
+    min-height: 34px;
+    margin: 0;
+    padding: 7px 10px;
+    border: 1px solid rgba(168, 85, 247, .42);
+    border-radius: 8px;
+    background: rgba(24, 13, 37, .88);
+    color: #dfd0ef;
+    font: inherit;
+    font-size: 10px;
+    line-height: 1.2;
+    cursor: pointer;
+}
+
+#thinking .pipeline-secondary-control:hover {
+    border-color: rgba(80, 232, 255, .7);
+    color: #e7fbff;
+}
+
+#thinking .pipeline-secondary-control:focus-visible,
+#thinking .pipeline-failure-details summary:focus-visible {
+    outline: 2px solid var(--trace-cyan);
+    outline-offset: 3px;
+}
+
+#thinking .pipeline-secondary-control[aria-pressed="true"] {
+    border-color: rgba(80, 232, 255, .7);
+    color: var(--trace-cyan);
+    box-shadow: 0 0 11px rgba(80, 232, 255, .12);
+}
+
+#thinking .pipeline-outcome {
+    grid-area: outcome;
+    min-width: 0;
+    padding: 10px 13px;
+    border: 1px solid rgba(168, 85, 247, .36);
+    border-radius: 10px;
+    background: rgba(14, 9, 23, .88);
+}
+
+#thinking .pipeline-outcome[data-kind="success"] {
+    border-color: rgba(105, 240, 174, .48);
+    background: linear-gradient(100deg, rgba(36, 143, 92, .13), rgba(12, 20, 20, .76));
+}
+
+#thinking .pipeline-outcome[data-kind="partial"],
+#thinking .pipeline-outcome[data-kind="failure"] {
+    border-color: rgba(255, 88, 125, .55);
+    background: linear-gradient(100deg, rgba(255, 68, 105, .12), rgba(28, 8, 17, .82));
+}
+
+#thinking .pipeline-outcome[data-kind="cancelled"] {
+    border-color: rgba(139, 117, 153, .4);
+    background: rgba(35, 25, 43, .62);
+}
+
+#thinking .pipeline-outcome-title {
+    color: #f4edff;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+#thinking .pipeline-outcome[data-kind="success"] .pipeline-outcome-title { color: var(--trace-green); }
+#thinking .pipeline-outcome[data-kind="partial"] .pipeline-outcome-title,
+#thinking .pipeline-outcome[data-kind="failure"] .pipeline-outcome-title { color: #ff9aac; }
+#thinking .pipeline-outcome[data-kind="cancelled"] .pipeline-outcome-title { color: #c2b1cd; }
+
+#thinking .pipeline-outcome-message,
+#thinking .pipeline-retention-message {
+    margin: 4px 0 0;
+    color: #cdbbdb;
+    font-size: 11px;
+    overflow-wrap: anywhere;
+}
+
+#thinking .pipeline-retention-message {
+    color: var(--trace-muted);
+    font-size: 10px;
+}
+
+#thinking .pipeline-failure-details { margin-top: 7px; }
+#thinking .pipeline-failure-details summary {
+    width: fit-content;
+    color: #ffd2de;
+    font-size: 10px;
+    cursor: pointer;
+}
+#thinking #pipeline-failure-list {
+    display: grid;
+    gap: 5px;
+    margin: 7px 0 0;
+    padding-left: 18px;
+    color: #e7d9e8;
+    font-size: 10px;
 }
 
 #thinking .decision-pipeline {
@@ -421,11 +530,12 @@
     #thinking .loading-content {
         display: grid;
         grid-template-columns: minmax(0, 1fr) 96px;
-        grid-template-rows: auto auto auto auto auto;
+        grid-template-rows: auto auto auto auto auto auto;
         grid-template-areas:
             "topline topline"
             "heading mascot"
             "actions actions"
+            "outcome outcome"
             "stages stages"
             "footer footer";
         gap: 11px;
@@ -475,6 +585,7 @@
             "topline topline"
             "heading mascot"
             "actions actions"
+            "outcome outcome"
             "stages stages"
             "footer footer";
     }

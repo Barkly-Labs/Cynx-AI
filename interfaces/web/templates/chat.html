@@ -9,11 +9,11 @@
 
     <link
         rel="stylesheet"
-        href="/static/style.css?v=20261111-pipeline3"
+        href="/static/style.css?v=20261111-pipeline5"
     >
     <link
         rel="stylesheet"
-        href="/static/pipeline.css?v=20261111-pipeline3"
+        href="/static/pipeline.css?v=20261111-pipeline5"
     >
 
 </head>
@@ -392,6 +392,9 @@
                 style="display:none;"
                 role="dialog"
                 aria-modal="true"
+                aria-hidden="true"
+                aria-busy="false"
+                tabindex="-1"
                 aria-labelledby="pipeline-title"
             >
                 <div class="loading-content">
@@ -400,7 +403,7 @@
                             <span class="pipeline-paw" aria-hidden="true">🐾</span>
                             <span>CYN-X CORE</span>
                         </div>
-                        <span class="pipeline-live">LIVE REQUEST TRACE</span>
+                        <span id="pipeline-view-state" class="pipeline-live">LIVE REQUEST TRACE</span>
                     </div>
 
                     <div class="pipeline-heading">
@@ -434,11 +437,32 @@
 
                     <div class="pipeline-actions">
                         <span class="pipeline-request-state">CORE STATUS</span>
-                        <button id="pipeline-cancel" class="pipeline-cancel" type="button">
-                            <span class="cancel-icon" aria-hidden="true">×</span>
-                            Cancel request
-                        </button>
+                        <div class="pipeline-controls">
+                            <button id="pipeline-cancel" class="pipeline-cancel" type="button" aria-label="Cancel the current request">
+                                <span class="cancel-icon" aria-hidden="true">×</span>
+                                Cancel request
+                            </button>
+                            <button id="pipeline-keep-open" class="pipeline-secondary-control" type="button" aria-pressed="false" hidden>
+                                Keep open
+                            </button>
+                            <button id="pipeline-resume" class="pipeline-secondary-control" type="button" hidden>
+                                Resume auto-close
+                            </button>
+                            <button id="pipeline-dismiss" class="pipeline-secondary-control" type="button" aria-label="Dismiss the completed request pipeline" hidden>
+                                Dismiss
+                            </button>
+                        </div>
                     </div>
+
+                    <section id="pipeline-outcome" class="pipeline-outcome" role="status" aria-live="polite" hidden>
+                        <div id="pipeline-outcome-title" class="pipeline-outcome-title"></div>
+                        <p id="pipeline-outcome-message" class="pipeline-outcome-message"></p>
+                        <details id="pipeline-failure-details" class="pipeline-failure-details" hidden>
+                            <summary>Inspect failure details</summary>
+                            <ul id="pipeline-failure-list"></ul>
+                        </details>
+                        <p id="pipeline-retention-message" class="pipeline-retention-message"></p>
+                    </section>
 
                     <ol id="decision-pipeline" class="decision-pipeline">
                         <li class="pipeline-stage" data-stage="request_received" data-status="pending">
@@ -560,7 +584,7 @@
 <p>New lights may require one-time bonding using the existing Lepro CLI before control is available.</p>
 </section>
 <script src="/static/lepro.js"></script>
-<script src="/static/chat.js?v=20261111-pipeline3"></script>
+<script src="/static/chat.js?v=20261111-pipeline5"></script>
 
 
 </body>

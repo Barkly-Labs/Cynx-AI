@@ -15,6 +15,18 @@ let lastResponseTime = 0;
 let activePipelineRequestId = null;
 let pipelineUsesTools = false;
 let pipelineToolFailed = false;
+let pipelineRequestRunning = false;
+let pipelineFailureRecords = [];
+let pipelineDismissTimeout = null;
+let pipelineDismissInterval = null;
+let pipelineDismissAt = 0;
+let pipelineRemainingMs = 0;
+let pipelineDismissPaused = false;
+let pipelinePinned = false;
+let pipelineReturnFocus = null;
+const PIPELINE_SUCCESS_RETENTION_MS = 15000;
+const PIPELINE_FAILURE_RETENTION_MS = 30000;
+const PIPELINE_CANCEL_RETENTION_MS = 15000;
 
 const toolSummaries = {
     web_search: "Searches current public web information.",
@@ -998,11 +1010,18 @@ function initializePromptLayers(){
 
 
 function resetPipeline(){
+    clearPipelineDismissTimers();
     pipelineTools.clear();
     pipelineUsesTools = false;
     pipelineToolFailed = false;
+    pipelineFailureRecords = [];
+    pipelineDismissPaused = false;
+    pipelinePinned = false;
+    pipelineRemainingMs = 0;
+
     document.querySelectorAll(".pipeline-stage").forEach((item) => {
         item.dataset.status = "pending";
+        item.removeAttribute("aria-current");
         const label = item.querySelector(".stage-label");
         if(label) label.textContent = pipelineStageLabels[item.dataset.stage];
         const state = item.querySelector(".stage-state");
@@ -1010,14 +1029,48 @@ function resetPipeline(){
         const detail = item.querySelector(".stage-detail");
         const time = item.querySelector(".stage-time");
         if(detail) detail.textContent = "";
-        if(time) time.textContent = "";
+        if(time){
+            time.textContent = "";
+            time.removeAttribute("datetime");
+        }
     });
+
     const tools = document.getElementById("pipeline-tools");
     if(tools) tools.replaceChildren();
     const status = document.getElementById("pipeline-status");
     if(status) status.textContent = "Waiting for request events";
+    const viewState = document.getElementById("pipeline-view-state");
+    if(viewState) viewState.textContent = "LIVE REQUEST TRACE";
     const cancelButton = document.getElementById("pipeline-cancel");
     if(cancelButton) cancelButton.disabled = true;
+    const keepOpen = document.getElementById("pipeline-keep-open");
+    if(keepOpen){
+        keepOpen.hidden = true;
+        keepOpen.setAttribute("aria-pressed", "false");
+        keepOpen.textContent = "Keep open";
+    }
+    const resume = document.getElementById("pipeline-resume");
+    if(resume) resume.hidden = true;
+    const dismiss = document.getElementById("pipeline-dismiss");
+    if(dismiss) dismiss.hidden = true;
+    const outcome = document.getElementById("pipeline-outcome");
+    if(outcome){
+        outcome.hidden = true;
+        outcome.removeAttribute("data-kind");
+    }
+    const details = document.getElementById("pipeline-failure-details");
+    if(details){
+        details.hidden = true;
+        details.open = false;
+    }
+    const failureList = document.getElementById("pipeline-failure-list");
+    if(failureList) failureList.replaceChildren();
+    const title = document.getElementById("pipeline-outcome-title");
+    if(title) title.textContent = "";
+    const message = document.getElementById("pipeline-outcome-message");
+    if(message) message.textContent = "";
+    const retention = document.getElementById("pipeline-retention-message");
+    if(retention) retention.textContent = "";
 }
 
 function setPipelineStage(stage, status, event){
@@ -1027,10 +1080,13 @@ function setPipelineStage(stage, status, event){
     if(!item) return;
 
     item.dataset.status = status;
+    document.querySelectorAll(".pipeline-stage[aria-current]").forEach((active) => {
+        active.removeAttribute("aria-current");
+    });
+    if(status === "active") item.setAttribute("aria-current", "step");
+
     const state = item.querySelector(".stage-state");
-    if(state){
-        state.textContent = pipelineStateLabels[status] || status;
-    }
+    if(state) state.textContent = pipelineStateLabels[status] || status;
     if(event && event.timestamp){
         const time = item.querySelector(".stage-time");
         if(time){
@@ -1056,7 +1112,6 @@ function renderPipelineTools(){
     for(const [id, tool] of pipelineTools){
         const item = document.createElement("li");
         item.className = "pipeline-tool";
-
         const details = document.createElement("details");
         const summary = document.createElement("summary");
         const explanation = toolSummaries[tool.name]
@@ -1085,9 +1140,46 @@ function renderPipelineTools(){
     }
 }
 
-function handlePipelineEvent(event){
+function recordPipelineFailure(record){
+    const identity = record.invocationId || `${record.stage || "request"}:${record.tool || ""}`;
+    if(pipelineFailureRecords.some((existing) => existing.identity === identity)) return;
+    pipelineFailureRecords.push({...record, identity});
+}
+
+function renderPipelineFailureDetails(){
+    const details = document.getElementById("pipeline-failure-details");
+    const list = document.getElementById("pipeline-failure-list");
+    if(!details || !list) return;
+    list.replaceChildren();
+
+    for(const failure of pipelineFailureRecords){
+        const item = document.createElement("li");
+        const stageName = pipelineStageLabels[failure.stage] || "Request processing";
+        const toolLabel = failure.tool ? ` · Tool: ${failure.tool}` : "";
+        const reason = failure.tool
+            ? `The ${failure.tool} tool reported that it could not complete this step.`
+            : "This part of the request could not finish.";
+        const retry = typeof failure.retryable === "boolean"
+            ? (failure.retryable ? " Retry may be possible." : " This operation is not marked as retryable.")
+            : " Retry availability was not reported.";
+        item.textContent = `${stageName}${toolLabel} — ${reason}${retry}`;
+        list.appendChild(item);
+    }
+    details.hidden = pipelineFailureRecords.length === 0;
+}
+
+function handlePipelineEvent(event, requestId){
+    if(requestId !== activePipelineRequestId || !pipelineRequestRunning) return;
+
     if(event.type === "stage"){
         setPipelineStage(event.stage, event.status, event);
+        if(event.status === "failed"){
+            pipelineToolFailed = event.stage === "tool_execution" || pipelineToolFailed;
+            recordPipelineFailure({
+                stage: event.stage,
+                retryable: typeof event.retryable === "boolean" ? event.retryable : undefined
+            });
+        }
         if(event.stage === "generating_response" && pipelineUsesTools){
             const activeTool = Array.from(pipelineTools.values()).some(
                 (tool) => tool.status === "started"
@@ -1151,6 +1243,12 @@ function handlePipelineEvent(event){
         });
         if(event.status === "failed"){
             pipelineToolFailed = true;
+            recordPipelineFailure({
+                stage: "tool_execution",
+                tool: event.name,
+                invocationId: id,
+                retryable: typeof event.retryable === "boolean" ? event.retryable : undefined
+            });
         }
         renderPipelineTools();
         if(event.status === "started"){
@@ -1163,18 +1261,14 @@ function handlePipelineEvent(event){
 
     if(event.type === "request_completed"){
         setPipelineStage("completed", "completed", event);
-        const status = document.getElementById("pipeline-status");
-        if(status) status.textContent = "CYN-X Core completed the request";
-        const cancelButton = document.getElementById("pipeline-cancel");
-        if(cancelButton) cancelButton.disabled = true;
+        finishPipeline(pipelineFailureRecords.length ? "partial" : "success", requestId);
         return;
     }
 
     if(event.type === "cancel_requested"){
         const status = document.getElementById("pipeline-status");
         if(status){
-            status.textContent =
-                "Cancellation requested; the current Core or tool operation must finish first.";
+            status.textContent = "Cancellation requested. CYN-X will stop at the next safe point.";
         }
         const cancelButton = document.getElementById("pipeline-cancel");
         if(cancelButton) cancelButton.disabled = true;
@@ -1183,34 +1277,210 @@ function handlePipelineEvent(event){
 
     if(event.type === "request_cancelled"){
         document.querySelectorAll('.pipeline-stage[data-status="active"]').forEach(
-            (active) => {
-                active.dataset.status = "cancelled";
-                const state = active.querySelector(".stage-state");
-                if(state) state.textContent = pipelineStateLabels.cancelled;
-            }
+            (active) => setPipelineStage(active.dataset.stage, "cancelled", event)
         );
+        const finalLabel = document.querySelector('.pipeline-stage[data-stage="completed"] .stage-label');
+        if(finalLabel) finalLabel.textContent = "Request cancelled";
         setPipelineStage("completed", "cancelled", event);
-        const status = document.getElementById("pipeline-status");
-        if(status) status.textContent = event.message || "Request cancelled.";
-        const cancelButton = document.getElementById("pipeline-cancel");
-        if(cancelButton) cancelButton.disabled = true;
+        finishPipeline("cancelled", requestId);
         return;
     }
 
     if(event.type === "request_failed"){
-        document.querySelectorAll('.pipeline-stage[data-status="active"]').forEach(
-            (active) => {
-                active.dataset.status = "failed";
-                const state = active.querySelector(".stage-state");
-                if(state) state.textContent = pipelineStateLabels.failed;
-            }
+        const activeStages = Array.from(
+            document.querySelectorAll('.pipeline-stage[data-status="active"]')
         );
+        if(activeStages.length){
+            activeStages.forEach((active) => {
+                recordPipelineFailure({stage: active.dataset.stage});
+                setPipelineStage(active.dataset.stage, "failed", event);
+            });
+        }
+        if(!pipelineFailureRecords.length){
+            recordPipelineFailure({stage: "completed"});
+        }
+        const finalLabel = document.querySelector('.pipeline-stage[data-stage="completed"] .stage-label');
+        if(finalLabel) finalLabel.textContent = "Request failed";
         setPipelineStage("completed", "failed", event);
-        const status = document.getElementById("pipeline-status");
-        if(status) status.textContent = event.message || "CYN-X Core could not complete this request.";
-        const cancelButton = document.getElementById("pipeline-cancel");
-        if(cancelButton) cancelButton.disabled = true;
+        finishPipeline("failure", requestId);
     }
+}
+
+function clearPipelineDismissTimers(){
+    if(pipelineDismissTimeout) clearTimeout(pipelineDismissTimeout);
+    if(pipelineDismissInterval) clearInterval(pipelineDismissInterval);
+    pipelineDismissTimeout = null;
+    pipelineDismissInterval = null;
+    pipelineDismissAt = 0;
+}
+
+function updatePipelineRetentionMessage(){
+    const message = document.getElementById("pipeline-retention-message");
+    const resume = document.getElementById("pipeline-resume");
+    if(!message) return;
+    if(pipelineRequestRunning){
+        message.textContent = "This request is still running.";
+        if(resume) resume.hidden = true;
+    }else if(pipelinePinned){
+        message.textContent = "Kept open until you dismiss it.";
+        if(resume) resume.hidden = true;
+    }else if(pipelineDismissPaused){
+        message.textContent = "Auto-close paused while you read. Resume it or dismiss this panel.";
+        if(resume) resume.hidden = false;
+    }else if(pipelineDismissAt){
+        const seconds = Math.max(0, Math.ceil((pipelineDismissAt - Date.now()) / 1000));
+        message.textContent = `This previous request will close in ${seconds} seconds.`;
+        if(resume) resume.hidden = true;
+    }
+}
+
+function schedulePipelineDismiss(delayMs){
+    clearPipelineDismissTimers();
+    if(pipelineRequestRunning || pipelinePinned || pipelineDismissPaused) return;
+    pipelineRemainingMs = Math.max(0, delayMs);
+    pipelineDismissAt = Date.now() + pipelineRemainingMs;
+    updatePipelineRetentionMessage();
+    pipelineDismissTimeout = setTimeout(() => dismissPipeline(), pipelineRemainingMs);
+    pipelineDismissInterval = setInterval(updatePipelineRetentionMessage, 250);
+}
+
+function pausePipelineAutoDismiss(){
+    if(pipelineRequestRunning || pipelinePinned || pipelineDismissPaused || !pipelineDismissAt) return;
+    pipelineRemainingMs = Math.max(0, pipelineDismissAt - Date.now());
+    pipelineDismissPaused = true;
+    clearPipelineDismissTimers();
+    updatePipelineRetentionMessage();
+}
+
+function resumePipelineAutoDismiss(){
+    if(pipelineRequestRunning || pipelinePinned) return;
+    pipelineDismissPaused = false;
+    if(pipelineRemainingMs <= 0){
+        dismissPipeline();
+        return;
+    }
+    schedulePipelineDismiss(pipelineRemainingMs);
+}
+
+function togglePipelineKeepOpen(){
+    const button = document.getElementById("pipeline-keep-open");
+    if(!button || pipelineRequestRunning) return;
+    pipelinePinned = !pipelinePinned;
+    button.setAttribute("aria-pressed", String(pipelinePinned));
+    button.textContent = pipelinePinned ? "Unpin panel" : "Keep open";
+    if(pipelinePinned){
+        pipelineRemainingMs = pipelineDismissAt
+            ? Math.max(0, pipelineDismissAt - Date.now())
+            : pipelineRemainingMs;
+        clearPipelineDismissTimers();
+        pipelineDismissPaused = false;
+        updatePipelineRetentionMessage();
+    }else{
+        pipelineDismissPaused = false;
+        schedulePipelineDismiss(pipelineRemainingMs || PIPELINE_SUCCESS_RETENTION_MS);
+    }
+}
+
+function dismissPipeline(){
+    if(pipelineRequestRunning) return;
+    clearPipelineDismissTimers();
+    const panel = document.getElementById("thinking");
+    if(panel){
+        panel.style.display = "none";
+        panel.setAttribute("aria-hidden", "true");
+    }
+    pipelinePinned = false;
+    pipelineDismissPaused = false;
+    if(pipelineReturnFocus && typeof pipelineReturnFocus.focus === "function"){
+        pipelineReturnFocus.focus();
+    }
+}
+
+function finishPipeline(outcome, requestId){
+    if(requestId !== activePipelineRequestId || !pipelineRequestRunning) return;
+    pipelineRequestRunning = false;
+    const panelElement = document.getElementById("thinking");
+    if(panelElement) panelElement.setAttribute("aria-busy", "false");
+    clearInterval(timerInterval);
+    if(startTime){
+        updateTimer();
+        lastResponseTime = (performance.now() - startTime) / 1000;
+        updateResponseTime();
+    }
+
+    const cancelButton = document.getElementById("pipeline-cancel");
+    if(cancelButton) cancelButton.disabled = true;
+    const dismiss = document.getElementById("pipeline-dismiss");
+    if(dismiss) dismiss.hidden = false;
+    const keepOpen = document.getElementById("pipeline-keep-open");
+    if(keepOpen) keepOpen.hidden = false;
+    const viewState = document.getElementById("pipeline-view-state");
+    if(viewState){
+        viewState.textContent = outcome === "failure"
+            ? "PREVIOUS REQUEST · FAILED"
+            : outcome === "cancelled"
+                ? "PREVIOUS REQUEST · CANCELLED"
+                : outcome === "partial"
+                    ? "PREVIOUS REQUEST · PARTIAL RESULTS"
+                    : "PREVIOUS REQUEST · COMPLETED";
+    }
+
+    const panel = document.getElementById("pipeline-outcome");
+    const title = document.getElementById("pipeline-outcome-title");
+    const message = document.getElementById("pipeline-outcome-message");
+    const status = document.getElementById("pipeline-status");
+    if(panel){
+        panel.hidden = false;
+        panel.dataset.kind = outcome;
+    }
+    if(outcome === "success"){
+        if(title) title.textContent = "Completed successfully";
+        if(message) message.textContent = "CYN-X finished the request and generated a response.";
+        if(status) status.textContent = "Request completed successfully.";
+    }else if(outcome === "partial"){
+        if(title) title.textContent = "Completed with partial results";
+        if(message) message.textContent = "CYN-X returned a response, but one or more tools failed. Some results may be incomplete.";
+        if(status) status.textContent = "Request completed with partial results.";
+    }else if(outcome === "cancelled"){
+        if(title) title.textContent = "Request cancelled";
+        if(message) message.textContent = "CYN-X stopped this request. It was not treated as a failure.";
+        if(status) status.textContent = "Request was cancelled.";
+    }else{
+        if(title) title.textContent = "Request could not be completed";
+        if(message) message.textContent = "CYN-X couldn't finish this request. Inspect the details to see which stage or tool stopped.";
+        if(status) status.textContent = "Request failed before a response was ready.";
+    }
+    renderPipelineFailureDetails();
+
+    pipelineDismissPaused = false;
+    pipelinePinned = false;
+    if(keepOpen){
+        keepOpen.setAttribute("aria-pressed", "false");
+        keepOpen.textContent = "Keep open";
+    }
+    const retentionMs = outcome === "failure" || outcome === "partial"
+        ? PIPELINE_FAILURE_RETENTION_MS
+        : outcome === "cancelled"
+            ? PIPELINE_CANCEL_RETENTION_MS
+            : PIPELINE_SUCCESS_RETENTION_MS;
+    pipelineRemainingMs = retentionMs;
+    schedulePipelineDismiss(retentionMs);
+}
+
+function markPipelineRequestFailed(requestId){
+    if(requestId !== activePipelineRequestId || !pipelineRequestRunning) return;
+    const activeStages = Array.from(
+        document.querySelectorAll('.pipeline-stage[data-status="active"]')
+    );
+    activeStages.forEach((active) => {
+        recordPipelineFailure({stage: active.dataset.stage});
+        setPipelineStage(active.dataset.stage, "failed");
+    });
+    if(!pipelineFailureRecords.length) recordPipelineFailure({stage: null});
+    const finalLabel = document.querySelector('.pipeline-stage[data-stage="completed"] .stage-label');
+    if(finalLabel) finalLabel.textContent = "Request failed";
+    setPipelineStage("completed", "failed");
+    finishPipeline("failure", requestId);
 }
 
 async function watchPipelineEvents(requestId, signal){
@@ -1220,13 +1490,13 @@ async function watchPipelineEvents(requestId, signal){
             `/chat/events/${encodeURIComponent(requestId)}?after=${cursor}`,
             {signal}
         );
-        if(!response.ok) throw new Error("Could not read CYN-X Core events.");
+        if(!response.ok) throw new Error("Could not read request events.");
 
         const data = await response.json();
         for(const event of data.events || []){
             cursor = Math.max(cursor, event.id);
             if(requestId === activePipelineRequestId){
-                handlePipelineEvent(event);
+                handlePipelineEvent(event, requestId);
             }
         }
         if(data.done) return true;
@@ -1236,10 +1506,19 @@ async function watchPipelineEvents(requestId, signal){
 }
 
 function startLoading(requestId){
-    const thinking = document.getElementById("thinking");
-    if(thinking) thinking.style.display = "flex";
+    const panel = document.getElementById("thinking");
+    if(panel){
+        if(!panel.contains(document.activeElement)) pipelineReturnFocus = document.activeElement;
+        panel.style.display = "flex";
+    }
     activePipelineRequestId = requestId;
+    pipelineRequestRunning = true;
     resetPipeline();
+    if(panel){
+        panel.removeAttribute("aria-hidden");
+        panel.setAttribute("aria-busy", "true");
+        panel.focus({preventScroll: true});
+    }
     startTime = performance.now();
     clearInterval(timerInterval);
     updateTimer();
@@ -1248,16 +1527,16 @@ function startLoading(requestId){
 
 function stopLoading(requestId){
     if(requestId !== activePipelineRequestId) return;
-    const thinking = document.getElementById("thinking");
-    if(thinking) thinking.style.display = "none";
-    if(startTime) lastResponseTime = (performance.now() - startTime) / 1000;
-    clearInterval(timerInterval);
-    updateResponseTime();
+    if(startTime){
+        clearInterval(timerInterval);
+        lastResponseTime = (performance.now() - startTime) / 1000;
+        updateResponseTime();
+    }
 }
 
 async function cancelActiveRequest(){
     const requestId = activePipelineRequestId;
-    if(!requestId) return;
+    if(!requestId || !pipelineRequestRunning) return;
 
     const cancelButton = document.getElementById("pipeline-cancel");
     if(cancelButton) cancelButton.disabled = true;
@@ -1272,25 +1551,16 @@ async function cancelActiveRequest(){
         if(!result.requested && requestId === activePipelineRequestId){
             const status = document.getElementById("pipeline-status");
             if(status) status.textContent = "This request has already finished.";
-        }
-    }catch(error){
-        if(requestId === activePipelineRequestId){
-            const status = document.getElementById("pipeline-status");
-            if(status) status.textContent = error.message;
-            const cancelButton = document.getElementById("pipeline-cancel");
             if(cancelButton) cancelButton.disabled = true;
+        }
+    }catch(_error){
+        if(requestId === activePipelineRequestId && pipelineRequestRunning){
+            const status = document.getElementById("pipeline-status");
+            if(status) status.textContent = "CYN-X could not confirm the cancellation request.";
             if(cancelButton) cancelButton.disabled = false;
         }
     }
 }
-
-
-
-
-
-
-
-
 
 function updateTimer(){
 
@@ -1419,307 +1689,90 @@ function updateResponseTime(){
 
 
 async function send(){
+    const input = document.getElementById("message");
+    const text = input.value.trim();
+    if(!text) return;
 
-
-
-
-
-    const input =
-
-        document.getElementById(
-
-            "message"
-
-        );
-
-
-
-
-
-    const text =
-
-        input.value.trim();
-
-
-
-
-
-    if(!text)
-
-        return;
-
-
-
-
-
-    addMessage(
-
-        "You: " + text
-
-    );
-
-
-
-
-
+    addMessage("You: " + text);
     input.value = "";
-
-
-
-
 
     const requestId = window.crypto && window.crypto.randomUUID
         ? window.crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const eventController = new AbortController();
     startLoading(requestId);
-    const pipelinePromise = watchPipelineEvents(
-        requestId,
-        eventController.signal
-    ).catch((error) => {
-        if(!eventController.signal.aborted && requestId === activePipelineRequestId){
-            document.querySelectorAll('.pipeline-stage[data-status="active"]').forEach(
-                (active) => setPipelineStage(active.dataset.stage, "failed")
-            );
-            setPipelineStage("completed", "failed");
-            const status = document.getElementById("pipeline-status");
-            if(status) status.textContent = error.message;
-        }
-        return false;
-    });
-
-
-
-
+    const pipelinePromise = watchPipelineEvents(requestId, eventController.signal)
+        .catch(() => {
+            if(requestId === activePipelineRequestId && pipelineRequestRunning){
+                const status = document.getElementById("pipeline-status");
+                if(status) status.textContent = "Live updates paused; waiting for the request result.";
+            }
+            return false;
+        });
 
     try{
-
-
-
-        // --------------------------
-
-        // Get active prompt layers
-
-        // --------------------------
-
-
-
-        const promptLayers =
-
-            getPromptLayers();
-
-
-
-
-
-        const responsePromise = fetch(
-
-                "/chat",
-
-                {
-
-                    method:"POST",
-
-
-
-                    headers:{
-
-                        "Content-Type":
-
-                        "application/json"
-
-                    },
-
-
-
-                    body:
-
-                    JSON.stringify({
-
-                        message: text,
-
-                        prompt_layers:
-                            promptLayers,
-                        request_id: requestId
-
-                    })
-
-
-
-                }
-
-            );
-
-        const fetchedResponse = await responsePromise;
-
-
-
-
-
-        const data =
-
-            await fetchedResponse.json();
-
-        if(!fetchedResponse.ok){
-            throw new Error(
-                data.detail || "CYN-X Core could not complete this request."
-            );
-        }
+        const response = await fetch("/chat", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                message: text,
+                prompt_layers: getPromptLayers(),
+                request_id: requestId
+            })
+        });
+        let data = {};
+        try { data = await response.json(); } catch(_error) { data = {}; }
 
         await pipelinePromise;
+        if(!response.ok){
+            if(pipelineRequestRunning && requestId === activePipelineRequestId){
+                markPipelineRequestFailed(requestId);
+            }
+            throw new Error("CYN-X couldn't complete this request. See the pipeline for details.");
+        }
 
         if(data.cancelled){
             addMessage("[Request cancelled.]");
+            if(requestId === activePipelineRequestId && pipelineRequestRunning){
+                const finalLabel = document.querySelector('.pipeline-stage[data-stage="completed"] .stage-label');
+                if(finalLabel) finalLabel.textContent = "Request cancelled";
+                setPipelineStage("completed", "cancelled");
+                finishPipeline("cancelled", requestId);
+            }
             stopLoading(requestId);
             return;
         }
 
+        if(requestId === activePipelineRequestId && pipelineRequestRunning){
+            setPipelineStage("completed", "completed");
+            finishPipeline(pipelineFailureRecords.length ? "partial" : "success", requestId);
+        }
 
-
-
-
-        // --------------------------
-
-        // Sync returned layer state
-
-        // --------------------------
-
-
-
-        if(
-
-            data.prompt_layers
-
-        ){
-
-
-
-            setPromptLayers(
-
-                data.prompt_layers
-
-            );
-
-
-
+        if(data.prompt_layers){
+            setPromptLayers(data.prompt_layers);
             detectPromptPreset();
-
-
-
         }
 
-
-
-
-
-        const cynResponse =
-
-            data.response;
-
-
-
-        if (
-
-            cynResponse &&
-
-            typeof cynResponse === "object"
-
-        ) {
-
-            addMessage(
-
-                "Cyn: " +
-
-                (cynResponse.text || "")
-
-            );
-
-
-
-            if (cynResponse.chart) {
-
-                addChart(
-
-                    cynResponse.chart
-
-                );
-
-            }
-
+        const cynResponse = data.response;
+        if(cynResponse && typeof cynResponse === "object"){
+            addMessage("Cyn: " + (cynResponse.text || ""));
+            if(cynResponse.chart) addChart(cynResponse.chart);
+        }else{
+            addMessage("Cyn: " + (cynResponse || ""));
         }
-
-        else {
-
-            addMessage(
-
-                "Cyn: "
-
-                +
-
-                (cynResponse || "")
-
-            );
-
-        }
-
         stopLoading(requestId);
-
-
-
-
-    }
-
-
-
-
-
-    catch(error){
-
+    }catch(_error){
+        await pipelinePromise;
+        if(pipelineRequestRunning && requestId === activePipelineRequestId){
+            markPipelineRequestFailed(requestId);
+        }
         eventController.abort();
-        const active = document.querySelector(
-            '.pipeline-stage[data-status="active"]'
-        );
-        if(active && requestId === activePipelineRequestId){
-            setPipelineStage(active.dataset.stage, "failed");
-            setPipelineStage("completed", "failed");
-            const status = document.getElementById("pipeline-status");
-            if(status) status.textContent = error.message;
-        }
         stopLoading(requestId);
-
-
-
-        addMessage(
-
-            "[ERROR] "
-
-            +
-
-            error.message
-
-        );
-
-
-
+        addMessage("[ERROR] CYN-X couldn't complete this request. See the request pipeline for details.");
+    }finally{
+        eventController.abort();
     }
-
-
-
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-// ==========================
 
 // CHAT DISPLAY
 
@@ -2144,6 +2197,46 @@ window.onload = function(){
     const cancelButton = document.getElementById("pipeline-cancel");
     if(cancelButton){
         cancelButton.addEventListener("click", cancelActiveRequest);
+    }
+
+    const keepOpenButton = document.getElementById("pipeline-keep-open");
+    if(keepOpenButton) keepOpenButton.addEventListener("click", togglePipelineKeepOpen);
+    const resumeButton = document.getElementById("pipeline-resume");
+    if(resumeButton) resumeButton.addEventListener("click", resumePipelineAutoDismiss);
+    const dismissButton = document.getElementById("pipeline-dismiss");
+    if(dismissButton) dismissButton.addEventListener("click", dismissPipeline);
+
+    const pipelinePanel = document.getElementById("thinking");
+    if(pipelinePanel){
+        pipelinePanel.addEventListener("pointerdown", pausePipelineAutoDismiss);
+        pipelinePanel.addEventListener("wheel", pausePipelineAutoDismiss, {passive: true});
+        pipelinePanel.addEventListener("focusin", pausePipelineAutoDismiss);
+        pipelinePanel.addEventListener("keydown", (event) => {
+            pausePipelineAutoDismiss();
+            if(event.key === "Escape" && !pipelineRequestRunning){
+                event.preventDefault();
+                dismissPipeline();
+                return;
+            }
+            if(event.key !== "Tab") return;
+            const focusable = Array.from(pipelinePanel.querySelectorAll(
+                'button:not(:disabled):not([hidden]), summary, [tabindex]:not([tabindex="-1"])'
+            )).filter((element) => !element.hidden && element.getClientRects().length > 0);
+            if(!focusable.length){
+                event.preventDefault();
+                pipelinePanel.focus();
+                return;
+            }
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if(event.shiftKey && (document.activeElement === first || document.activeElement === pipelinePanel)){
+                event.preventDefault();
+                last.focus();
+            }else if(!event.shiftKey && document.activeElement === last){
+                event.preventDefault();
+                first.focus();
+            }
+        });
     }
 
 
