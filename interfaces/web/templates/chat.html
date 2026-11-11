@@ -399,47 +399,62 @@
                         <span class="pipeline-live">LIVE REQUEST TRACE</span>
                     </div>
 
-                    <div class="system-header" id="pipeline-title">
-                        REQUEST PIPELINE
+                    <div class="pipeline-heading">
+                        <div class="pipeline-heading-copy">
+                            <div class="pipeline-title-row">
+                                <span class="pipeline-paw" aria-hidden="true">🐾</span>
+                                <div class="system-header" id="pipeline-title">
+                                    REQUEST PIPELINE
+                                </div>
+                            </div>
+                            <div
+                                id="pipeline-status"
+                                class="pipeline-status"
+                                role="status"
+                                aria-live="polite"
+                            >Waiting for request events</div>
+                        </div>
+                        <aside
+                            class="pipeline-mascot-slot"
+                            aria-label="CYN-X mascot artwork"
+                        ></aside>
                     </div>
-                    <div
-                        id="pipeline-status"
-                        class="pipeline-status"
-                        role="status"
-                        aria-live="polite"
-                    >Waiting for request events</div>
-                    <button id="pipeline-cancel" class="pipeline-cancel" type="button">
-                        Cancel request <span aria-hidden="true">×</span>
-                    </button>
+                    <div class="pipeline-actions">
+                        <span class="pipeline-request-state">CORE STATUS</span>
+                        <button id="pipeline-cancel" class="pipeline-cancel" type="button">
+                            <span class="cancel-icon" aria-hidden="true">×</span>
+                            Cancel request
+                        </button>
+                    </div>
 
                     <ol id="decision-pipeline" class="decision-pipeline">
                         <li class="pipeline-stage" data-stage="request_received" data-status="pending">
-                            <span class="stage-indicator" aria-hidden="true"></span>
+                            <span class="stage-indicator" data-step="01" aria-hidden="true"></span>
                             <span class="stage-label">Request received</span>
                             <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
                         <li class="pipeline-stage" data-stage="understanding" data-status="pending">
-                            <span class="stage-indicator" aria-hidden="true"></span>
+                            <span class="stage-indicator" data-step="02" aria-hidden="true"></span>
                             <span class="stage-label">Understanding request and context</span>
                             <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
                         <li class="pipeline-stage" data-stage="evaluating_capabilities" data-status="pending">
-                            <span class="stage-indicator" aria-hidden="true"></span>
+                            <span class="stage-indicator" data-step="03" aria-hidden="true"></span>
                             <span class="stage-label">Evaluating available capabilities</span>
                             <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
                         <li class="pipeline-stage" data-stage="decision" data-status="pending">
-                            <span class="stage-indicator" aria-hidden="true"></span>
+                            <span class="stage-indicator" data-step="04" aria-hidden="true"></span>
                             <span class="stage-label">Decision</span>
                             <span class="stage-state">Pending</span>
                             <div class="stage-detail"></div>
                             <time class="stage-time"></time>
                         </li>
                         <li class="pipeline-stage" data-stage="tool_execution" data-status="pending">
-                            <span class="stage-indicator" aria-hidden="true"></span>
+                            <span class="stage-indicator" data-step="05" aria-hidden="true"></span>
                             <span class="stage-label">Tool execution</span>
                             <span class="stage-state">Pending</span>
                             <div class="stage-detail"></div>
@@ -447,13 +462,13 @@
                             <time class="stage-time"></time>
                         </li>
                         <li class="pipeline-stage" data-stage="generating_response" data-status="pending">
-                            <span class="stage-indicator" aria-hidden="true"></span>
+                            <span class="stage-indicator" data-step="06" aria-hidden="true"></span>
                             <span class="stage-label">Generating response</span>
                             <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
                         </li>
                         <li class="pipeline-stage" data-stage="completed" data-status="pending">
-                            <span class="stage-indicator" aria-hidden="true"></span>
+                            <span class="stage-indicator" data-step="07" aria-hidden="true"></span>
                             <span class="stage-label">Completed</span>
                             <span class="stage-state">Pending</span>
                             <time class="stage-time"></time>
