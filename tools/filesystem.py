@@ -12,6 +12,32 @@ class FilesystemTool(BaseTool):
     name = 'filesystem'
     description = 'Read files within an allowed directory (read-only).'
 
+    def schema(self):
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": (
+                    "List directories or read text files within the project "
+                    "root. Read-only; paths outside the project root are denied."
+                ),
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": (
+                                "Path relative to the repository root, or an "
+                                "absolute path within it. For the repository's "
+                                "tools directory, use 'tools' (not 'project/tools')."
+                            )
+                        }
+                    },
+                    "required": ["path"]
+                }
+            }
+        }
+
     def _resolve_target(self, raw_path: str) -> Path:
         candidate = Path(raw_path).expanduser()
         if not candidate.is_absolute():
@@ -27,6 +53,12 @@ class FilesystemTool(BaseTool):
         return path.read_text(encoding='utf-8', errors='replace')
 
     def call(self, args: Dict) -> ToolResult:
+        unsupported_arguments = set(args) - {'path'}
+        if unsupported_arguments:
+            return ToolResult(
+                False,
+                'Filesystem tool is read-only and accepts only a path.'
+            )
         path = args.get('path')
         if not path:
             return ToolResult(False, 'No path provided')

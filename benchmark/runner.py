@@ -40,6 +40,7 @@ from memory.memory import MemoryManager
 from memory.sqlite import connect as sqlite_connect
 
 from tools.calculator import CalculatorTool
+from tools.filesystem import FilesystemTool
 from tools.tool_router import ToolRouter
 from tools.web_search import WebSearchTool
 
@@ -2027,9 +2028,11 @@ def create_cynx_engine():
     )
 
     tool_router.register_tool(
-
         CalculatorTool()
+    )
 
+    tool_router.register_tool(
+        FilesystemTool()
     )
 
     console.print(

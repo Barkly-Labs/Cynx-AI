@@ -37,6 +37,7 @@ from tools.web_search import WebSearchTool
 from tools.calculator import CalculatorTool
 from tools.SmokeCounterTool import smoke_counter
 from tools.ChartTool import chart_tool
+from tools.filesystem import FilesystemTool
 
 
 
@@ -115,6 +116,10 @@ tool_router.register_tool(
 
 tool_router.register_tool(
     CalculatorTool()
+)
+
+tool_router.register_tool(
+    FilesystemTool()
 )
 
 
