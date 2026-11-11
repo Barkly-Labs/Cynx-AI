@@ -777,35 +777,8 @@ function initializePromptLayers(){
 
 
 
-                if(
-
-                    content.style.display ===
-
-                    "none"
-
-                ){
-
-
-
-                    content.style.display =
-
-                        "block";
-
-
-
-                }
-
-                else{
-
-
-
-                    content.style.display =
-
-                        "none";
-
-
-
-                }
+                content.hidden = !content.hidden;
+                toggleButton.setAttribute("aria-expanded", String(!content.hidden));
 
 
 
@@ -1508,7 +1481,6 @@ async function watchPipelineEvents(requestId, signal){
 function startLoading(requestId){
     const panel = document.getElementById("thinking");
     if(panel){
-        if(!panel.contains(document.activeElement)) pipelineReturnFocus = document.activeElement;
         panel.style.display = "flex";
     }
     activePipelineRequestId = requestId;
@@ -1517,7 +1489,6 @@ function startLoading(requestId){
     if(panel){
         panel.removeAttribute("aria-hidden");
         panel.setAttribute("aria-busy", "true");
-        panel.focus({preventScroll: true});
     }
     startTime = performance.now();
     clearInterval(timerInterval);
@@ -1691,7 +1662,7 @@ function updateResponseTime(){
 async function send(){
     const input = document.getElementById("message");
     const text = input.value.trim();
-    if(!text) return;
+    if(!text || pipelineRequestRunning) return;
 
     addMessage("You: " + text);
     input.value = "";
@@ -1701,6 +1672,9 @@ async function send(){
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const eventController = new AbortController();
     startLoading(requestId);
+    if(window.CynxShell) window.CynxShell.setRequestBusy(true);
+    const generationStatus = document.getElementById("generation-status");
+    if(generationStatus) generationStatus.hidden = false;
     const pipelinePromise = watchPipelineEvents(requestId, eventController.signal)
         .catch(() => {
             if(requestId === activePipelineRequestId && pipelineRequestRunning){
@@ -1717,7 +1691,8 @@ async function send(){
             body: JSON.stringify({
                 message: text,
                 prompt_layers: getPromptLayers(),
-                request_id: requestId
+                request_id: requestId,
+                conversation_id: window.CynxShell ? window.CynxShell.conversationId() : undefined
             })
         });
         let data = {};
@@ -1771,6 +1746,8 @@ async function send(){
         addMessage("[ERROR] CYN-X couldn't complete this request. See the request pipeline for details.");
     }finally{
         eventController.abort();
+        if(window.CynxShell) window.CynxShell.setRequestBusy(false);
+        if(generationStatus) generationStatus.hidden = true;
     }
 }
 
@@ -2133,6 +2110,7 @@ function addMessage(message) {
     div.className = "message";
 
     if (message.startsWith("You:")) {
+        div.dataset.role = "user";
 
         const text = message.substring(4);
 
@@ -2149,6 +2127,7 @@ function addMessage(message) {
     }
 
     else if (message.startsWith("Cyn:")) {
+        div.dataset.role = "assistant";
 
         const text = message.substring(4);
 
@@ -2173,6 +2152,7 @@ function addMessage(message) {
     chat.appendChild(div);
 
     chat.scrollTop = chat.scrollHeight;
+    if(window.CynxShell) window.CynxShell.recordMessage(message);
 
 }
 
@@ -2210,31 +2190,17 @@ window.onload = function(){
     if(pipelinePanel){
         pipelinePanel.addEventListener("pointerdown", pausePipelineAutoDismiss);
         pipelinePanel.addEventListener("wheel", pausePipelineAutoDismiss, {passive: true});
-        pipelinePanel.addEventListener("focusin", pausePipelineAutoDismiss);
+        pipelinePanel.addEventListener("focusin", (event) => {
+            if(!pipelinePanel.contains(event.relatedTarget) && event.relatedTarget instanceof HTMLElement){
+                pipelineReturnFocus = event.relatedTarget;
+            }
+            pausePipelineAutoDismiss();
+        });
         pipelinePanel.addEventListener("keydown", (event) => {
             pausePipelineAutoDismiss();
             if(event.key === "Escape" && !pipelineRequestRunning){
                 event.preventDefault();
                 dismissPipeline();
-                return;
-            }
-            if(event.key !== "Tab") return;
-            const focusable = Array.from(pipelinePanel.querySelectorAll(
-                'button:not(:disabled):not([hidden]), summary, [tabindex]:not([tabindex="-1"])'
-            )).filter((element) => !element.hidden && element.getClientRects().length > 0);
-            if(!focusable.length){
-                event.preventDefault();
-                pipelinePanel.focus();
-                return;
-            }
-            const first = focusable[0];
-            const last = focusable[focusable.length - 1];
-            if(event.shiftKey && (document.activeElement === first || document.activeElement === pipelinePanel)){
-                event.preventDefault();
-                last.focus();
-            }else if(!event.shiftKey && document.activeElement === last){
-                event.preventDefault();
-                first.focus();
             }
         });
     }
@@ -2267,14 +2233,9 @@ window.onload = function(){
 
 
 
-                if(
-
-                    event.key === "Enter"
-
-                ){
-
+                if(event.key === "Enter" && !event.shiftKey && !event.isComposing){
+                    event.preventDefault();
                     send();
-
                 }
 
 

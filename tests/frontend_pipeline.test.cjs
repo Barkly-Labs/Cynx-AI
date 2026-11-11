@@ -311,5 +311,6 @@ test("markup keeps accessible diagnostics controls and the seven existing stages
     assert.match(html,/id="pipeline-dismiss"[^>]*aria-label=/);
     assert.match(html,/id="pipeline-keep-open"[^>]*aria-pressed=/);
     assert.match(html,/id="pipeline-failure-details"[^>]*hidden/);
-    assert.match(html,/aria-modal="true"/);
+    assert.match(html,/role="region"/);
+    assert.doesNotMatch(html,/aria-modal=/);
 });

@@ -674,6 +674,7 @@ class ChatEngine:
         pipeline_callback=None,
         cancellation_check=None,
         trace_callback=None,
+        conversation_key: Optional[str] = None,
     ) -> str:
 
         """
@@ -1055,7 +1056,7 @@ class ChatEngine:
         # and the current user turn. This preserves short-term continuity
         # while leaving long-term memory in the existing memory system.
         history = self.conversation_history.setdefault(
-            user_id,
+            conversation_key or user_id,
             []
         )
 

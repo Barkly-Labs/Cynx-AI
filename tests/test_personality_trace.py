@@ -58,3 +58,22 @@ def test_chat_engine_trace_captures_actual_context_routing_and_final_response():
     assert request["messages"][-1] == {"role": "user", "content": "A real benchmark question"}
     final = next(event for event in events if event["stage"] == "response_transformation")
     assert final["original_model_output"] == final["final_user_facing_response"] == result
+
+
+def test_chat_engine_keeps_browser_conversation_histories_separate():
+    engine = ChatEngine(
+        ollama_client=_Ollama(), prompt_builder=_PromptBuilder(), memory_store=None,
+        tool_router=_Tools(), mode_manager=None, context_manager=None,
+    )
+    first_key = "web_user:conversation-one"
+    second_key = "web_user:conversation-two"
+
+    engine.handle_user_message("web_user", "First session message", conversation_key=first_key)
+    second_messages = []
+    engine.ollama.chat = lambda messages, tools=None, **kwargs: (
+        second_messages.extend(messages) or {"message": {"content": "Second session answer"}}
+    )
+    engine.handle_user_message("web_user", "Separate session message", conversation_key=second_key)
+
+    assert all("First session message" not in message.get("content", "") for message in second_messages)
+    assert any("First session message" in message.get("content", "") for message in engine.conversation_history[first_key])

@@ -548,6 +548,12 @@ async def _dispatch_chat(data: dict):
         ""
     )
 
+    try:
+        conversation_id = str(uuid.UUID(str(data.get("conversation_id"))))
+        conversation_key = f"web_user:{conversation_id}"
+    except (ValueError, TypeError, AttributeError):
+        conversation_key = "web_user"
+
 
     prompt_preset = data.get(
         "prompt_preset",
@@ -610,6 +616,7 @@ async def _dispatch_chat(data: dict):
                         request_id
                     ),
                     trace_callback=personality_trace_callback,
+                    conversation_key=conversation_key,
                 )
                 elapsed = round(time.perf_counter() - start, 3)
                 pipeline_events.publish(request_id, "request_completed")

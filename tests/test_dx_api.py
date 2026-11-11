@@ -21,6 +21,23 @@ def test_dx_shell_and_real_benchmark_catalog_are_served():
     assert len(questions.json()["cases"]) == 27
 
 
+def test_main_chat_redesign_serves_existing_controls_and_shared_assets():
+    client = TestClient(web_app.app)
+    page = client.get("/")
+    theme = client.get("/static/cynx-theme.css")
+    shell = client.get("/static/chat-shell.css")
+    script = client.get("/static/chat-shell.js")
+    chat_script = client.get("/static/chat.js")
+
+    assert page.status_code == theme.status_code == shell.status_code == script.status_code == chat_script.status_code == 200
+    assert 'id="message"' in page.text and "<textarea" in page.text
+    assert 'id="sendButton"' in page.text and 'id="stop-generation"' in page.text
+    assert 'id="prompt-preset"' in page.text and 'id="prompt-layers-panel"' in page.text
+    assert 'id="thinking"' in page.text and 'id="pipeline-cancel"' in page.text
+    assert "conversation_id" in chat_script.text
+    assert "--cynx-pink" in theme.text
+
+
 def test_personality_trace_view_is_shipped_with_dx_assets():
     client = TestClient(web_app.app)
     page = client.get("/dx")
@@ -163,3 +180,21 @@ def test_benchmark_dispatch_persists_chat_engine_trace_events(tmp_path, monkeypa
     assert {event["stage"] for event in question["personality_trace"]["events"]} >= {
         "configuration_loaded", "instructions_assembled", "routing_decision", "response_returned"
     }
+
+
+def test_chat_route_uses_validated_conversation_id_for_short_term_context(monkeypatch):
+    seen = {}
+
+    def fake_engine(**kwargs):
+        seen.update(kwargs)
+        return "Conversation response."
+
+    monkeypatch.setattr(web_app.chat_engine, "handle_user_message", fake_engine)
+    conversation_id = "f7a4d609-6ec2-4dc6-9d42-1b8cd2b1664a"
+    response = TestClient(web_app.app).post("/chat", json={
+        "message": "Isolate this conversation.", "conversation_id": conversation_id
+    })
+
+    assert response.status_code == 200
+    assert seen["conversation_key"] == f"web_user:{conversation_id}"
+    assert seen["user_id"] == "web_user"
