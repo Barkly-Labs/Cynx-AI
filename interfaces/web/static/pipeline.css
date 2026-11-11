@@ -98,7 +98,6 @@
 
 #thinking .pipeline-mascot-slot {
     grid-area: mascot;
-    position: relative;
     display: grid;
     min-width: 0;
     min-height: 0;
@@ -112,9 +111,9 @@
     display: block;
     width: min(100%, 410px);
     height: 100%;
-    max-height: 100%;
+    max-height: 78vh;
     object-fit: contain;
-    object-position: center bottom;
+    object-position: center;
     filter: drop-shadow(0 0 18px rgba(255, 45, 178, .16));
 }
 
@@ -421,9 +420,14 @@
     #thinking.loading-panel { align-items: center; padding: 10px; }
     #thinking .loading-content {
         display: grid;
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) 96px;
         grid-template-rows: auto auto auto auto auto;
-        grid-template-areas: "topline" "heading" "actions" "stages" "footer";
+        grid-template-areas:
+            "topline topline"
+            "heading mascot"
+            "actions actions"
+            "stages stages"
+            "footer footer";
         gap: 11px;
         width: min(100%, 700px);
         height: auto;
@@ -435,23 +439,19 @@
         border-radius: 16px;
         font-size: 12px;
     }
-    #thinking .pipeline-heading { position: relative; min-height: 112px; padding-right: 108px; }
+    #thinking .pipeline-heading { min-height: 112px; padding-right: 0; }
     #thinking .pipeline-heading-copy { position: relative; z-index: 1; padding: 11px 12px; }
     #thinking .pipeline-title-row { gap: 7px; }
     #thinking .pipeline-title-row .pipeline-paw { font-size: 20px; }
     #thinking .pipeline-mascot-slot {
-        position: absolute;
-        z-index: 2;
-        top: 0;
-        right: 0;
-        bottom: 0;
-        left: auto;
-        width: 100px;
-        min-height: 0;
+        position: relative;
+        width: auto;
+        min-height: 96px;
+        align-self: center;
         pointer-events: none;
         background: radial-gradient(ellipse at center, rgba(168, 85, 247, .17), transparent 70%);
     }
-    #thinking .pipeline-mascot { width: 100%; height: 100%; object-position: center bottom; }
+    #thinking .pipeline-mascot { width: 100%; height: 112px; max-height: 100%; object-position: center; }
     #thinking .pipeline-topline { font-size: 9px; letter-spacing: .1em; }
     #thinking .pipeline-live { font-size: 8px; }
     #thinking .pipeline-stage {
@@ -469,8 +469,18 @@
 
 @media (max-width: 480px) {
     #thinking .loading-content { max-height: 98svh; padding: 15px 11px; }
-    #thinking .pipeline-heading { min-height: 94px; padding-right: 82px; }
-    #thinking .pipeline-mascot-slot { width: 76px; }
+    #thinking .loading-content {
+        grid-template-columns: minmax(0, 1fr) 72px;
+        grid-template-areas:
+            "topline topline"
+            "heading mascot"
+            "actions actions"
+            "stages stages"
+            "footer footer";
+    }
+    #thinking .pipeline-heading { min-height: 94px; }
+    #thinking .pipeline-mascot-slot { min-height: 76px; }
+    #thinking .pipeline-mascot { height: 94px; }
     #thinking .pipeline-stage {
         grid-template-columns: 28px minmax(0, 1fr) auto;
         gap: 3px 6px;
