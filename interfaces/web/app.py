@@ -52,6 +52,7 @@ from tools.ChartTool import chart_tool
 from tools.filesystem import FilesystemTool
 from interfaces.web.pipeline import PipelineEventStore
 from interfaces.web.benchmark_runs import BenchmarkRunManager
+from benchmark.watchdog import BenchmarkWatchdog
 
 
 
@@ -398,6 +399,16 @@ def dx_active_benchmark():
 @app.get("/api/dx/benchmark/latest")
 def dx_latest_benchmark():
     return {"run": benchmark_runs.latest()}
+
+
+@app.get("/api/dx/benchmark/watchdog")
+def dx_benchmark_watchdog(run_id: str | None = None, baseline_id: str | None = None):
+    """Return read-only watchdog findings for persisted benchmark runs."""
+    from fastapi import HTTPException
+    report = BenchmarkWatchdog(benchmark_runs.results_dir).report(run_id, baseline_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    return report
 
 
 @app.get("/api/dx/benchmark/runs/{run_id}")

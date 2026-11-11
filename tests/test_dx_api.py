@@ -101,6 +101,45 @@ def test_dx_suite_route_rejects_path_traversal():
     assert response.status_code == 404
 
 
+def test_dx_benchmark_watchdog_reads_persisted_runs_without_running_benchmark(tmp_path, monkeypatch):
+    old = {
+        "run_id": "watch-old", "suite": "watch.json", "created_at": "2026-01-01", "status": "completed",
+        "questions": [{"question_id": "old-q", "test_id": "WATCH_1", "category": "SOCIAL_STYLE",
+                       "question": "Say hello.", "status": "completed", "quality_status": "passed",
+                       "response": "Hello!", "score": {"overall": 2.0}, "tools": [], "metrics": {}}],
+    }
+    new = {
+        "run_id": "watch-new", "suite": "watch.json", "created_at": "2026-01-02", "status": "completed_with_failures",
+        "questions": [{"question_id": "new-q", "test_id": "WATCH_1", "category": "SOCIAL_STYLE",
+                       "question": "Say hello.", "test": {"expected_behavior": "Greet"}, "status": "completed",
+                       "quality_status": "failed", "response": "I cannot help with that.",
+                       "score": {"overall": 0.0}, "tools": [], "metrics": {}}],
+    }
+    tmp_path.joinpath("watch-old.json").write_text(json.dumps(old))
+    tmp_path.joinpath("watch-new.json").write_text(json.dumps(new))
+    monkeypatch.setattr(web_app.benchmark_runs, "results_dir", tmp_path)
+
+    response = TestClient(web_app.app).get("/api/dx/benchmark/watchdog?run_id=watch-new")
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["baseline_run_id"] == "watch-old"
+    assert report["regression_feed"][0]["regression"] is True
+    assert report["questions"][0]["failure"]["signals"][0]["kind"] == "possible_unexpected_refusal"
+
+
+def test_dx_watchdog_tab_is_inside_existing_benchmark_workspace():
+    client = TestClient(web_app.app)
+    page = client.get("/dx")
+    script = client.get("/static/dx.js")
+    styles = client.get("/static/dx.css")
+
+    assert page.status_code == script.status_code == styles.status_code == 200
+    assert 'data-bench-tab="watchdog"' in script.text
+    assert 'id="benchmark-watchdog-panel"' in script.text
+    assert ".watchdog-inspector" in styles.text
+
+
 def test_backend_benchmark_runs_after_start_response_and_uses_chat_dispatcher(tmp_path, monkeypatch):
     suites = tmp_path / "suites"
     runs = tmp_path / "runs"
