@@ -12,6 +12,8 @@ expand with async handling and retries later.
 """
 
 import json
+import hashlib
+import re
 import logging
 import os
 import time
@@ -43,6 +45,10 @@ OLLAMA_CONTEXT_LIMIT = 8192
 # Leave headroom below the hard limit so small tokenizer differences
 # or request overhead do not cause an exceed_context_size_error.
 OLLAMA_PROMPT_BUDGET = 7500
+
+
+class ChatRequestCancelled(Exception):
+    """Raised when a web chat request is cancelled between Core operations."""
 
 
 class ChatEngine:
@@ -90,6 +96,147 @@ class ChatEngine:
         # Long-term memories remain handled by MemoryManager/MemoryExtractor.
         self.conversation_history = {}
         self.max_conversation_turns = 12
+
+    def _emit_pipeline_event(self, pipeline_callback, event_type, **details):
+        if pipeline_callback is None:
+            return
+        try:
+            pipeline_callback({"type": event_type, **details})
+        except Exception as exc:
+            self.logger.warning("[PIPELINE EVENT ERROR] %s", exc)
+
+    @staticmethod
+    def _raise_if_cancelled(cancellation_check):
+        if cancellation_check is not None and cancellation_check():
+            raise ChatRequestCancelled("Chat request cancelled.")
+
+    def _call_tool_with_pipeline(
+        self,
+        name,
+        arguments,
+        pipeline_callback,
+        invocation_id=None,
+        cancellation_check=None,
+        trace_callback=None,
+    ):
+        self._raise_if_cancelled(cancellation_check)
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="tool_execution",
+            status="active",
+        )
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "tool",
+            status="started",
+            name=name,
+            invocation_id=invocation_id,
+        )
+        if trace_callback:
+            try:
+                trace_callback({"stage": "tool_execution", "status": "started",
+                                "tool_name": name, "invocation_id": invocation_id,
+                                "arguments": arguments})
+            except Exception:
+                pass
+        tool_started = time.perf_counter()
+        try:
+            result = self.tool_router.call_tool(name, arguments)
+        except Exception as exc:
+            if trace_callback:
+                try:
+                    trace_callback({"stage": "tool_execution", "status": "failed",
+                                    "tool_name": name, "invocation_id": invocation_id,
+                                    "duration_seconds": round(time.perf_counter() - tool_started, 4),
+                                    "failure_explanation": "Tool execution failed; see developer logs.",
+                                    "error_type": type(exc).__name__})
+                except Exception:
+                    pass
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "tool",
+                status="failed",
+                name=name,
+                invocation_id=invocation_id,
+            )
+            raise
+
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "tool",
+            status="completed" if result.success else "failed",
+            name=name,
+            invocation_id=invocation_id,
+        )
+        if trace_callback:
+            try:
+                trace_callback({"stage": "tool_execution", "status": "completed" if result.success else "failed",
+                                "tool_name": name, "invocation_id": invocation_id,
+                                "duration_seconds": round(time.perf_counter() - tool_started, 4),
+                                "output_reference": invocation_id or name,
+                                "output_reference_scope": "pair this invocation ID with the trace request ID",
+                                "output_capture": "omitted from trace; inspect developer logs if available",
+                                "failure_explanation": str(result.output)[:500] if not result.success and result.output else None,
+                                "included_in_model_context": None})
+            except Exception:
+                pass
+        self._raise_if_cancelled(cancellation_check)
+        return result
+
+    @staticmethod
+    def _calculator_relevant(user_text, tool_call):
+        """Require user-grounded arithmetic before executing a model-selected call.
+
+        This is an eligibility brake, not a replacement tool planner: the model
+        still decides whether an eligible calculation is worth performing.
+        """
+        function = tool_call.get("function") or {}
+        arguments = function.get("arguments") or tool_call.get("arguments") or {}
+        if isinstance(arguments, str):
+            try:
+                arguments = json.loads(arguments)
+            except (ValueError, TypeError):
+                return False
+        if not isinstance(arguments, dict):
+            return False
+        expression = arguments.get("expression")
+        if not isinstance(expression, str) or not expression.strip():
+            return False
+
+        # The current turn must itself describe an arithmetic operation and
+        # contain numeric operands. Numbers alone (ages, dates, IDs) do not
+        # authorize calculator calls.
+        text = user_text.lower()
+        number = r"(?<!\w)\d+(?:[.,]\d+)?(?!\w)"
+        operands = re.findall(number, text)
+        if len(operands) < 2:
+            return False
+        operation = (
+            re.search(r"\d\s*(?:[+*/×÷−]|-(?!>))\s*\d|\d\s*%\s+of\s+\d", text)
+            or re.search(
+                r"\b(?:plus|minus|times|multiplied\s+by|divided\s+by|"
+                r"divide|multiply|add|subtract|sum|difference|product|"
+                r"average|mean|percent(?:age)?\s+of)\b", text
+            )
+        )
+        if not operation:
+            return False
+
+        # Reject unrelated model-invented arithmetic. The proposed expression
+        # must use numeric operands grounded in the user's request.
+        expression_operands = re.findall(number, expression)
+        grounded = {value.replace(",", "") for value in operands}
+        # Standard percentage and mean transformations introduce a known
+        # divisor that need not be written literally in the user message.
+        if re.search(r"\d\s*%\s+of\s+\d", text):
+            grounded.add("100")
+        if re.search(r"\b(?:average|mean)\b", text):
+            grounded.add(str(len(operands)))
+        return bool(expression_operands) and all(
+            operand.replace(",", "") in grounded
+            for operand in expression_operands
+        )
 
     # ---------------------------------
     # Context Safety
@@ -468,13 +615,12 @@ class ChatEngine:
 
         return trimmed_messages
 
-    def _ollama_tools(self, user_text: str = ""):
+    def _ollama_tools(self, user_text: str = "", mode: str = "normal"):
         if not self.tool_router:
             return None
 
         tools = self.tool_router.as_ollama_tools()
 
-        # Python is authoritative for tool selection.
         detected = None
 
         if hasattr(self.tool_router, "detect"):
@@ -483,20 +629,40 @@ class ChatEngine:
             except Exception:
                 detected = None
 
-        # Casual conversation = NO tools.
-        if not detected:
-            return []
+        # Keep deterministic/stateful tools Python-authoritative.
+        # For ordinary turns, let Ollama decide whether it actually
+        # needs web_search (or calculator) instead of making Python
+        # keyword detection the sole gate for tool access.
+        if detected and detected.get("tool") in {
+            "smoke_counter",
+            "chart",
+        }:
+            allowed_tool = detected.get("tool")
 
-        allowed_tool = detected.get("tool")
+            return [
+                tool
+                for tool in tools
+                if tool.get("function", {}).get("name") == allowed_tool
+            ]
 
-        # Only expose the tool Python actually detected.
-        tools = [
+        model_optional_tools = {
+            "web_search",
+            "calculator",
+            "lepro_lights",
+        }
+
+        allowed_tools = set()
+        mode_manager = getattr(self, "mode_manager", None)
+        if mode_manager and hasattr(mode_manager, "allowed_tools_for"):
+            allowed_tools = set(mode_manager.allowed_tools_for(mode))
+        if "filesystem" in allowed_tools:
+            model_optional_tools.add("filesystem")
+
+        return [
             tool
             for tool in tools
-            if tool.get("function", {}).get("name") == allowed_tool
+            if tool.get("function", {}).get("name") in model_optional_tools
         ]
-
-        return tools
 
     def handle_user_message(
         self,
@@ -504,7 +670,11 @@ class ChatEngine:
         text: str,
         mode: str = "normal",
         personality: str = "normal",
-        request_id: Optional[str] = None
+        request_id: Optional[str] = None,
+        pipeline_callback=None,
+        cancellation_check=None,
+        trace_callback=None,
+        conversation_key: Optional[str] = None,
     ) -> str:
 
         """
@@ -522,6 +692,48 @@ class ChatEngine:
 
         """
 
+        self._raise_if_cancelled(cancellation_check)
+        generation_started = False
+        generation_started_at = None
+
+        def trace(stage, status="completed", **details):
+            if trace_callback is None:
+                return
+            try:
+                trace_callback({"stage": stage, "status": status, **details})
+            except Exception as exc:
+                self.logger.warning("[PERSONALITY TRACE ERROR] %s", exc)
+
+        trace("request_received", user_message=text)
+        trace(
+            "configuration_loaded",
+            architecture=getattr(self.prompt_builder, "personality_arch", None),
+            prompt_layers=(self.prompt_builder.get_prompt_layers()
+                           if hasattr(self.prompt_builder, "get_prompt_layers") else None),
+            preset="not exposed by the current request pipeline",
+        )
+
+        def on_model_output():
+            nonlocal generation_started, generation_started_at
+            if generation_started:
+                return
+            generation_started = True
+            generation_started_at = time.perf_counter()
+            trace("first_model_output", status="observed", ttft_seconds=round(generation_started_at - start, 4))
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
+
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="understanding",
+            status="active",
+        )
+
         terminal.section("CHAT ENGINE MEMORY CHECK")
         terminal.dim(f"Context Manager: {self.context_manager}")
         terminal.dim(f"Memory Manager: {self.memory_manager}")
@@ -534,6 +746,7 @@ class ChatEngine:
         mem_summary = ""
 
         knowledge_context = ""
+        context_started = time.perf_counter()
 
         if self.context_manager:
 
@@ -542,6 +755,16 @@ class ChatEngine:
                 context = self.context_manager.build_context(
                     user_id,
                     text
+                )
+
+                trace(
+                    "context_retrieved",
+                    status="completed",
+                    sources=[name for name in ("memory", "knowledge") if context.get(name)],
+                    memory_text=context.get("memory", ""),
+                    knowledge_text=context.get("knowledge", ""),
+                    source_identifiers="not exposed by ContextManager",
+                    duration_seconds=round(time.perf_counter() - context_started, 4),
                 )
 
                 mem_summary = self.trim_context(
@@ -563,6 +786,14 @@ class ChatEngine:
                     MAX_KNOWLEDGE_CONTEXT
                 )
 
+                trace("context_prepared", status="completed",
+                      memory_characters_retrieved=len(str(context.get("memory", "") or "")),
+                      memory_characters_included=len(mem_summary),
+                      knowledge_characters_retrieved=len(str(context.get("knowledge", "") or "")),
+                      knowledge_characters_included=len(knowledge_context),
+                      truncation_detected=(len(str(context.get("memory", "") or "")) > len(mem_summary)
+                                           or len(str(context.get("knowledge", "") or "")) > len(knowledge_context)))
+
                 self.logger.info(
                     "[CONTEXT] Loaded dynamic context"
                 )
@@ -573,6 +804,11 @@ class ChatEngine:
                 )
 
             except Exception as e:
+
+                trace("context_retrieved", status="failed",
+                      error="Context retrieval failed; see developer logs.",
+                      error_type=type(e).__name__,
+                      duration_seconds=round(time.perf_counter() - context_started, 4))
 
                 self.logger.error(
                     f"[CONTEXT ERROR] {e}"
@@ -590,6 +826,10 @@ class ChatEngine:
                 )
 
                 if memories:
+
+                    trace("context_retrieved", sources=["legacy_memory"], memory_count=len(memories),
+                          memory_text=self.memory_manager.format_for_prompt(memories),
+                          source_identifiers="not exposed by MemoryManager")
 
                     self.logger.info(
                         f"[MEMORY] Loaded {len(memories)} memories"
@@ -633,12 +873,45 @@ class ChatEngine:
         )
 
         tools_spec_str += (
-            "\n\nTool-use instruction: "
-            "When the user asks for information or an action that one "
-            "of your available tools can perform, use the appropriate tool. "
-            "Execute the tool and use its result in your response. "
-            "PRIORITY: Direct response first. Personality second. "
-            "Do not redirect mundane requests into unrelated topics."
+            "\n\n## TOOL USE — IMPORTANT\n"
+            "Do NOT use a tool by default. Your normal behavior is to answer "
+            "directly without calling any tool. Having a tool available does NOT "
+            "mean you should use it. Only call a tool when there is a specific "
+            "reason it is required for a reliable answer.\n\n"
+            "WEB SEARCH:\n"
+            "Call web_search ONLY when the user explicitly asks you to search, "
+            "look up, browse, verify, check online, inspect a website, or find a "
+            "source; when the requested information must be current or recent; "
+            "when the answer depends on external information unavailable in the "
+            "conversation/context or your existing knowledge; or when the user "
+            "provides a website/source and asks you to inspect it. Otherwise, DO "
+            "NOT call web_search. Do not search merely because the user mentions "
+            "a company, project, person, place, or website; asks 'tell me about' "
+            "or 'what is'; searching might add detail; or web_search is available. "
+            "If conversation, supplied context, memory/context, or existing "
+            "knowledge is sufficient, answer directly. When uncertain whether "
+            "search is necessary, do NOT search; answer directly and state any "
+            "relevant uncertainty.\n\n"
+            "CALCULATOR:\n"
+            "Use calculator only when exact arithmetic materially benefits from "
+            "calculation. Do not call it merely because it is available.\n\n"
+            "FILESYSTEM:\n"
+            "Use filesystem only when the user asks to list or read project files. "
+            "Use paths relative to the project root when possible. The filesystem "
+            "tool is read-only and cannot create or modify files; paths outside "
+            "the project root are denied. Do not prepend 'project/' to paths; "
+            "for example, use 'tools' for the repository's tools directory.\n\n"
+            "Examples: 'Tell me about Barkly Labs.', 'What is Python?', and "
+            "'What do you know about Detroit?' -> answer directly, NO tool. "
+            "'What's Barkly Labs doing right now?' and 'Search the web for Barkly "
+            "Labs.' -> web_search. 'Go to barklylabs.space and tell me what's on "
+            "the homepage.' and 'Is Barkly Labs currently showing X on its "
+            "website?' -> web_search. 'What is 123 * 456?' -> answer directly if "
+            "reliable; calculator is optional when materially useful. "
+            "'Show my smoke counter.' -> smoke_counter as selected by Python. "
+            "'Make a chart of this data.' -> chart as selected by Python.\n\n"
+            "Tools available does NOT mean tools required. The default is NO TOOL "
+            "CALL."
         )
 
         tools_spec_str += (
@@ -650,6 +923,7 @@ class ChatEngine:
             "Use total_units exactly as returned by smoke_counter."
         )
 
+        instruction_build_started = time.perf_counter()
         prompt = self.prompt_builder.build_prompt(
             user_input=text,
 
@@ -664,9 +938,37 @@ class ChatEngine:
             tools_spec=tools_spec_str
         )
 
+        trace(
+            "instructions_assembled",
+            architecture=getattr(self.prompt_builder, "personality_arch", None),
+            sources=getattr(self.prompt_builder, "last_prompt_components", None),
+            system_prompt=prompt,
+            instruction_version="sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            personality_configuration_version="sha256:" + hashlib.sha256(json.dumps({
+                "architecture": getattr(self.prompt_builder, "personality_arch", None),
+                "layers": self.prompt_builder.get_prompt_layers() if hasattr(self.prompt_builder, "get_prompt_layers") else None,
+                "sources": [item for item in (getattr(self.prompt_builder, "last_prompt_components", None) or [])
+                            if item.get("source") in {"identity", "personality", "expression", "mode", "safety", "assembled_system_prompt"}],
+            }, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest(),
+            duration_seconds=round(time.perf_counter() - instruction_build_started, 4),
+        )
+
         self.logger.info(
             f"[PROMPT SIZE] chars={len(prompt)} "
             f"words={len(prompt.split())}"
+        )
+
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="understanding",
+            status="completed",
+        )
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="evaluating_capabilities",
+            status="active",
         )
 
         # -----------------------------
@@ -689,7 +991,16 @@ class ChatEngine:
 
                 detected_tool = None
 
-        tool_specs = self._ollama_tools(text)
+        tool_specs = self._ollama_tools(text, mode)
+
+        # web_search detection is advisory: exposing the tool is enough.
+        # Ollama decides whether to call it. Deterministic/stateful tools
+        # remain Python-authoritative below.
+        if (
+            detected_tool
+            and detected_tool.get("tool") == "web_search"
+        ):
+            detected_tool = None
 
         if tool_specs:
 
@@ -745,7 +1056,7 @@ class ChatEngine:
         # and the current user turn. This preserves short-term continuity
         # while leaving long-term memory in the existing memory system.
         history = self.conversation_history.setdefault(
-            user_id,
+            conversation_key or user_id,
             []
         )
 
@@ -754,6 +1065,9 @@ class ChatEngine:
             *history,
             {"role": "user", "content": text}
         ]
+        trace("conversation_context_assembled", messages=messages,
+              message_count=len(messages), token_count=None,
+              token_count_status="not instrumented")
 
         terminal.user(text)
 
@@ -795,6 +1109,19 @@ class ChatEngine:
                 "query": search_query
             }
 
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="evaluating_capabilities",
+                status="completed",
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "decision",
+                action="use_tools",
+                tools=["web_search"],
+            )
+
             if request_id:
 
                 terminal.tool(
@@ -826,9 +1153,13 @@ class ChatEngine:
                     "tool=web_search"
                 )
 
-            tool_result = self.tool_router.call_tool(
+            tool_result = self._call_tool_with_pipeline(
                 "web_search",
-                search_arguments
+                search_arguments,
+                pipeline_callback,
+                invocation_id="web_search",
+                cancellation_check=cancellation_check,
+                trace_callback=trace_callback,
             )
 
             tool_result_payload = (
@@ -924,6 +1255,8 @@ class ChatEngine:
                     )
                 }
             )
+            trace("tool_context_included", tool_name="web_search", invocation_id="web_search", included_in_model_context=True,
+                  output_contents="redacted/omitted from this event")
 
             # Protect the final research request from context overflow.
             messages = self._trim_ollama_messages(
@@ -941,12 +1274,26 @@ class ChatEngine:
                 "[RETURNING TOOL RESULT TO MODEL]"
             )
 
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
+            self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
+            trace("model_request_constructed", phase="post_tool", messages=messages,
+                  model=getattr(self.ollama, "model", None), streaming=False,
+                  context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
+            trace("generation_started", phase="post_tool")
 
             final_response = self.ollama.chat(
                 messages=messages,
                 tools=None
             )
+            self._raise_if_cancelled(cancellation_check)
+            trace("model_response_received", output=(final_response.get("message") or {}).get("content", ""),
+                  generation_duration_seconds=round(time.perf_counter() - final_start, 4), tool_calls=[])
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -960,6 +1307,14 @@ class ChatEngine:
                 or final_response.get("response")
                 or final_response.get("text")
                 or str(final_response)
+            )
+            trace("response_transformation", original_model_output=assistant_text,
+                  final_user_facing_response=assistant_text, modifications=[])
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
             )
 
             terminal.model("FINAL MESSAGES")
@@ -1031,6 +1386,18 @@ class ChatEngine:
             and self.tool_router
             and "smoke_counter" in self.tool_router.tools
         ):
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="evaluating_capabilities",
+                status="completed",
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "decision",
+                action="use_tools",
+                tools=["smoke_counter"],
+            )
 
             smoke_arguments = {}
 
@@ -1113,9 +1480,13 @@ class ChatEngine:
                     "tool=smoke_counter",
                 )
 
-            smoke_result = self.tool_router.call_tool(
+            smoke_result = self._call_tool_with_pipeline(
                 "smoke_counter",
                 smoke_arguments,
+                pipeline_callback,
+                invocation_id="smoke_counter",
+                cancellation_check=cancellation_check,
+                trace_callback=trace_callback,
             )
 
             smoke_payload = (
@@ -1228,12 +1599,26 @@ class ChatEngine:
                     "phase=final (authoritative smoke)",
                 )
 
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
+            self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
+            trace("tool_context_included", tool_name="smoke_counter", invocation_id="smoke_counter", included_in_model_context=True,
+                  output_contents="redacted/omitted from this event")
+            trace("model_request_constructed", phase="post_tool", messages=smoke_final_messages,
+                  model=getattr(self.ollama, "model", None), streaming=False,
+                  context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
+            trace("generation_started", phase="post_tool")
 
             final_response = self.ollama.chat(
                 messages=smoke_final_messages,
                 tools=None,
             )
+            self._raise_if_cancelled(cancellation_check)
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -1247,6 +1632,12 @@ class ChatEngine:
                 or final_response.get("response")
                 or final_response.get("text")
                 or str(final_response)
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
             )
 
             terminal.model("FINAL MODEL RESPONSE")
@@ -1326,20 +1717,54 @@ class ChatEngine:
         messages = self._trim_ollama_messages(
             messages
         )
+        trace("model_request_constructed", messages=messages, message_count=len(messages),
+              context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None,
+              truncation="Inspect included messages; token-level truncation metadata is not exposed.",
+              excluded_conversation_message_count=max(0, len(history) + 2 - len([m for m in messages if m.get("role") in {"user", "assistant"}])),
+              model=getattr(self.ollama, "model", None), streaming=bool(
+                  pipeline_callback is not None and getattr(self.ollama, "supports_streaming_observer", False)))
 
         # Call Ollama with a real chat tool schema. If the model issues a tool call,
         # execute it in Python and then send the tool result back to Ollama.
+        self._raise_if_cancelled(cancellation_check)
         start = time.perf_counter()
+        generation_started_at = None
+        trace("generation_started", streaming=bool(
+            pipeline_callback is not None and getattr(self.ollama, "supports_streaming_observer", False)))
 
-        response = self.ollama.chat(
-            messages=messages,
-            tools=tool_specs or None
-        )
+        if (
+            pipeline_callback is not None
+            and getattr(self.ollama, "supports_streaming_observer", False)
+        ):
+            response = self.ollama.chat(
+                messages=messages,
+                tools=tool_specs or None,
+                stream=True,
+                on_content=on_model_output,
+            )
+        else:
+            response = self.ollama.chat(
+                messages=messages,
+                tools=tool_specs or None
+            )
+        self._raise_if_cancelled(cancellation_check)
 
         terminal.timing(
             f"[FIRST OLLAMA TIME] "
             f"{time.perf_counter() - start:.2f}s"
         )
+        trace("generation_response_received", status="completed",
+              model=getattr(self.ollama, "model", None),
+              generation_duration_seconds=round(time.perf_counter() - start, 4),
+              ttft_seconds=round(generation_started_at - start, 4) if generation_started_at else None,
+              tokens_generated=response.get("eval_count"),
+              generation_duration_nanoseconds=response.get("eval_duration"),
+              tool_calls=[{"name": ((tc.get("function") or {}).get("name") or tc.get("name")),
+                           "arguments": (tc.get("function") or {}).get("arguments")}
+                          for tc in (response.get("message") or {}).get("tool_calls", [])],
+              output=(response.get("message") or {}).get("content", "")
+                     if not (response.get("message") or {}).get("tool_calls") else
+                     "Model returned tool-call metadata; internal reasoning text is not captured.")
 
         message = response.get(
             "message",
@@ -1357,6 +1782,8 @@ class ChatEngine:
         invalid_tool_names = []
 
         validated_tool_calls = []
+        blocked_optional_web_search = False
+        blocked_optional_calculator = False
 
         for tc in tool_calls:
 
@@ -1390,6 +1817,53 @@ class ChatEngine:
                         name
                     )
 
+        retrieval_cue = re.compile(
+            r"\b(?:search|find|look\s+up|lookup|browse|verify|check|online|"
+            r"website|webpage|latest|current|currently|right\s+now|"
+            r"recent|news)\b",
+            re.IGNORECASE,
+        )
+
+        # Calculator eligibility is independent of the web-search brake.
+        filtered_calculator_calls = []
+        for tc in validated_tool_calls:
+            tc_name = (tc.get("function") or {}).get("name") or tc.get("name")
+            if tc_name == "calculator" and not self._calculator_relevant(text, tc):
+                blocked_optional_calculator = True
+            else:
+                filtered_calculator_calls.append(tc)
+        validated_tool_calls = filtered_calculator_calls
+        if blocked_optional_calculator:
+            terminal.warning("Skipping optional calculator: no grounded arithmetic in current user request.")
+
+        if not retrieval_cue.search(text):
+
+            filtered_tool_calls = []
+
+            for tc in validated_tool_calls:
+
+                tc_name = (
+                    tc.get("function") or {}
+                ).get("name") or tc.get("name")
+
+                if tc_name == "web_search":
+
+                    blocked_optional_web_search = True
+
+                else:
+
+                    filtered_tool_calls.append(tc)
+
+            validated_tool_calls = filtered_tool_calls
+
+            if blocked_optional_web_search:
+
+                terminal.warning(
+                    "Skipping optional web_search: "
+                    "no explicit/current retrieval need "
+                    "in the user request."
+                )
+
         if invalid_tool_names:
 
             terminal.model(
@@ -1418,6 +1892,52 @@ class ChatEngine:
 
             # Use the validated tool_calls (could be empty)
             tool_calls = validated_tool_calls
+
+        if (blocked_optional_web_search or blocked_optional_calculator) and not tool_calls:
+
+            response = self.ollama.chat(
+                messages=messages,
+                tools=None
+            )
+            self._raise_if_cancelled(cancellation_check)
+
+            message = response.get(
+                "message",
+                {}
+            )
+
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="evaluating_capabilities",
+            status="completed",
+        )
+        trace("routing_decision", action="use_tools" if tool_calls else "answer_directly",
+              tools=[(call.get("function") or {}).get("name") or call.get("name") for call in tool_calls],
+              tool_selection_source="python_authoritative" if detected_tool else "model_selected",
+              invocation_reason="not returned as structured metadata by the current tool selection path",
+              potentially_unnecessary="review recommended" if tool_calls and not detected_tool else False,
+              rejected_tool_names=invalid_tool_names,
+              blocked_optional_web_search=blocked_optional_web_search,
+              blocked_optional_calculator=blocked_optional_calculator,
+              policy_classification="not instrumented in this request path")
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "decision",
+            action="use_tools" if tool_calls else "answer_directly",
+            tools=[
+                (call.get("function") or {}).get("name") or call.get("name")
+                for call in tool_calls
+            ],
+        )
+        if tool_calls and generation_started:
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
+            )
+            generation_started = False
 
         chart_payload = None
 
@@ -1448,6 +1968,7 @@ class ChatEngine:
             )
 
             for tool_call in tool_calls:
+                self._raise_if_cancelled(cancellation_check)
 
                 name = (
                     tool_call.get("function") or {}
@@ -1725,21 +2246,49 @@ class ChatEngine:
                     not self.tool_router
                     or name not in self.tool_router.tools
                 ):
-
+                    invocation_id = (
+                        tool_call.get("id")
+                        or f"{name}-{len(messages)}"
+                    )
+                    self._emit_pipeline_event(
+                        pipeline_callback,
+                        "stage",
+                        stage="tool_execution",
+                        status="active",
+                    )
+                    self._emit_pipeline_event(
+                        pipeline_callback,
+                        "tool",
+                        status="started",
+                        name=name,
+                        invocation_id=invocation_id,
+                    )
                     tool_result_payload = {
                         "success": False,
                         "error": (
                             f"Tool '{name}' not found."
                         )
                     }
+                    self._emit_pipeline_event(
+                        pipeline_callback,
+                        "tool",
+                        status="failed",
+                        name=name,
+                        invocation_id=invocation_id,
+                    )
 
                 else:
 
-                    tool_result = (
-                        self.tool_router.call_tool(
-                            name,
-                            arguments
-                        )
+                    tool_result = self._call_tool_with_pipeline(
+                        name,
+                        arguments,
+                        pipeline_callback,
+                        invocation_id=(
+                            tool_call.get("id")
+                            or f"{name}-{len(messages)}"
+                        ),
+                        cancellation_check=cancellation_check,
+                        trace_callback=trace_callback,
                     )
 
                     tool_result_payload = (
@@ -2018,23 +2567,33 @@ class ChatEngine:
                             "display"
                         ] = display_override
 
+                tool_result_instruction = (
+                    "Use the current tool result as the authoritative source "
+                    "for tool-provided facts that are relevant to this request. "
+                    "The current user message determines the subject and intent; "
+                    "never let a tool result or prior context replace it. "
+                    "If the tool result is irrelevant because the tool was selected "
+                    "by mistake, ignore it and answer the current user directly "
+                    "without discussing the tool mistake. "
+                    "For smoke_counter, use its result exactly; do not claim "
+                    "you lack the information if the tool already returned it."
+                )
+                if name == "filesystem":
+                    tool_result_instruction = (
+                        "The filesystem tool is read-only and can only list "
+                        "directories or read files. It cannot create or modify "
+                        "files, regardless of extra arguments. Treat its result "
+                        "as authoritative: report failures plainly, do not ignore "
+                        "them, and never claim a file was created or modified."
+                    )
+
                 tool_message_content = {
 
                     "tool_name": name,
 
                     "result": tool_result_payload,
 
-                    "instruction": (
-                        "Use the current tool result "
-                        "as the authoritative source "
-                        "for this request. "
-                        "Prefer it over memory and "
-                        "over the current user message. "
-                        "For smoke_counter, use its "
-                        "result exactly; do not claim "
-                        "you lack the information if "
-                        "the tool already returned it."
-                    )
+                    "instruction": tool_result_instruction
                 }
 
                 tool_message = {
@@ -2057,6 +2616,17 @@ class ChatEngine:
                 messages.append(
                     tool_message
                 )
+                trace("tool_context_included", tool_name=name,
+                      invocation_id=tool_call.get("id") or f"{name}-{len(messages)}",
+                      included_in_model_context=True,
+                      output_contents="redacted/omitted from this event")
+
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="tool_execution",
+                status="completed",
+            )
 
             if request_id:
 
@@ -2067,6 +2637,13 @@ class ChatEngine:
 
             terminal.info(
                 "[RETURNING TOOL RESULT TO MODEL]"
+            )
+
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
             )
 
             # Optimize final Ollama call for deterministic tools (small prompt)
@@ -2135,6 +2712,9 @@ class ChatEngine:
                 final_messages.extend(
                     tool_messages
                 )
+                trace("model_request_constructed", phase="post_tool", messages=final_messages,
+                      model=getattr(self.ollama, "model", None), streaming=False,
+                      context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
 
                 if request_id:
 
@@ -2148,6 +2728,7 @@ class ChatEngine:
                     messages=final_messages,
                     tools=None
                 )
+                self._raise_if_cancelled(cancellation_check)
 
             else:
 
@@ -2155,11 +2736,16 @@ class ChatEngine:
                 messages = self._trim_ollama_messages(
                     messages
                 )
+                trace("model_request_constructed", phase="post_tool", messages=messages,
+                      model=getattr(self.ollama, "model", None), streaming=False,
+                      context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None,
+                      truncation="Token-level truncation metadata is not exposed.")
 
                 final_response = self.ollama.chat(
                     messages=messages,
                     tools=None
                 )
+                self._raise_if_cancelled(cancellation_check)
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -2172,6 +2758,17 @@ class ChatEngine:
                 )
                 or
                 str(final_response)
+            )
+            trace("model_response_received", output=assistant_text,
+                  generation_duration_seconds=round(time.perf_counter() - final_start, 4),
+                  model=getattr(self.ollama, "model", None), tool_calls=[])
+            trace("response_transformation", original_model_output=assistant_text,
+                  final_user_facing_response=assistant_text, modifications=[])
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
             )
 
             terminal.model(
@@ -2231,6 +2828,13 @@ class ChatEngine:
             return assistant_text
 
         # No tool call was requested by the model; fall back to the original generation flow.
+        if not generation_started:
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
         assistant_text = (
             (response.get("message") or {}).get(
                 "content"
@@ -2238,6 +2842,17 @@ class ChatEngine:
             or response.get("response")
             or response.get("text")
             or str(response)
+        )
+        trace("model_response_received", output=assistant_text,
+              generation_duration_seconds=round(time.perf_counter() - start, 4),
+              model=getattr(self.ollama, "model", None), tool_calls=[])
+        trace("response_transformation", original_model_output=assistant_text,
+              final_user_facing_response=assistant_text, modifications=[])
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="generating_response",
+            status="completed",
         )
 
         terminal.model(

@@ -33,8 +33,10 @@ This version keeps the original structure but adds:
 - conversation summaries
 """
 from typing import List, Optional, Dict, Any
+import os
 
 from .prompt_manager import PromptManager
+from .context_builder import ContextBuilder
 
 
 class PromptBuilder:
@@ -225,16 +227,35 @@ class PromptBuilder:
 
     def __init__(
         self,
-        templates_dir: Optional[str] = None
+        templates_dir: Optional[str] = None,
+        personality_arch: Optional[str] = None
     ):
 
         self.manager = PromptManager(
             templates_dir
         )
 
+        requested_arch = (
+            personality_arch
+            or os.getenv("CYNX_PERSONALITY_ARCH", "v1")
+        ).strip().lower()
+
+        if requested_arch not in {"v1", "v2"}:
+            raise ValueError(
+                "CYNX_PERSONALITY_ARCH must be 'v1' or 'v2'"
+            )
+
+        self.personality_arch = requested_arch
+        self.context_builder = ContextBuilder(
+            prompts_dir=str(self.manager.prompts_dir)
+        )
+
         self.prompt_layers = dict(
             self.DEFAULT_PROMPT_LAYERS
         )
+        # Runtime-only snapshot of the last system prompt assembly. ChatEngine
+        # reads this immediately after build_prompt while holding its request lock.
+        self.last_prompt_components = None
 
 
     # ---------------------------------------------
@@ -711,6 +732,21 @@ class PromptBuilder:
         )
 
 
+        if self.personality_arch == "v2":
+            bundle = self.context_builder.build_context(
+                mode_name=(mode_fragment or "normal"),
+                memory=memory_summary,
+                knowledge=knowledge_context,
+                tools=tools_spec,
+                prompt_layers=layers,
+            )
+            self.last_prompt_components = [
+                {"source": component.name, "text": component.content}
+                for component in bundle.components if component.content
+            ]
+            return bundle.render()
+
+
         sections = []
 
 
@@ -729,6 +765,8 @@ class PromptBuilder:
             prompt_layers=layers
 
         )
+
+        self.last_prompt_components = [{"source": "assembled_system_prompt", "text": system}]
 
 
         sections.append({

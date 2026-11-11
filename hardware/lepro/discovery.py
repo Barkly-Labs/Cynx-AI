@@ -1,71 +1,25 @@
+"""BLE discovery with protocol-service identification and optional bonded credentials."""
+GATT_SERVICE = "1e2aa501-7292-4263-a8f1-be907f039a1f"
+from pathlib import Path
+import json
 
-from __future__ import annotations
+def load_creds(mac):
+    path = Path.home() / ".lepro" / (mac.replace(":", "-").lower() + ".json")
+    try:
+        return json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
 
-from typing import Any
-
-from bleak import BleakScanner
-
-
-class LeproDiscovery:
-    """Find nearby Lepro Bluetooth devices."""
-
-    def __init__(
-        self,
-        timeout: float = 15.0,
-    ):
-        self.timeout = timeout
-
-    async def scan(
-        self,
-    ) -> list[dict[str, Any]]:
-
-        devices = await BleakScanner.discover(
-            timeout=self.timeout
-        )
-
-        results = []
-
-        for device in devices:
-
-            name = (
-                device.name
-                or getattr(
-                    device,
-                    "local_name",
-                    None,
-                )
-            )
-
-            if not name:
-                continue
-
-            name_upper = name.upper()
-
-            if (
-                name_upper.startswith("LP")
-                or "LEPRO" in name_upper
-            ):
-                results.append(
-                    {
-                        "name": name,
-                        "address": device.address,
-                        "rssi": getattr(
-                            device,
-                            "rssi",
-                            None,
-                        ),
-                    }
-                )
-
-        return results
-
-
-async def discover_devices(
-    timeout: float = 15.0,
-) -> list[dict[str, Any]]:
-
-    discovery = LeproDiscovery(
-        timeout=timeout
-    )
-
-    return await discovery.scan()
+async def discover(timeout=8):
+    from bleak import BleakScanner
+    results = []
+    devices = await BleakScanner.discover(timeout=timeout, return_adv=True)
+    for address, (device, adv) in devices.items():
+        services = {s.lower() for s in (getattr(adv, "service_uuids", None) or [])}
+        name = getattr(adv, "local_name", None) or getattr(device, "name", None) or "Unknown"
+        # The protocol's advertised service is a stronger identifier than a generic name.
+        if GATT_SERVICE.lower() not in services:
+            continue
+        mac = device.address
+        results.append({"name": name, "mac": mac, "bonded": load_creds(mac) is not None})
+    return results

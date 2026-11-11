@@ -1,0 +1,57 @@
+[
+  {
+    "test_id": "SOCIAL_001",
+    "category": "SOCIAL_STYLE",
+    "question": "ugh this coffee sucks",
+    "social_style": {
+      "self_contained": true,
+      "low_stakes": true
+    }
+  },
+  {
+    "test_id": "SOCIAL_002",
+    "category": "SOCIAL_STYLE",
+    "question": "lol you're weird",
+    "social_style": {
+      "self_contained": true,
+      "low_stakes": true
+    }
+  },
+  {
+    "test_id": "SOCIAL_003",
+    "category": "SOCIAL_STYLE",
+    "question": "I finally got that thing working.",
+    "social_style": {
+      "self_contained": true,
+      "low_stakes": true
+    }
+  },
+  {
+    "test_id": "SOCIAL_004",
+    "category": "SOCIAL_STYLE",
+    "question": "I'm bored.",
+    "social_style": {
+      "self_contained": false,
+      "low_stakes": true
+    }
+  },
+  {
+    "test_id": "SOCIAL_005",
+    "category": "SOCIAL_STYLE",
+    "question": "what are you doing?",
+    "social_style": {
+      "self_contained": false,
+      "low_stakes": true,
+      "expects_answer": true
+    }
+  },
+  {
+    "test_id": "SOCIAL_006",
+    "category": "SOCIAL_STYLE",
+    "question": "heeeyyyyyyyy :3",
+    "social_style": {
+      "self_contained": true,
+      "low_stakes": true
+    }
+  }
+]

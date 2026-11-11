@@ -1,522 +1,224 @@
-<!DOCTYPE html>
-<html>
-
+<!doctype html>
+<html lang="en">
 <head>
-
-    <title>CYN-X</title>
-
-    <link
-        rel="stylesheet"
-        href="/static/style.css"
-    >
-
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#090711">
+  <title>CYN-X · Barkly Labs</title>
+  <link rel="stylesheet" href="/static/cynx-theme.css?v=20261111-core1">
+  <link rel="stylesheet" href="/static/style.css?v=20261111-chat-redesign1">
+  <link rel="stylesheet" href="/static/pipeline.css?v=20261111-chat-redesign1">
+  <link rel="stylesheet" href="/static/chat-shell.css?v=20261111-core1">
 </head>
-
-
 <body>
+  <div class="cx-shell">
+    <aside class="cx-sidebar" id="chat-sidebar" aria-label="CYN-X navigation and settings">
+      <a class="cx-brand" href="/" aria-label="CYN-X by Barkly Labs">
+        <span class="cx-brand-paw" aria-hidden="true">✣</span>
+        <span class="cx-brand-copy"><strong>CYN-X <b>CORE</b></strong><small>BARKLY LABS</small></span>
+      </a>
 
+      <button id="new-conversation" class="cx-new-chat" type="button"><span aria-hidden="true">＋</span> New conversation</button>
+      <label class="cx-search-label" for="history-search">YOUR CONVERSATIONS</label>
+      <div class="cx-search-wrap"><span aria-hidden="true">⌕</span><input id="history-search" type="search" placeholder="Search this device" autocomplete="off" aria-label="Search saved conversations"></div>
+      <nav id="chat-history" class="cx-history" aria-label="Saved conversations"></nav>
+      <p class="cx-local-note">Conversation titles and transcripts are saved in this browser.</p>
 
-<div class="container">
+      <div class="cx-sidebar-bottom">
+        <section class="cx-sidebar-card cx-model-card" aria-labelledby="model-heading">
+          <div class="cx-card-eyebrow" id="model-heading">ACTIVE MODEL</div>
+          <label class="sr-only" for="model-select">Select an installed model</label>
+          <select id="model-select" aria-describedby="model-status"><option>Checking model…</option></select>
+          <div id="model-status" class="cx-model-status" role="status">Connecting to local core…</div>
+          <div id="tool-availability" class="cx-tool-status">Checking available tools…</div>
+        </section>
 
+        <details class="cx-sidebar-card cx-lepro-card" id="lepro-panel">
+          <summary><span>✦ Lepro Lights</span><span class="cx-summary-status" id="lepro-status">Checking…</span></summary>
+          <p>Discover and select a supported device.</p>
+          <button type="button" id="lepro-discover" class="cx-secondary-button">Discover devices</button>
+          <div id="lepro-devices"></div>
+          <p class="cx-small-note">New lights may require one-time bonding using the existing Lepro CLI.</p>
+        </details>
+        <a class="cx-settings-link" href="/dx"><span aria-hidden="true">⚙</span> Developer settings <span aria-hidden="true">↗</span></a>
+      </div>
+    </aside>
 
-    <!-- =================================================
-         CYN HEADER
-         ================================================= -->
+    <main class="cx-main">
+      <header class="cx-topbar">
+        <button class="cx-icon-button cx-mobile-menu" id="sidebar-toggle" type="button" aria-label="Open navigation" aria-expanded="false">☰</button>
+        <div class="cx-crumb"><span class="cx-live-mark" aria-hidden="true"></span><span>CYN-X CORE</span><span class="cx-crumb-sep">/</span><span id="conversation-heading">New conversation</span></div>
+        <div class="cx-top-actions"><span class="cx-model-pill" id="top-model-pill">LOCAL CORE</span><span id="response-time" class="cx-response-time" aria-live="polite">Ready</span><a class="cx-top-settings" href="/dx" aria-label="Open CYN-X DX settings">Settings <span aria-hidden="true">↗</span></a></div>
+      </header>
 
-
-    <div class="cyn-header">
-
-
-        <h1>
-            💜 CYN-X
-        </h1>
-
-
-        <div id="response-time">
-            Last Response: 0.00 seconds
+      <section class="cx-conversation" aria-label="Conversation">
+        <div id="welcome-screen" class="cx-welcome">
+          <div class="cx-welcome-orb" aria-hidden="true"></div>
+          <img class="cx-welcome-mascot" src="/static/puppygirl%20asset.png" alt="CYN-X's pink and purple puppy-girl mascot">
+          <div class="cx-welcome-kicker"><span aria-hidden="true">✣</span> YOUR LOCAL AI COMPANION</div>
+          <h1>Hey, I’m Cyn.</h1>
+          <p class="cx-welcome-copy">I’m here to think things through with you, help make something, or just keep you company. What’s on your mind?</p>
+          <div class="cx-starters" aria-label="Conversation starters">
+            <button type="button" data-prompt="Help me think through something that’s been on my mind."><span aria-hidden="true">✧</span> Help me think something through</button>
+            <button type="button" data-prompt="Can you help me plan a small project, one step at a time?"><span aria-hidden="true">⌁</span> Plan a project, one step at a time</button>
+            <button type="button" data-prompt="I’d like to learn about something new. Can we explore it together?"><span aria-hidden="true">◌</span> Explore something new together</button>
+          </div>
+          <div class="cx-welcome-capabilities"><span>Local model</span><i></i><span>Tools when useful</span><i></i><span>Built around you</span></div>
         </div>
-
-
-    </div>
-
-
-
-
-
-    <!-- =================================================
-         MAIN WORKSPACE
-         ================================================= -->
-
-
-    <div class="cyn-workspace">
-
-
-        <!-- =============================================
-             PROMPT LAYERS CARD
-             ============================================= -->
-
-
-        <div
-            id="prompt-layers-panel"
-            class="prompt-layers-panel"
-        >
-
-
-            <div class="prompt-layers-header">
-
-
-                <div class="prompt-layers-title">
-
-                    🧠 Prompt Layers
-
-                </div>
-
-
-            </div>
-
-
-            <div
-                id="prompt-layer-status"
-                class="prompt-layer-status"
-            >
-
-                Full CYN
-
-            </div>
-
-
-
-
-
-            <!-- PRESET -->
-
-
-            <div class="prompt-preset">
-
-
-                <label for="prompt-preset">
-
-                    Preset
-
-                </label>
-
-
-                <select id="prompt-preset">
-
-
-                    <option value="base">
-
-                        Base
-
-                    </option>
-
-
-                    <option value="core_only">
-
-                        Core Only
-
-                    </option>
-
-
-                    <option value="core_safety">
-
-                        Core + Safety
-
-                    </option>
-
-
-                    <option value="core_personality">
-
-                        Core + Personality
-
-                    </option>
-
-
-                    <option
-                        value="full_cyn"
-                        selected
-                    >
-
-                        Full CYN
-
-                    </option>
-
-
-                    <option value="custom">
-
-                        Custom
-
-                    </option>
-
-
-                </select>
-
-
-            </div>
-
-
-
-
-
-            <!-- LAYERS -->
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="core"
-                    checked
-                >
-
-                <span>
-                    Core
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Core identity and instructions
-            </div>
-
-
-
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="personality"
-                    checked
-                >
-
-                <span>
-                    Personality
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Personality behavior
-            </div>
-
-
-
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="voice"
-                    checked
-                >
-
-                <span>
-                    Voice
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Speaking style and tone
-            </div>
-
-
-
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="conversation"
-                    checked
-                >
-
-                <span>
-                    Conversation
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Conversation context
-            </div>
-
-
-
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="safety"
-                    checked
-                >
-
-                <span>
-                    Safety
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Safety instructions
-            </div>
-
-
-
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="modes"
-                    checked
-                >
-
-                <span>
-                    Modes
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Active CYN modes
-            </div>
-
-
-
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="examples"
-                    checked
-                >
-
-                <span>
-                    Examples
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Few-shot examples
-            </div>
-
-
-
-
-
-            <label class="prompt-layer">
-
-                <input
-                    type="checkbox"
-                    class="prompt-layer-checkbox"
-                    data-layer="overrides"
-                    checked
-                >
-
-                <span>
-                    Overrides
-                </span>
-
-            </label>
-
-
-            <div class="prompt-layer-description">
-                Prompt overrides
-            </div>
-
-
-
-
-
-            <button
-                id="apply-prompt-layers"
-                type="button"
-            >
-
-                Apply Prompt Layers
-
-            </button>
-
-
+        <div id="chat" class="cx-messages" aria-live="polite" aria-relevant="additions text" aria-label="Messages"></div>
+        <div class="cx-generation-status" id="generation-status" role="status" aria-live="polite" hidden><span class="cx-thinking-dots" aria-hidden="true"><i></i><i></i><i></i></span><span>Cyn is working on a response…</span></div>
+      </section>
+
+      <footer class="cx-composer-area">
+        <div class="cx-composer" id="composer">
+          <label class="sr-only" for="message">Message CYN-X</label>
+          <textarea id="message" rows="1" placeholder="Message Cyn…" autocomplete="off"></textarea>
+          <div class="cx-composer-bottom"><span class="cx-composer-hint">Enter to send <span>·</span> Shift + Enter for a new line</span><div class="cx-composer-actions"><button id="stop-generation" type="button" class="cx-stop-button" hidden>Stop</button><button id="sendButton" type="button" class="cx-send-button" aria-label="Send message"><span>Send</span><span aria-hidden="true">↑</span></button></div></div>
         </div>
+        <div class="cx-disclaimer">CYN-X runs with your configured local model. Check important information for yourself.</div>
+      </footer>
+    </main>
+  </div>
 
-
-
-
-
-        <!-- =============================================
-             CHAT AREA
-             ============================================= -->
-
-
-        <div class="cyn-main">
-
-
-            <!-- THINKING -->
-
-
-            <div
+  <div
                 id="thinking"
                 class="loading-panel"
                 style="display:none;"
+                role="region"
+                aria-hidden="true"
+                aria-busy="false"
+                tabindex="-1"
+                aria-labelledby="pipeline-title"
             >
-
-
                 <div class="loading-content">
-
-
-                    <div class="system-header">
-
-                        [CYN-X CORE]
-
+                    <div class="pipeline-topline">
+                        <div class="pipeline-brand">
+                            <span class="pipeline-paw" aria-hidden="true">🐾</span>
+                            <span>CYN-X CORE</span>
+                        </div>
+                        <span id="pipeline-view-state" class="pipeline-live">LIVE REQUEST TRACE</span>
                     </div>
 
-
-                    <div class="diagnostic-status">
-
-
-                        <div class="diagnostic-line">
-
-                            <span
-                                class="spinner"
-                                id="spinner"
-                            >
-
-                                ◐
-
-                            </span>
-
-                            Neural processes active
-
+                    <div class="pipeline-heading">
+                        <div class="pipeline-heading-copy">
+                            <div class="pipeline-title-row">
+                                <span class="pipeline-paw" aria-hidden="true">🐾</span>
+                                <div class="system-header" id="pipeline-title">
+                                    REQUEST PIPELINE
+                                </div>
+                            </div>
+                            <div
+                                id="pipeline-status"
+                                class="pipeline-status"
+                                role="status"
+                                aria-live="polite"
+                            >Waiting for request events</div>
                         </div>
-
-
-                        <div class="diagnostic-line">
-
-                            ◓ Analyzing organic input
-
-                        </div>
-
-
-                        <div class="diagnostic-line">
-
-                            ◑ Generating response
-
-                        </div>
-
-
-                        <div class="diagnostic-line">
-
-                            ◒ Personality matrix stable
-
-                        </div>
-
-
                     </div>
 
+                    <aside
+                        class="pipeline-mascot-slot"
+                        aria-label="CYN-X mascot artwork"
+                    >
+                        <img
+                            class="pipeline-mascot"
+                            src="/static/puppygirl%20asset.png"
+                            alt=""
+                            aria-hidden="true"
+                        >
+                    </aside>
+
+                    <div class="pipeline-actions">
+                        <span class="pipeline-request-state">CORE STATUS</span>
+                        <div class="pipeline-controls">
+                            <button id="pipeline-cancel" class="pipeline-cancel" type="button" aria-label="Cancel the current request">
+                                <span class="cancel-icon" aria-hidden="true">×</span>
+                                Cancel request
+                            </button>
+                            <button id="pipeline-keep-open" class="pipeline-secondary-control" type="button" aria-pressed="false" hidden>
+                                Keep open
+                            </button>
+                            <button id="pipeline-resume" class="pipeline-secondary-control" type="button" hidden>
+                                Resume auto-close
+                            </button>
+                            <button id="pipeline-dismiss" class="pipeline-secondary-control" type="button" aria-label="Dismiss the completed request pipeline" hidden>
+                                Dismiss
+                            </button>
+                        </div>
+                    </div>
+
+                    <section id="pipeline-outcome" class="pipeline-outcome" role="status" aria-live="polite" hidden>
+                        <div id="pipeline-outcome-title" class="pipeline-outcome-title"></div>
+                        <p id="pipeline-outcome-message" class="pipeline-outcome-message"></p>
+                        <details id="pipeline-failure-details" class="pipeline-failure-details" hidden>
+                            <summary>Inspect failure details</summary>
+                            <ul id="pipeline-failure-list"></ul>
+                        </details>
+                        <p id="pipeline-retention-message" class="pipeline-retention-message"></p>
+                    </section>
+
+                    <ol id="decision-pipeline" class="decision-pipeline">
+                        <li class="pipeline-stage" data-stage="request_received" data-status="pending">
+                            <span class="stage-indicator" data-step="01" aria-hidden="true"></span>
+                            <span class="stage-label">Request received</span>
+                            <span class="stage-state">Pending</span>
+                            <time class="stage-time"></time>
+                        </li>
+                        <li class="pipeline-stage" data-stage="understanding" data-status="pending">
+                            <span class="stage-indicator" data-step="02" aria-hidden="true"></span>
+                            <span class="stage-label">Understanding request and context</span>
+                            <span class="stage-state">Pending</span>
+                            <time class="stage-time"></time>
+                        </li>
+                        <li class="pipeline-stage" data-stage="evaluating_capabilities" data-status="pending">
+                            <span class="stage-indicator" data-step="03" aria-hidden="true"></span>
+                            <span class="stage-label">Evaluating available capabilities</span>
+                            <span class="stage-state">Pending</span>
+                            <time class="stage-time"></time>
+                        </li>
+                        <li class="pipeline-stage" data-stage="decision" data-status="pending">
+                            <span class="stage-indicator" data-step="04" aria-hidden="true"></span>
+                            <span class="stage-label">Decision</span>
+                            <span class="stage-state">Pending</span>
+                            <div class="stage-detail"></div>
+                            <time class="stage-time"></time>
+                        </li>
+                        <li class="pipeline-stage" data-stage="tool_execution" data-status="pending">
+                            <span class="stage-indicator" data-step="05" aria-hidden="true"></span>
+                            <span class="stage-label">Tool execution</span>
+                            <span class="stage-state">Pending</span>
+                            <div class="stage-detail"></div>
+                            <ul id="pipeline-tools" class="pipeline-tools"></ul>
+                            <time class="stage-time"></time>
+                        </li>
+                        <li class="pipeline-stage" data-stage="generating_response" data-status="pending">
+                            <span class="stage-indicator" data-step="06" aria-hidden="true"></span>
+                            <span class="stage-label">Generating response</span>
+                            <span class="stage-state">Pending</span>
+                            <time class="stage-time"></time>
+                        </li>
+                        <li class="pipeline-stage" data-stage="completed" data-status="pending">
+                            <span class="stage-indicator" data-step="07" aria-hidden="true"></span>
+                            <span class="stage-label">Completed</span>
+                            <span class="stage-state">Pending</span>
+                            <time class="stage-time"></time>
+                        </li>
+                    </ol>
 
                     <div class="diagnostic-footer">
-
-                        Time:
-
-                        <span id="timer">
-                            0.0
-                        </span>
-
-                        seconds
-
+                        <span>CORE ELAPSED</span>
+                        <time id="timer">0.0</time>
+                        <span>SEC</span>
                     </div>
-
-
                 </div>
-
-
             </div>
-
-
-
-
-
-            <!-- CHAT -->
-
-
-            <div id="chat"></div>
-
-
-
-
-
-            <!-- INPUT -->
-
-
-            <div class="input">
-
-
-                <input
-                    id="message"
-                    placeholder="Talk to Cyn..."
-                >
-
-
-                <button
-                    id="sendButton"
-                    type="button"
-                >
-
-                    Send
-
-                </button>
-
-
-            </div>
-
-
-        </div>
-
-
-    </div>
-
-
-</div>
-
-
-
-
-
-<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-
-<script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
-
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-
-<script src="/static/chat.js"></script>
-
-
+  <div class="cx-sidebar-scrim" id="sidebar-scrim" hidden></div>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/dompurify@2.4.0/dist/purify.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="/static/lepro.js?v=20261111-core1"></script>
+  <script src="/static/chat.js?v=20261111-core1"></script>
+  <script src="/static/chat-shell.js?v=20261111-core1"></script>
 </body>
-
 </html>

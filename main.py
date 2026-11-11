@@ -19,6 +19,7 @@ from tools.tool_router import ToolRouter
 from interfaces.terminal import TerminalAdapter
 from tools.web_search import WebSearchTool
 from tools.SmokeCounterTool import smoke_counter
+from tools.filesystem import FilesystemTool
 
 
 def main():
@@ -45,6 +46,7 @@ def main():
 
     # Tools
     tool_router = ToolRouter()
+    tool_router.register_configured_lepro()
 
     tool_router.register_tool(
         WebSearchTool()
@@ -52,6 +54,10 @@ def main():
 
     tool_router.register_tool(
         CalculatorTool()
+    )
+
+    tool_router.register_tool(
+        FilesystemTool()
     )
 
     # Register the smoke counter instance (do not create a second tracker)

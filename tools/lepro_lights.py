@@ -1,174 +1,61 @@
-
-from __future__ import annotations
-
-from typing import Any
-
-from hardware.lepro.devices import LeproDevice
-
+"""CYN-X light control using the existing LeproDevice implementation."""
+import asyncio
+import json
+import concurrent.futures
 from .base import BaseTool, ToolResult
 
-
 class LeproLightsTool(BaseTool):
-    """CYN-X tool for controlling Lepro lights."""
-
     name = "lepro_lights"
-    description = (
-        "Control a bonded Lepro light device connected to CYN-X "
-        "over Bluetooth."
-    )
+    description = "Control a selected bonded Lepro light. Use only for explicit light requests."
 
-    def __init__(
-        self,
-        device_name: str,
-        mac: str,
-    ):
-        self.device = LeproDevice(
-            name=device_name,
-            mac=mac,
-        )
+    def __init__(self, device_name, mac):
+        from hardware.lepro.devices import LeproDevice
+        self.device = LeproDevice(device_name, mac)
 
-    def schema(self) -> dict[str, Any]:
-        """Return the tool schema exposed to CYN."""
+    def schema(self):
+        return {"type":"function","function":{"name":self.name,"description":self.description,"parameters":{
+            "type":"object","properties":{
+                "action":{"type":"string","enum":["on","off","color"]},
+                "brightness":{"type":"integer","minimum":10,"maximum":1000},
+                **{c:{"type":"integer","minimum":0,"maximum":255} for c in ("red","green","blue")}
+            },"required":["action"]}}}
 
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": {
-                    "type": "object",
-                    "properties": {
-                        "action": {
-                            "type": "string",
-                            "enum": [
-                                "on",
-                                "off",
-                                "color",
-                            ],
-                            "description": (
-                                "The light action to perform."
-                            ),
-                        },
-                        "brightness": {
-                            "type": "integer",
-                            "minimum": 10,
-                            "maximum": 1000,
-                            "description": (
-                                "Brightness from 10 to 1000."
-                            ),
-                        },
-                        "red": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 255,
-                            "description": "Red value from 0 to 255.",
-                        },
-                        "green": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 255,
-                            "description": "Green value from 0 to 255.",
-                        },
-                        "blue": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 255,
-                            "description": "Blue value from 0 to 255.",
-                        },
-                    },
-                    "required": [
-                        "action",
-                    ],
-                },
-            },
-        }
-
-    async def execute(
-        self,
-        arguments: dict[str, Any],
-    ) -> ToolResult:
-        """Execute a light-control request."""
-
-        action = arguments.get("action")
-
+    async def execute(self, arguments):
         try:
-            if action == "on":
-                brightness = int(
-                    arguments.get("brightness", 1000)
-                )
-
-                await self.device.turn_on(
-                    brightness=brightness
-                )
-
-                return ToolResult(
-                    success=True,
-                    data={
-                        "action": "on",
-                        "brightness": brightness,
-                    },
-                )
-
-            if action == "off":
-                await self.device.turn_off()
-
-                return ToolResult(
-                    success=True,
-                    data={
-                        "action": "off",
-                    },
-                )
-
+            if not isinstance(arguments, dict):
+                raise ValueError("Arguments must be an object")
+            action = arguments.get("action")
+            if action not in ("on","off","color"):
+                raise ValueError("Unsupported light action")
+            brightness = arguments.get("brightness",1000)
+            if type(brightness) is not int or not 10 <= brightness <= 1000:
+                raise ValueError("Brightness must be an integer from 10 to 1000")
+            rgb = {}
             if action == "color":
-                if not all(
-                    key in arguments
-                    for key in (
-                        "red",
-                        "green",
-                        "blue",
-                    )
-                ):
-                    return ToolResult(
-                        success=False,
-                        error=(
-                            "Color requires red, green, "
-                            "and blue values."
-                        ),
-                    )
-
-                red = int(arguments["red"])
-                green = int(arguments["green"])
-                blue = int(arguments["blue"])
-
-                brightness = int(
-                    arguments.get("brightness", 1000)
-                )
-
-                await self.device.set_color_rgb(
-                    red=red,
-                    green=green,
-                    blue=blue,
-                    brightness=brightness,
-                )
-
-                return ToolResult(
-                    success=True,
-                    data={
-                        "action": "color",
-                        "red": red,
-                        "green": green,
-                        "blue": blue,
-                        "brightness": brightness,
-                    },
-                )
-
-            return ToolResult(
-                success=False,
-                error=f"Unknown light action: {action}",
-            )
-
+                for channel in ("red","green","blue"):
+                    value = arguments.get(channel)
+                    if type(value) is not int or not 0 <= value <= 255:
+                        raise ValueError(f"{channel} must be an integer from 0 to 255")
+                    rgb[channel] = value
+            if action == "on":
+                await self.device.turn_on(brightness=brightness)
+            elif action == "off":
+                await self.device.turn_off()
+            else:
+                await self.device.set_color_rgb(**rgb, brightness=brightness)
+            data = {"action":action, **({"brightness":brightness} if action != "off" else {}), **rgb}
+            return ToolResult(True, json.dumps(data), {"success":True,"output":data})
         except Exception as exc:
-            return ToolResult(
-                success=False,
-                error=str(exc),
-            )
+            return ToolResult(False, str(exc), {"success":False,"error":str(exc)})
+
+    def call(self, args):
+        # ChatEngine is synchronous, including its tool execution loop.
+        # A dedicated event loop is used in this synchronous entry point.
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return asyncio.run(self.execute(args))
+        # ChatEngine is synchronous; never nest asyncio.run in an active event loop.
+        # Run this single Bluetooth operation in a worker with its own event loop.
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            return pool.submit(lambda: asyncio.run(self.execute(args))).result()

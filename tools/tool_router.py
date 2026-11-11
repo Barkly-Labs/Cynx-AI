@@ -138,13 +138,33 @@ class ToolRouter:
                     }
                 }
 
+            elif getattr(tool, "name", None) == "calculator":
+
+                schema = {
+                    "type": "function",
+                    "function": {
+                        "name": "calculator",
+                        "description": "Evaluate explicit arithmetic when calculation is actually needed. Do not use for greetings, casual conversation, or non-arithmetic questions.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "expression": {
+                                    "type": "string",
+                                    "description": "Arithmetic expression to evaluate."
+                                }
+                            },
+                            "required": ["expression"]
+                        }
+                    }
+                }
+
             elif getattr(tool, "name", None) == "web_search":
 
                 schema = {
                     "type": "function",
                     "function": {
                         "name": "web_search",
-                        "description": "Search the internet for current information.",
+                        "description": "Search the internet only when the current request needs external/current information or explicitly asks to search, find, verify, or look something up. Do not use for greetings, casual conversation, or questions answerable from established context.",
                         "parameters": {
                             "type": "object",
                             "properties": {
@@ -156,6 +176,9 @@ class ToolRouter:
                         }
                     }
                 }
+
+            elif callable(getattr(tool, "schema", None)):
+                schema = tool.schema()
 
             else:
 
@@ -777,30 +800,8 @@ class ToolRouter:
             "search online",
             "find out",
             "latest information",
-            "recent information",
-
-
-            "latest news",
-            "recent news",
-            "current news",
-            "current information",
-            "current events",
-            "recent updates",
-            "latest updates",
-            "today's news",
-            "todays news",
-            "news today",
-            "what happened today",
-            "what happened recently",
-            "what is happening today",
-            "what's happening today",
-            "right now",
-            "currently",
-            "as of today",
-            "this week",
-            "this month's news",
-            "breaking news"
-                    ]
+            "recent information"
+        ]
 
 
         research_question_patterns = [

@@ -17,6 +17,7 @@ from tools.tool_router import ToolRouter
 from tools.web_search import WebSearchTool
 from tools.calculator import CalculatorTool
 from tools.SmokeCounterTool import smoke_counter
+from tools.filesystem import FilesystemTool
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 MODEL = os.getenv("OLLAMA_MODEL", "cyn-x")
@@ -41,6 +42,7 @@ tool_router = ToolRouter()
 # register existing tools
 tool_router.register_tool(WebSearchTool())
 tool_router.register_tool(CalculatorTool())
+tool_router.register_tool(FilesystemTool())
 # register the smoke counter instance
 tool_router.register_tool(smoke_counter)
 
