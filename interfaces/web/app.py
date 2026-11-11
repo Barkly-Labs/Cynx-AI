@@ -8,6 +8,11 @@ import sys
 import os
 import sqlite3
 import time
+import logging
+import threading
+import uuid
+
+from starlette.concurrency import run_in_threadpool
 
 from ai.knowledge.store import KnowledgeStore
 from memory.sqlite import connect
@@ -31,7 +36,7 @@ from ai.memory_system.manager import MemoryManager
 from ai.ollama_client import OllamaClient
 from ai.prompt_builder import PromptBuilder
 from ai.mode_manager import ModeManager
-from ai.chat_engine import ChatEngine
+from ai.chat_engine import ChatEngine, ChatRequestCancelled
 
 from tools.tool_router import ToolRouter
 from tools.web_search import WebSearchTool
@@ -39,6 +44,7 @@ from tools.calculator import CalculatorTool
 from tools.SmokeCounterTool import smoke_counter
 from tools.ChartTool import chart_tool
 from tools.filesystem import FilesystemTool
+from interfaces.web.pipeline import PipelineEventStore
 
 
 
@@ -183,6 +189,9 @@ chat_engine = ChatEngine(
 
 )
 
+pipeline_events = PipelineEventStore()
+chat_engine_lock = threading.Lock()
+web_logger = logging.getLogger("cynx.web")
 
 
 # ======================
@@ -224,7 +233,13 @@ async def chat(data:dict):
 
     chat_request_count += 1
 
-    request_id = str(chat_request_count)
+    requested_id = data.get("request_id")
+    try:
+        request_id = str(uuid.UUID(str(requested_id)))
+    except (ValueError, TypeError, AttributeError):
+        request_id = str(uuid.uuid4())
+
+    pipeline_events.create(request_id)
 
     start=time.perf_counter()
 
@@ -234,10 +249,6 @@ async def chat(data:dict):
         ""
     )
 
-
-    # ======================
-    # PROMPT LAYERS
-    # ======================
 
     prompt_preset = data.get(
         "prompt_preset",
@@ -250,30 +261,6 @@ async def chat(data:dict):
     )
 
 
-    # Apply preset
-    if prompt_preset:
-
-        try:
-
-            prompt_builder.apply_prompt_preset(
-                prompt_preset
-            )
-
-        except ValueError as e:
-
-            print(
-                f"[PROMPT LAYERS] {e}"
-            )
-
-
-    # Apply custom layer settings
-    elif prompt_layers is not None:
-
-        prompt_builder.set_prompt_layers(
-            prompt_layers
-        )
-
-
     print(
         f"[CHAT REQUEST] id={request_id} "
         f"count={chat_request_count} "
@@ -281,41 +268,75 @@ async def chat(data:dict):
     )
 
 
-    print(
-        f"[PROMPT LAYERS] "
-        f"{prompt_builder.get_prompt_layers()}"
-    )
+    def process_request():
+        with chat_engine_lock:
+            try:
+                if prompt_preset:
+                    try:
+                        prompt_builder.apply_prompt_preset(prompt_preset)
+                    except ValueError as exc:
+                        print(f"[PROMPT LAYERS] {exc}")
+                elif prompt_layers is not None:
+                    prompt_builder.set_prompt_layers(prompt_layers)
+
+                print(f"[PROMPT LAYERS] {prompt_builder.get_prompt_layers()}")
+
+                response = chat_engine.handle_user_message(
+                    user_id="web_user",
+                    text=message,
+                    request_id=request_id,
+                    pipeline_callback=lambda event: pipeline_events.publish(
+                        request_id,
+                        event.pop("type"),
+                        **event,
+                    ),
+                    cancellation_check=lambda: pipeline_events.is_cancelled(
+                        request_id
+                    ),
+                )
+                elapsed = round(time.perf_counter() - start, 3)
+                pipeline_events.publish(request_id, "request_completed")
+                print(f"[CHAT COMPLETE] id={request_id} elapsed={elapsed}s")
+                return {
+                    "response": response,
+                    "response_time": elapsed,
+                    "prompt_layers": prompt_builder.get_prompt_layers(),
+                    "request_id": request_id,
+                }
+            except ChatRequestCancelled:
+                elapsed = round(time.perf_counter() - start, 3)
+                pipeline_events.publish(
+                    request_id,
+                    "request_cancelled",
+                    message="Request cancelled before a response was ready.",
+                )
+                return {
+                    "response": "",
+                    "response_time": elapsed,
+                    "prompt_layers": prompt_builder.get_prompt_layers(),
+                    "request_id": request_id,
+                    "cancelled": True,
+                }
+            except Exception:
+                web_logger.exception("[CHAT FAILED] id=%s", request_id)
+                pipeline_events.publish(
+                    request_id,
+                    "request_failed",
+                    message="CYN-X Core could not complete this request.",
+                )
+                raise
+
+    return await run_in_threadpool(process_request)
 
 
-    response = chat_engine.handle_user_message(
-        user_id="web_user",
-        text=message,
-        request_id=request_id
-    )
+@app.get("/chat/events/{request_id}")
+async def chat_events(request_id: str, after: int = 0):
+    return pipeline_events.read(request_id, max(0, after))
 
 
-    elapsed = round(
-        time.perf_counter()-start,
-        3
-    )
-
-
-    print(
-        f"[CHAT COMPLETE] id={request_id} "
-        f"elapsed={elapsed}s"
-    )
-
-
-    return {
-
-        "response":response,
-
-        "response_time":elapsed,
-
-        "prompt_layers":
-            prompt_builder.get_prompt_layers()
-
-    }
+@app.post("/chat/cancel/{request_id}")
+async def cancel_chat(request_id: str):
+    return {"requested": pipeline_events.request_cancel(request_id)}
 
 
 @app.get("/api/lepro/devices")

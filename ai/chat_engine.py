@@ -46,6 +46,10 @@ OLLAMA_CONTEXT_LIMIT = 8192
 OLLAMA_PROMPT_BUDGET = 7500
 
 
+class ChatRequestCancelled(Exception):
+    """Raised when a web chat request is cancelled between Core operations."""
+
+
 class ChatEngine:
 
     def __init__(
@@ -91,6 +95,63 @@ class ChatEngine:
         # Long-term memories remain handled by MemoryManager/MemoryExtractor.
         self.conversation_history = {}
         self.max_conversation_turns = 12
+
+    def _emit_pipeline_event(self, pipeline_callback, event_type, **details):
+        if pipeline_callback is None:
+            return
+        try:
+            pipeline_callback({"type": event_type, **details})
+        except Exception as exc:
+            self.logger.warning("[PIPELINE EVENT ERROR] %s", exc)
+
+    @staticmethod
+    def _raise_if_cancelled(cancellation_check):
+        if cancellation_check is not None and cancellation_check():
+            raise ChatRequestCancelled("Chat request cancelled.")
+
+    def _call_tool_with_pipeline(
+        self,
+        name,
+        arguments,
+        pipeline_callback,
+        invocation_id=None,
+        cancellation_check=None,
+    ):
+        self._raise_if_cancelled(cancellation_check)
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="tool_execution",
+            status="active",
+        )
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "tool",
+            status="started",
+            name=name,
+            invocation_id=invocation_id,
+        )
+        try:
+            result = self.tool_router.call_tool(name, arguments)
+        except Exception:
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "tool",
+                status="failed",
+                name=name,
+                invocation_id=invocation_id,
+            )
+            raise
+
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "tool",
+            status="completed" if result.success else "failed",
+            name=name,
+            invocation_id=invocation_id,
+        )
+        self._raise_if_cancelled(cancellation_check)
+        return result
 
     @staticmethod
     def _calculator_relevant(user_text, tool_call):
@@ -578,7 +639,9 @@ class ChatEngine:
         text: str,
         mode: str = "normal",
         personality: str = "normal",
-        request_id: Optional[str] = None
+        request_id: Optional[str] = None,
+        pipeline_callback=None,
+        cancellation_check=None,
     ) -> str:
 
         """
@@ -595,6 +658,28 @@ class ChatEngine:
         7. Save conversation info
 
         """
+
+        self._raise_if_cancelled(cancellation_check)
+        generation_started = False
+
+        def on_model_output():
+            nonlocal generation_started
+            if generation_started:
+                return
+            generation_started = True
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
+
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="understanding",
+            status="active",
+        )
 
         terminal.section("CHAT ENGINE MEMORY CHECK")
         terminal.dim(f"Context Manager: {self.context_manager}")
@@ -776,6 +861,19 @@ class ChatEngine:
             f"words={len(prompt.split())}"
         )
 
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="understanding",
+            status="completed",
+        )
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="evaluating_capabilities",
+            status="active",
+        )
+
         # -----------------------------
         # 3. Tool-aware chat loop
         # -----------------------------
@@ -911,6 +1009,19 @@ class ChatEngine:
                 "query": search_query
             }
 
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="evaluating_capabilities",
+                status="completed",
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "decision",
+                action="use_tools",
+                tools=["web_search"],
+            )
+
             if request_id:
 
                 terminal.tool(
@@ -942,9 +1053,12 @@ class ChatEngine:
                     "tool=web_search"
                 )
 
-            tool_result = self.tool_router.call_tool(
+            tool_result = self._call_tool_with_pipeline(
                 "web_search",
-                search_arguments
+                search_arguments,
+                pipeline_callback,
+                invocation_id="web_search",
+                cancellation_check=cancellation_check,
             )
 
             tool_result_payload = (
@@ -1057,12 +1171,20 @@ class ChatEngine:
                 "[RETURNING TOOL RESULT TO MODEL]"
             )
 
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
+            self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
 
             final_response = self.ollama.chat(
                 messages=messages,
                 tools=None
             )
+            self._raise_if_cancelled(cancellation_check)
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -1076,6 +1198,12 @@ class ChatEngine:
                 or final_response.get("response")
                 or final_response.get("text")
                 or str(final_response)
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
             )
 
             terminal.model("FINAL MESSAGES")
@@ -1147,6 +1275,18 @@ class ChatEngine:
             and self.tool_router
             and "smoke_counter" in self.tool_router.tools
         ):
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="evaluating_capabilities",
+                status="completed",
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "decision",
+                action="use_tools",
+                tools=["smoke_counter"],
+            )
 
             smoke_arguments = {}
 
@@ -1229,9 +1369,12 @@ class ChatEngine:
                     "tool=smoke_counter",
                 )
 
-            smoke_result = self.tool_router.call_tool(
+            smoke_result = self._call_tool_with_pipeline(
                 "smoke_counter",
                 smoke_arguments,
+                pipeline_callback,
+                invocation_id="smoke_counter",
+                cancellation_check=cancellation_check,
             )
 
             smoke_payload = (
@@ -1344,12 +1487,20 @@ class ChatEngine:
                     "phase=final (authoritative smoke)",
                 )
 
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
+            self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
 
             final_response = self.ollama.chat(
                 messages=smoke_final_messages,
                 tools=None,
             )
+            self._raise_if_cancelled(cancellation_check)
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -1363,6 +1514,12 @@ class ChatEngine:
                 or final_response.get("response")
                 or final_response.get("text")
                 or str(final_response)
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
             )
 
             terminal.model("FINAL MODEL RESPONSE")
@@ -1445,12 +1602,25 @@ class ChatEngine:
 
         # Call Ollama with a real chat tool schema. If the model issues a tool call,
         # execute it in Python and then send the tool result back to Ollama.
+        self._raise_if_cancelled(cancellation_check)
         start = time.perf_counter()
 
-        response = self.ollama.chat(
-            messages=messages,
-            tools=tool_specs or None
-        )
+        if (
+            pipeline_callback is not None
+            and getattr(self.ollama, "supports_streaming_observer", False)
+        ):
+            response = self.ollama.chat(
+                messages=messages,
+                tools=tool_specs or None,
+                stream=True,
+                on_content=on_model_output,
+            )
+        else:
+            response = self.ollama.chat(
+                messages=messages,
+                tools=tool_specs or None
+            )
+        self._raise_if_cancelled(cancellation_check)
 
         terminal.timing(
             f"[FIRST OLLAMA TIME] "
@@ -1590,11 +1760,36 @@ class ChatEngine:
                 messages=messages,
                 tools=None
             )
+            self._raise_if_cancelled(cancellation_check)
 
             message = response.get(
                 "message",
                 {}
             )
+
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="evaluating_capabilities",
+            status="completed",
+        )
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "decision",
+            action="use_tools" if tool_calls else "answer_directly",
+            tools=[
+                (call.get("function") or {}).get("name") or call.get("name")
+                for call in tool_calls
+            ],
+        )
+        if tool_calls and generation_started:
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
+            )
+            generation_started = False
 
         chart_payload = None
 
@@ -1625,6 +1820,7 @@ class ChatEngine:
             )
 
             for tool_call in tool_calls:
+                self._raise_if_cancelled(cancellation_check)
 
                 name = (
                     tool_call.get("function") or {}
@@ -1902,21 +2098,48 @@ class ChatEngine:
                     not self.tool_router
                     or name not in self.tool_router.tools
                 ):
-
+                    invocation_id = (
+                        tool_call.get("id")
+                        or f"{name}-{len(messages)}"
+                    )
+                    self._emit_pipeline_event(
+                        pipeline_callback,
+                        "stage",
+                        stage="tool_execution",
+                        status="active",
+                    )
+                    self._emit_pipeline_event(
+                        pipeline_callback,
+                        "tool",
+                        status="started",
+                        name=name,
+                        invocation_id=invocation_id,
+                    )
                     tool_result_payload = {
                         "success": False,
                         "error": (
                             f"Tool '{name}' not found."
                         )
                     }
+                    self._emit_pipeline_event(
+                        pipeline_callback,
+                        "tool",
+                        status="failed",
+                        name=name,
+                        invocation_id=invocation_id,
+                    )
 
                 else:
 
-                    tool_result = (
-                        self.tool_router.call_tool(
-                            name,
-                            arguments
-                        )
+                    tool_result = self._call_tool_with_pipeline(
+                        name,
+                        arguments,
+                        pipeline_callback,
+                        invocation_id=(
+                            tool_call.get("id")
+                            or f"{name}-{len(messages)}"
+                        ),
+                        cancellation_check=cancellation_check,
                     )
 
                     tool_result_payload = (
@@ -2245,6 +2468,13 @@ class ChatEngine:
                     tool_message
                 )
 
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="tool_execution",
+                status="completed",
+            )
+
             if request_id:
 
                 terminal.ollama(
@@ -2254,6 +2484,13 @@ class ChatEngine:
 
             terminal.info(
                 "[RETURNING TOOL RESULT TO MODEL]"
+            )
+
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
             )
 
             # Optimize final Ollama call for deterministic tools (small prompt)
@@ -2335,6 +2572,7 @@ class ChatEngine:
                     messages=final_messages,
                     tools=None
                 )
+                self._raise_if_cancelled(cancellation_check)
 
             else:
 
@@ -2347,6 +2585,7 @@ class ChatEngine:
                     messages=messages,
                     tools=None
                 )
+                self._raise_if_cancelled(cancellation_check)
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -2359,6 +2598,12 @@ class ChatEngine:
                 )
                 or
                 str(final_response)
+            )
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="completed",
             )
 
             terminal.model(
@@ -2418,6 +2663,13 @@ class ChatEngine:
             return assistant_text
 
         # No tool call was requested by the model; fall back to the original generation flow.
+        if not generation_started:
+            self._emit_pipeline_event(
+                pipeline_callback,
+                "stage",
+                stage="generating_response",
+                status="active",
+            )
         assistant_text = (
             (response.get("message") or {}).get(
                 "content"
@@ -2425,6 +2677,12 @@ class ChatEngine:
             or response.get("response")
             or response.get("text")
             or str(response)
+        )
+        self._emit_pipeline_event(
+            pipeline_callback,
+            "stage",
+            stage="generating_response",
+            status="completed",
         )
 
         terminal.model(

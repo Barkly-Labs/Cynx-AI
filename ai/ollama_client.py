@@ -16,6 +16,7 @@ from ai.terminal_ui import terminal
 
 
 class OllamaClient:
+    supports_streaming_observer = True
 
     def __init__(
         self,
@@ -109,6 +110,7 @@ class OllamaClient:
         """
         Call Ollama's chat endpoint with optional tools.
         """
+        on_content = kwargs.pop("on_content", None)
 
         url = f"{self.base_url}/api/chat"
 
@@ -256,7 +258,7 @@ class OllamaClient:
 
         # Streaming chat response.
         output = ""
-        tool_calls = []
+        tool_calls = {}
 
         for line in response.iter_lines():
 
@@ -281,11 +283,40 @@ class OllamaClient:
             if token:
                 terminal.dim(token)
                 output += token
+                if on_content is not None:
+                    on_content()
 
-            if message.get("tool_calls"):
-                tool_calls.extend(
-                    message["tool_calls"]
-                )
+            for position, tool_call in enumerate(message.get("tool_calls") or []):
+                index = tool_call.get("index", position)
+                current = tool_calls.setdefault(index, {})
+                current_function = current.setdefault("function", {})
+                new_function = tool_call.get("function") or {}
+
+                for key in ("id", "type"):
+                    value = tool_call.get(key)
+                    if value:
+                        previous = current.get(key, "")
+                        current[key] = (
+                            value
+                            if value.startswith(previous)
+                            else previous + value
+                        )
+
+                for key in ("name", "arguments"):
+                    value = new_function.get(key)
+                    if value is None:
+                        continue
+                    previous = current_function.get(key)
+                    if isinstance(value, dict) and isinstance(previous, dict):
+                        previous.update(value)
+                    elif isinstance(value, str) and isinstance(previous, str):
+                        current_function[key] = (
+                            value
+                            if value.startswith(previous)
+                            else previous + value
+                        )
+                    else:
+                        current_function[key] = value
 
             if data.get("done"):
                 break
@@ -296,7 +327,7 @@ class OllamaClient:
             "message": {
                 "role": "assistant",
                 "content": output,
-                "tool_calls": tool_calls
+                "tool_calls": list(tool_calls.values())
             },
             "done": True
         }
