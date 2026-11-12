@@ -13,6 +13,7 @@ import threading
 import uuid
 import asyncio
 import json
+import math
 from pathlib import Path
 
 import requests
@@ -337,19 +338,33 @@ def dx_save_benchmark_run(data: dict):
         category = str(item.get("category", ""))[:200]
         analysis = analyze_response(response_text)
         scores = score_response(response_text, category, test=item.get("test"))
+        raw_response_time = item.get("response_time")
+        try:
+            response_time = float(raw_response_time) if raw_response_time is not None else None
+            if response_time is not None and (not math.isfinite(response_time) or response_time < 0):
+                response_time = None
+        except (TypeError, ValueError):
+            response_time = None
         scored.append({
             "test_id": str(item.get("test_id", ""))[:200],
             "category": category,
             "question": question,
             "response": response_text,
-            "response_time": max(0, float(item.get("response_time", 0) or 0)),
+            # Missing timing is unavailable, not a measured zero-second response.
+            "response_time": response_time,
             "failed": bool(item.get("failed", False)),
             "error": "Request failed" if item.get("failed") else None,
             "tools": item.get("tools", []) if isinstance(item.get("tools", []), list) else [],
             "analysis": analysis,
             "scores": scores,
         })
-    timings = [row["response_time"] for row in scored]
+    timings = [row["response_time"] for row in scored if row["response_time"] is not None]
+    score_values = [
+        row["scores"]["overall"] for row in scored
+        if not row["failed"] and isinstance(row.get("scores"), dict)
+        and isinstance(row["scores"].get("overall"), (int, float))
+        and not isinstance(row["scores"].get("overall"), bool)
+    ]
     tool_failures = sum(
         1 for row in scored
         for tool_event in row["tools"]
@@ -370,9 +385,9 @@ def dx_save_benchmark_run(data: dict):
                 for event in row["tools"]
             ) for row in scored
         ),
-        "average_response_time": round(statistics.mean(timings), 3) if timings else 0,
-        "median_response_time": round(statistics.median(timings), 3) if timings else 0,
-        "average_score": round(statistics.mean([r["scores"].get("overall", 0) for r in scored]), 2) if scored else 0,
+        "average_response_time": round(statistics.mean(timings), 3) if timings else None,
+        "median_response_time": round(statistics.median(timings), 3) if timings else None,
+        "average_score": round(statistics.mean(score_values), 2) if score_values else None,
         "results": scored,
     }
     DX_BENCHMARK_RUNS.mkdir(parents=True, exist_ok=True)
@@ -439,6 +454,17 @@ async def dx_evaluate_personality(run_id: str, refresh: bool = False):
     from fastapi import HTTPException
     try:
         return await run_in_threadpool(personality_diagnostics.evaluate_run, run_id, refresh=refresh)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.post("/api/dx/benchmark/personality/{run_id}/review-baseline")
+def dx_review_personality_baseline(run_id: str):
+    from fastapi import HTTPException
+    try:
+        return personality_diagnostics.mark_reviewed_baseline(run_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
     except ValueError as exc:

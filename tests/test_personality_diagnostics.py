@@ -1,4 +1,6 @@
 import json
+import threading
+import time
 import uuid
 
 from benchmark.personality.diagnostics import PersonalityDiagnosticsService, load_contract
@@ -36,13 +38,13 @@ def _saved_run(run_id, *, created, response, score, confidence=0.9):
     }
 
 
-def test_contract_has_twelve_versioned_dimensions_and_scenarios_are_multiturn():
+def test_contract_has_thirteen_versioned_dimensions_and_scenarios_are_multiturn():
     contract = load_contract()
     suite = json.loads(open("benchmark/suites/personality-diagnostics-v1.json", encoding="utf-8").read())
 
     assert contract["version"] == suite["contract_version"] == "1.0.0"
-    assert len(contract["dimensions"]) == 12
-    assert len({dimension["id"] for dimension in contract["dimensions"]}) == 12
+    assert len(contract["dimensions"]) == 13
+    assert len({dimension["id"] for dimension in contract["dimensions"]}) == 13
     assert len(suite["scenarios"]) >= 10
     assert all(len(scenario["turns"]) >= 2 for scenario in suite["scenarios"])
     assert all(scenario["target_dimensions"] and scenario["expected_behavior"] for scenario in suite["scenarios"])
@@ -74,6 +76,108 @@ def test_local_evaluator_is_toolless_validates_quotes_and_redacts_pii(tmp_path):
     assert evaluation["evidence_references"][0]["request_id"] == f"request-{run_id}"
     assert report["calibration_status"] == "uncalibrated"
     assert json.loads((tmp_path / "personality_diagnostics" / f"{run_id}.json").read_text())["run_id"] == run_id
+
+
+def test_evidence_quote_must_match_the_referenced_turn_and_runtime_model_is_saved(tmp_path):
+    run_id = str(uuid.uuid4())
+    run = _saved_run(run_id, created="2026-11-01", response="Answer from turn two.", score=3.2)
+    question = run["questions"][0]
+    question["conversation_turns"] = [
+        {"turn_index": 1, "user_message": "First question.", "response": "First answer.", "request_id": "req-1"},
+        {"turn_index": 2, "user_message": "Second question.", "response": "Answer from turn two.", "request_id": "req-2"},
+    ]
+    question["personality_trace"] = {"events": [{"request_id": "req-2", "details": {"model": "cynx-local:latest"}}]}
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
+    judge = _Judge({"evaluations": [{
+        "dimension": "tone_adaptation", "score": 3.2, "confidence": 0.9,
+        "observed_behavior": "The tone is direct.", "explanation": "The answer is concise.",
+        "evidence": [{"turn_index": 1, "quote": "Answer from turn two."}],
+    }]})
+
+    report = PersonalityDiagnosticsService(tmp_path, judge).evaluate_run(run_id)
+    item = next(item for item in report["diagnostics"] if item["dimension"] == "tone_adaptation")
+
+    assert item["status"] == "inconclusive"
+    assert item["score"] is None
+    assert report["runtime_provenance"]["model_identifiers"] == ["cynx-local:latest"]
+
+
+def test_failed_scenario_keeps_technical_failure_and_no_personality_score(tmp_path):
+    run_id = str(uuid.uuid4())
+    run = _saved_run(run_id, created="2026-11-01", response="", score=0)
+    question = run["questions"][0]
+    question["status"] = "failed"
+    question["error"] = "A scenario turn failed."
+    question["response"] = ""
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
+    service = PersonalityDiagnosticsService(tmp_path, _Judge({"evaluations": []}))
+
+    report = service.evaluate_run(run_id)
+
+    assert all(item["score"] is None for item in report["diagnostics"] if item["finding_class"] == "personality")
+    assert any(item["finding_class"] == "technical" and item["finding_code"] == "request_failed" for item in report["diagnostics"])
+
+
+def test_concurrent_evaluate_requests_are_coalesced(tmp_path):
+    run_id = str(uuid.uuid4())
+    run = _saved_run(run_id, created="2026-11-01", response="A calm answer.", score=3)
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
+    entered, release, second_started = threading.Event(), threading.Event(), threading.Event()
+
+    class SlowJudge(_Judge):
+        def chat(self, messages, tools=None, **kwargs):
+            self.calls.append({"messages": messages, "tools": tools, "kwargs": kwargs})
+            entered.set()
+            assert release.wait(2)
+            return {"message": {"content": json.dumps({"evaluations": [{
+                "dimension": "tone_adaptation", "score": 3, "confidence": 0.8,
+                "observed_behavior": "Measured tone.", "explanation": "Evidence-backed.",
+                "evidence": [{"turn_index": 1, "quote": "A calm answer."}],
+            }]})}}
+
+    judge = SlowJudge(None)
+    service = PersonalityDiagnosticsService(tmp_path, judge)
+    first = threading.Thread(target=service.evaluate_run, args=(run_id,), kwargs={"refresh": True})
+    second = threading.Thread(target=lambda: (second_started.set(), service.evaluate_run(run_id, refresh=True)))
+    first.start()
+    assert entered.wait(2)
+    second.start()
+    assert second_started.wait(2)
+    time.sleep(0.05)
+    release.set()
+    first.join(2)
+    second.join(2)
+
+    assert not first.is_alive() and not second.is_alive()
+    assert len(judge.calls) == 1
+
+
+def test_reviewed_baseline_requires_two_passing_scenarios(tmp_path):
+    import copy
+
+    run_id = str(uuid.uuid4())
+    run = _saved_run(run_id, created="2026-11-01", response="A measured answer.", score=3.5)
+    first = run["questions"][0]
+    first["response"] = "A measured answer."
+    first["conversation_turns"][0]["response"] = "A measured answer."
+    second = copy.deepcopy(first)
+    second.update({"question_id": "question-second", "test_id": "scenario-two", "scenario_id": "scenario-two", "request_id": "request-second", "request_ids": ["request-second"]})
+    second["conversation_turns"][0]["request_id"] = "request-second"
+    run["questions"].append(second)
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
+    judge = _Judge({"evaluations": [{
+        "dimension": "tone_adaptation", "score": 3.5, "confidence": 0.9,
+        "observed_behavior": "Measured and calm.", "explanation": "The wording is proportional.",
+        "evidence": [{"turn_index": 1, "quote": "A measured answer."}],
+    }]})
+    service = PersonalityDiagnosticsService(tmp_path, judge)
+
+    service.evaluate_run(run_id)
+    approved = service.mark_reviewed_baseline(run_id)
+
+    assert approved["baseline_review"]["status"] == "approved"
+    assert approved["calibration_status"] == "uncalibrated"
+    assert service._is_known_good(approved) is True
 
 
 def test_missing_evaluator_is_inconclusive_not_zero_and_history_keeps_nulls(tmp_path):

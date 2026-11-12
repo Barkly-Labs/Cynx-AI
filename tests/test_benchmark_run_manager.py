@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from interfaces.web.benchmark_runs import BenchmarkRunManager
+from interfaces.web.benchmark_runs import BenchmarkRunManager, _run_elapsed
 from interfaces.web.pipeline import PipelineEventStore
 
 
@@ -230,3 +230,41 @@ def test_versioned_multiturn_personality_scenario_is_one_persisted_benchmark_cas
     assert question["scenario_id"] == "tone-1"
     assert [turn["user_message"] for turn in question["conversation_turns"]] == suite["scenarios"][0]["turns"]
     assert question["response"] == "Use the next step that fits."
+
+
+def test_elapsed_time_uses_accumulated_execution_time_and_excludes_pauses():
+    assert _run_elapsed({"elapsed_total_seconds": 12.5, "started_at": None, "status": "paused"}) == 12.5
+    assert _run_elapsed({"elapsed_total_seconds": 0, "created_at": "2026-11-12T00:00:00+00:00", "status": "completed"}) == 0
+
+
+def test_legacy_saved_run_can_be_opened_read_only_with_missing_metrics_unavailable(tmp_path):
+    suites = tmp_path / "suites"; suites.mkdir()
+    results = tmp_path / "results"; results.mkdir()
+    run_id = str(uuid.uuid4())
+    (results / f"{run_id}.json").write_text(json.dumps({
+        "run_id": run_id, "created_at": "2026-11-10T12:00:00+00:00", "suite": "old.json",
+        "attempted": 1, "successful": 1, "failed": 0, "average_score": None,
+        "average_response_time": None,
+        "results": [{"test_id": "OLD_1", "question": "Question?", "response": "Saved answer.",
+                     "response_time": None, "failed": False, "scores": None}],
+    }), encoding="utf-8")
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), lambda payload: {})
+
+    restored = manager.get(run_id)
+    assert restored["legacy_record"] is True
+    assert restored["questions"][0]["response"] == "Saved answer."
+    assert restored["questions"][0]["metrics"]["response_time_seconds"] is None
+    assert restored["questions"][0]["quality_status"] == "unscored"
+
+
+def test_invalid_suite_record_is_rejected_instead_of_silently_reducing_total(tmp_path):
+    suites = tmp_path / "suites"; suites.mkdir()
+    results = tmp_path / "results"
+    (suites / "invalid.json").write_text(json.dumps([
+        {"test_id": "VALID", "category": "SOCIAL_STYLE", "question": "A real question?"},
+        {"test_id": "EMPTY", "category": "SOCIAL_STYLE", "question": "   "},
+    ]), encoding="utf-8")
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), lambda payload: {})
+
+    with pytest.raises(ValueError, match="invalid question at position 2"):
+        manager.start("invalid.json", "automatic", "invalid-suite-request-001")

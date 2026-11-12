@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import re
 import threading
@@ -68,10 +69,17 @@ def _elapsed_since(value: str | None) -> float:
 
 
 def _run_elapsed(run: dict) -> float:
+    # New run snapshots accumulate only time spent executing, excluding time
+    # paused between questions. Fall back to wall-clock timestamps for older
+    # snapshots that predate elapsed_total_seconds.
+    accumulated = run.get("elapsed_total_seconds")
+    if isinstance(accumulated, (int, float)) and not isinstance(accumulated, bool) and math.isfinite(accumulated):
+        active_segment = _elapsed_since(run.get("started_at")) if run.get("started_at") else 0.0
+        return round(max(0.0, float(accumulated)) + active_segment, 3)
     start = run.get("created_at")
-    end = run.get("finished_at") if run.get("status") in {"completed", "completed_with_failures", "stopped", "failed"} else None
+    end = run.get("finished_at") if run.get("status") in {"completed", "completed_with_failures", "stopped", "failed", "interrupted"} else None
     if not start:
-        return round(run.get("elapsed_total_seconds", 0.0), 3)
+        return 0.0
     try:
         end_time = datetime.fromisoformat(end) if end else datetime.now(timezone.utc)
         return max(0.0, round((end_time - datetime.fromisoformat(start)).total_seconds(), 3))
@@ -112,6 +120,68 @@ class BenchmarkRunManager:
         if data.get("schema") != "cynx-dx-benchmark-run-v1":
             raise KeyError("Benchmark run not found")
         return data
+
+    def _legacy_public(self, run_id: str) -> dict:
+        """Expose saved pre-manager benchmark summaries as read-only runs."""
+        path = self._path(run_id)
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise KeyError("Benchmark run not found") from exc
+        if not isinstance(saved, dict) or saved.get("schema") == "cynx-dx-benchmark-run-v1":
+            raise KeyError("Benchmark run not found")
+        rows = saved.get("results")
+        if not isinstance(rows, list):
+            raise KeyError("Benchmark run not found")
+
+        questions = []
+        namespace = uuid.UUID(run_id)
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                continue
+            score = row.get("scores") if isinstance(row.get("scores"), dict) else row.get("score")
+            score = score if isinstance(score, dict) else None
+            rubric_total = score.get("rubric_total") if score else None
+            rubric_passed = score.get("rubric_passed") if score else None
+            quality = "unscored"
+            if isinstance(rubric_total, (int, float)) and rubric_total > 0 and isinstance(rubric_passed, (int, float)):
+                quality = "passed" if rubric_passed == rubric_total else "failed"
+            elif score and isinstance(score.get("overall"), (int, float)):
+                quality = "scored"
+            response_time = row.get("response_time")
+            if not isinstance(response_time, (int, float)) or isinstance(response_time, bool) or not math.isfinite(response_time) or response_time < 0:
+                response_time = None
+            failed = bool(row.get("failed"))
+            test_id = str(row.get("test_id") or f"question-{index + 1}")
+            questions.append({
+                "question_id": str(uuid.uuid5(namespace, f"{index + 1}:{test_id}")),
+                "position": index + 1, "test_id": test_id,
+                "category": str(row.get("category") or "unknown"),
+                "question": str(row.get("question") or ""),
+                "response": str(row.get("response") or ""),
+                "status": "failed" if failed else "completed",
+                "quality_status": "unscored" if failed else quality,
+                "score": score, "analysis": row.get("analysis"),
+                "error": str(row.get("error") or "Request failed") if failed else None,
+                "tools": row.get("tools") if isinstance(row.get("tools"), list) else [],
+                "request_events": [], "request_id": None,
+                "started_at": None, "finished_at": None,
+                "duration_seconds": response_time,
+                "metrics": {"response_time_seconds": response_time, "ttft_seconds": None,
+                            "tokens_generated": None, "tokens_per_second": None},
+            })
+        failures = sum(q["status"] == "failed" for q in questions)
+        run_status = "incomplete" if not questions else "completed_with_failures" if failures else "completed"
+        value = {
+            "legacy_record": True, "run_id": run_id,
+            "created_at": saved.get("created_at"), "suite": saved.get("suite"),
+            "name": saved.get("suite") or "Legacy benchmark run", "mode": saved.get("mode"),
+            "status": run_status, "questions": questions, "events": [],
+            "current_question_id": None, "current_request_id": None,
+            "elapsed_seconds": None,
+        }
+        value["counts"] = self._counts(value)
+        return value
 
     def _write(self, run: dict) -> None:
         self.results_dir.mkdir(parents=True, exist_ok=True)
@@ -324,10 +394,10 @@ class BenchmarkRunManager:
                 if not isinstance(question_text, str) or not question_text.strip():
                     question_text = turns[0] if turns else None
                 if not isinstance(case, dict) or not isinstance(question_text, str) or not question_text.strip() or len(turns) > 20:
-                    continue
+                    raise ValueError(f"Benchmark suite contains an invalid question at position {index + 1}")
                 questions.append({
                     "question_id": str(uuid.uuid4()),
-                    "position": index + 1,
+                    "position": len(questions) + 1,
                     "test_id": str(case.get("test_id", index + 1)),
                     "category": str(case.get("category", "unknown")),
                     "question": question_text,
@@ -410,6 +480,9 @@ class BenchmarkRunManager:
                 if run.get("pause_requested"):
                     run["status"] = "paused"
                     run["pause_requested"] = False
+                    if run.get("started_at"):
+                        run["elapsed_total_seconds"] += _elapsed_since(run["started_at"])
+                    run["started_at"] = None
                     run["current_question_id"] = None
                     run["current_request_id"] = None
                     self._append(run, "run_paused")
@@ -579,11 +652,17 @@ class BenchmarkRunManager:
 
     def get(self, run_id: str, after_event: int = 0) -> dict:
         with self._lock:
-            return self._public(self._read(run_id), after_event)
+            try:
+                return self._public(self._read(run_id), after_event)
+            except KeyError:
+                return self._legacy_public(run_id)
 
     def updates(self, run_id: str, after_event: int = 0) -> dict:
         with self._lock:
-            run = self._read(run_id)
+            try:
+                run = self._read(run_id)
+            except KeyError:
+                return self._legacy_public(run_id)
             value = self._public(run, after_event)
             changed_ids = {
                 event.get("question_id") for event in value["events"]
@@ -649,12 +728,20 @@ class BenchmarkRunManager:
 
     @staticmethod
     def _average_score(run: dict):
-        scores = [q["score"].get("overall") for q in run.get("questions", []) if isinstance(q.get("score"), dict) and isinstance(q["score"].get("overall"), (int, float))]
+        scores = [q["score"].get("overall") for q in run.get("questions", [])
+                  if isinstance(q.get("score"), dict)
+                  and isinstance(q["score"].get("overall"), (int, float))
+                  and not isinstance(q["score"].get("overall"), bool)
+                  and math.isfinite(q["score"].get("overall"))]
         return round(sum(scores) / len(scores), 2) if scores else None
 
     @staticmethod
     def _average_time(run: dict):
-        values = [q["metrics"].get("response_time_seconds") for q in run.get("questions", []) if isinstance(q.get("metrics", {}).get("response_time_seconds"), (int, float))]
+        values = [q["metrics"].get("response_time_seconds") for q in run.get("questions", [])
+                  if isinstance(q.get("metrics", {}).get("response_time_seconds"), (int, float))
+                  and not isinstance(q["metrics"].get("response_time_seconds"), bool)
+                  and math.isfinite(q["metrics"].get("response_time_seconds"))
+                  and q["metrics"].get("response_time_seconds") >= 0]
         return round(sum(values) / len(values), 3) if values else None
 
     def pause(self, run_id: str) -> dict:
