@@ -139,7 +139,7 @@ class PersonalityDiagnosticsService:
             if not isinstance(declared, list):
                 test = question.get("test") if isinstance(question.get("test"), dict) else {}
                 declared = test.get("target_dimensions", [])
-            dimensions = {value for value in declared if value in self.dimensions} if isinstance(declared, list) else set()
+            dimensions = {value for value in declared if isinstance(value, str) and value in self.dimensions} if isinstance(declared, list) else set()
             if dimensions:
                 eligible += 1
                 if question.get("status") == "completed":
@@ -212,7 +212,11 @@ class PersonalityDiagnosticsService:
             if question.get("status") in {"pending", "running"}:
                 continue
             deterministic.extend(self._deterministic_findings(run, question))
-            dims = [dim for dim in question.get("target_dimensions", []) if dim in self.dimensions]
+            declared = question.get("target_dimensions")
+            if not isinstance(declared, list):
+                test = question.get("test") if isinstance(question.get("test"), dict) else {}
+                declared = test.get("target_dimensions", [])
+            dims = sorted({dim for dim in declared if isinstance(dim, str) and dim in self.dimensions}) if isinstance(declared, list) else []
             if not dims:
                 continue
             if question.get("status") != "completed":
@@ -230,7 +234,33 @@ class PersonalityDiagnosticsService:
         diagnostics = evaluations + unavailable + deterministic
         valid_evaluations = [item for item in evaluations if item.get("status") != "inconclusive" and _number(item.get("score"))]
         inconclusive_count = len(unavailable) + sum(item.get("status") == "inconclusive" for item in evaluations)
-        eligible_scenarios = sum(bool(q.get("target_dimensions")) for q in run.get("questions", []))
+        targets_by_dimension = {dimension: 0 for dimension in self.dimensions}
+        for question in run.get("questions", []):
+            declared = question.get("target_dimensions")
+            if not isinstance(declared, list):
+                test = question.get("test") if isinstance(question.get("test"), dict) else {}
+                declared = test.get("target_dimensions", [])
+            for dimension in set(value for value in declared if isinstance(value, str) and value in self.dimensions) if isinstance(declared, list) else ():
+                targets_by_dimension[dimension] += 1
+        eligible_scenarios = sum(
+            any(counted for counted in [
+                isinstance(value, str) and value in self.dimensions for value in (
+                    question.get("target_dimensions") if isinstance(question.get("target_dimensions"), list)
+                    else question.get("test", {}).get("target_dimensions", []) if isinstance(question.get("test"), dict) else []
+                )
+            ]) for question in run.get("questions", [])
+        )
+        dimension_coverage = {}
+        for dimension, target_count in targets_by_dimension.items():
+            rows = [item for item in diagnostics if item.get("finding_class") == "personality" and item.get("dimension") == dimension]
+            dimension_coverage[dimension] = {
+                "targeted_scenarios": target_count,
+                "scored_samples": sum(_number(item.get("score")) and item.get("status") in {"pass", "warning", "fail"} for item in rows),
+                "pass": sum(item.get("status") == "pass" for item in rows),
+                "warning": sum(item.get("status") == "warning" for item in rows),
+                "fail": sum(item.get("status") == "fail" for item in rows),
+                "inconclusive": sum(item.get("status") == "inconclusive" for item in rows),
+            }
         report = {
             "schema": "cynx-personality-diagnostics-v1",
             "run_id": run_id,
@@ -241,6 +271,7 @@ class PersonalityDiagnosticsService:
             "evaluator_version": EVALUATOR_VERSION,
             "evaluator_model": self.evaluator_model or getattr(self.ollama, "model", None),
             "runtime_provenance": self._runtime_provenance(run),
+            "configuration_availability": "Runtime configuration is shown only when it was captured in the question trace; this report does not reconstruct settings.",
             "calibration_status": "uncalibrated",
             "created_at": _now(),
             "status": "not_evaluated" if not eligible_scenarios else "completed" if not inconclusive_count else "partial",
@@ -249,7 +280,8 @@ class PersonalityDiagnosticsService:
                 "evaluated_scenarios": len({d.get("scenario_id") for d in valid_evaluations if d.get("scenario_id")} ),
                 "dimension_evaluations": len(valid_evaluations),
                 "inconclusive_evaluations": inconclusive_count,
-                "not_applicable_scenarios": sum(not bool(q.get("target_dimensions")) for q in run.get("questions", [])),
+                "not_applicable_scenarios": len(run.get("questions", [])) - eligible_scenarios,
+                "dimension_coverage": dimension_coverage,
             },
             "diagnostics": diagnostics,
         }
@@ -537,7 +569,12 @@ class PersonalityDiagnosticsService:
                 run_context = self._history_run_context(current.get("run_id"))
             except KeyError:
                 run_context = None
-        history_reports = all_reports[:max(1, min(limit, 200))]
+        # Personality trends are meaningful only within the same suite. Mixing
+        # unrelated suites made comparisons look populated while comparing
+        # different scenario samples.
+        suite = current.get("suite") if current else None
+        comparable_reports = [item for item in all_reports if not suite or item.get("suite") == suite]
+        history_reports = comparable_reports[:max(1, min(limit, 200))]
         points = [self._summarize(report) for report in reversed(history_reports)]
         detail_reports = [current] if run_id and current else history_reports
         comparisons = self._comparisons(current, all_reports, baseline_id)
@@ -552,9 +589,19 @@ class PersonalityDiagnosticsService:
     def _summarize(self, report: dict[str, Any]) -> dict[str, Any]:
         behavior = [item for item in report.get("diagnostics", []) if item.get("evaluator_version") == EVALUATOR_VERSION]
         by_dimension = {}
+        dimension_coverage = {}
         for dimension in self.dimensions:
             values = [item for item in behavior if item.get("dimension") == dimension and _number(item.get("score")) and item.get("status") != "inconclusive"]
             by_dimension[dimension] = round(statistics.mean(item["score"] for item in values), 3) if values else None
+            rows = [item for item in report.get("diagnostics", [])
+                    if item.get("finding_class") == "personality" and item.get("dimension") == dimension]
+            dimension_coverage[dimension] = {
+                "scored_samples": len(values),
+                "pass": sum(item.get("status") == "pass" for item in rows),
+                "warning": sum(item.get("status") == "warning" for item in rows),
+                "fail": sum(item.get("status") == "fail" for item in rows),
+                "inconclusive": sum(item.get("status") == "inconclusive" for item in rows),
+            }
         severity_counts = {severity: sum(item.get("severity") == severity for item in report.get("diagnostics", [])) for severity in ("critical", "high", "medium", "low")}
         scenario_groups = {}
         scenario_dimensions = {}
@@ -567,6 +614,7 @@ class PersonalityDiagnosticsService:
             "run_id": report.get("run_id"), "suite": report.get("suite"), "created_at": report.get("created_at"),
             "contract_version": report.get("personality_contract_version"), "evaluator_version": report.get("evaluator_version"),
             "dimensions": by_dimension,
+            "dimension_coverage": dimension_coverage,
             "scenario_categories": {key: round(statistics.mean(values), 3) for key, values in scenario_groups.items()},
             "scenario_dimensions": {
                 scenario_id: {dimension: round(statistics.mean(scores), 3) for dimension, scores in values.items()}

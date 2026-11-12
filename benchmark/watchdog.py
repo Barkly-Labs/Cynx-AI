@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -65,7 +66,7 @@ class BenchmarkWatchdog:
                 "status": status,
                 "quality_status": item.get("quality_status") or ("failed" if item.get("failed") else "unscored"),
                 "score": score,
-                "metrics": {**metrics, "response_time_seconds": metrics.get("response_time_seconds", item.get("response_time"))},
+                "metrics": {**metrics, "response_time_seconds": metrics.get("response_time_seconds") if metrics.get("response_time_seconds") is not None else item.get("response_time")},
                 "tools": item.get("tools") if isinstance(item.get("tools"), list) else [],
                 "request_events": item.get("request_events") if isinstance(item.get("request_events"), list) else [],
             })
@@ -83,7 +84,9 @@ class BenchmarkWatchdog:
             baseline = next((item for item in runs if item.get("run_id") != current.get("run_id")
                              and item.get("suite") == current.get("suite")
                              and item.get("status") in _TERMINAL), None)
-        if baseline and (baseline.get("run_id") == current.get("run_id") or baseline.get("suite") != current.get("suite")):
+        if baseline and (baseline.get("run_id") == current.get("run_id")
+                         or baseline.get("suite") != current.get("suite")
+                         or baseline.get("status") not in _TERMINAL):
             baseline = None
 
         previous = {self._key(q): q for q in (baseline or {}).get("questions", [])}
@@ -124,17 +127,123 @@ class BenchmarkWatchdog:
             "baseline_run_id": (baseline or {}).get("run_id"),
             "suite": current.get("suite"),
             "status": current.get("status"),
+            "snapshot_source": "saved_benchmark_run",
+            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "metadata": self._run_metadata(current),
             "health": health,
             "counts": {"total": total, "passed": passed, "failed": failed,
                        "interrupted": interrupted, "completed": completed,
                        "pending": sum(q.get("status") == "pending" for q in current_questions),
                        "regressions": regressions},
+            "evaluation_coverage": self._evaluation_coverage(current_questions),
+            "metrics_summary": self._metrics_summary(current_questions),
+            "run_comparison": self._run_comparison(current_questions, (baseline or {}).get("questions", [])),
             "regression_feed": feed,
             "questions": results,
             "personality_dimensions": self._personality_dimensions(current.get("run_id")),
             "comparison_available": baseline is not None,
             "baseline_note": None if baseline else "No previous terminal run for this suite was found.",
         }
+
+    @staticmethod
+    def _run_metadata(run: dict[str, Any]) -> dict[str, Any]:
+        """Return only run metadata and configuration actually recorded at runtime."""
+        models, presets, architectures, prompt_layers, generation_parameters = set(), set(), set(), set(), []
+        model_versions, personality_versions = set(), set()
+        for question in run.get("questions", []):
+            trace = question.get("personality_trace", {})
+            for event in trace.get("events", []) if isinstance(trace, dict) else []:
+                details = event.get("details", {}) if isinstance(event, dict) else {}
+                if not isinstance(details, dict):
+                    continue
+                if details.get("model"):
+                    models.add(str(details["model"]))
+                if details.get("model_version"):
+                    model_versions.add(str(details["model_version"]))
+                if details.get("preset"):
+                    presets.add(str(details["preset"]))
+                if details.get("architecture"):
+                    architectures.add(str(details["architecture"]))
+                if details.get("personality_version"):
+                    personality_versions.add(str(details["personality_version"]))
+                prompt_layers.update(str(layer) for layer in details.get("prompt_layers", []) if isinstance(layer, str))
+                params = details.get("generation_parameters")
+                if params and params not in generation_parameters:
+                    generation_parameters.append(params)
+        return {
+            "run_id": run.get("run_id"), "suite": run.get("suite"), "mode": run.get("mode"),
+            "status": run.get("status"), "created_at": run.get("created_at"),
+            "started_at": run.get("started_at"), "finished_at": run.get("finished_at"),
+            "personality_contract_version": run.get("personality_contract_version"),
+            "scenario_library_version": run.get("scenario_library_version"),
+            "model_identifiers": sorted(models), "model_versions": sorted(model_versions),
+            "personality_presets": sorted(presets), "personality_architectures": sorted(architectures),
+            "prompt_layer_identifiers": sorted(prompt_layers),
+            "generation_parameters": generation_parameters,
+            "configuration_availability": "Values are collected from saved request trace events; empty fields mean that value was not captured.",
+        }
+
+    @classmethod
+    def _evaluation_coverage(cls, questions: list[dict[str, Any]]) -> dict[str, Any]:
+        diagnostic_rows = []
+        for question in questions:
+            score = question.get("score") if isinstance(question.get("score"), dict) else {}
+            total = score.get("rubric_total")
+            if _number(total) and total > 0:
+                diagnostic_rows.append(question)
+        return {
+            "rubric_evaluated_questions": len(diagnostic_rows),
+            "rubric_eligible_questions": sum(q.get("status") == "completed" for q in questions),
+            "rubric_coverage": (len(diagnostic_rows) / sum(q.get("status") == "completed" for q in questions)
+                                if any(q.get("status") == "completed" for q in questions) else None),
+        }
+
+    @staticmethod
+    def _metrics_summary(questions: list[dict[str, Any]]) -> dict[str, Any]:
+        measured = [question_metrics(q) for q in questions if q.get("status") != "pending"]
+        fields = ("prompt_tokens", "completion_tokens", "total_tokens", "response_time_seconds",
+                  "ttft_seconds", "generation_duration_seconds", "tokens_per_second")
+        result = {}
+        for field in fields:
+            values = [row[field] for row in measured if _number(row.get(field)) and math.isfinite(float(row[field])) and row[field] >= 0]
+            result[field] = {"total": sum(values) if values else None,
+                             "average": sum(values) / len(values) if values else None,
+                             "measured_questions": len(values), "eligible_questions": len(measured)}
+        result["aggregate_tokens_per_second"] = {
+            "value": (sum(row["completion_tokens"] for row in measured
+                          if _number(row.get("completion_tokens")) and _number(row.get("generation_duration_seconds"))
+                          and row["generation_duration_seconds"] > 0)
+                      / sum(row["generation_duration_seconds"] for row in measured
+                            if _number(row.get("completion_tokens")) and _number(row.get("generation_duration_seconds"))
+                            and row["generation_duration_seconds"] > 0)
+                      if any(_number(row.get("completion_tokens")) and _number(row.get("generation_duration_seconds"))
+                             and row["generation_duration_seconds"] > 0 for row in measured) else None),
+            "eligible_questions": len(measured),
+        }
+        return result
+
+    @classmethod
+    def _run_comparison(cls, current: list[dict[str, Any]], baseline: list[dict[str, Any]]) -> dict[str, Any]:
+        fields = ("prompt_tokens", "completion_tokens", "total_tokens", "response_time_seconds",
+                  "ttft_seconds", "generation_duration_seconds", "tokens_per_second")
+        current_by_key = {cls._key(q): q for q in current}
+        baseline_by_key = {cls._key(q): q for q in baseline}
+        comparisons = {}
+        for field in fields:
+            old_values, new_values = [], []
+            for key in current_by_key.keys() & baseline_by_key.keys():
+                old = question_metrics(baseline_by_key[key]).get(field)
+                new = question_metrics(current_by_key[key]).get(field)
+                if _number(old) and _number(new) and math.isfinite(float(old)) and math.isfinite(float(new)):
+                    old_values.append(float(old)); new_values.append(float(new))
+            comparisons[field] = {
+                "baseline_average": sum(old_values) / len(old_values) if old_values else None,
+                "current_average": sum(new_values) / len(new_values) if new_values else None,
+                "delta": (sum(new_values) / len(new_values) - sum(old_values) / len(old_values)) if old_values else None,
+                "matched_samples": len(old_values),
+            }
+        return {"available": bool(baseline), "matched_questions": len(current_by_key.keys() & baseline_by_key.keys()),
+                "metrics": comparisons}
 
     def _available_runs(self) -> list[dict[str, Any]]:
         runs = []
@@ -185,6 +294,12 @@ class BenchmarkWatchdog:
             "ttft_seconds": new_ttft, "previous_ttft_seconds": old_ttft,
             "ttft_delta_seconds": round(float(new_ttft) - float(old_ttft), 3) if _number(new_ttft) and _number(old_ttft) else None,
             "tokens_generated": new_tokens, "previous_tokens_generated": old_tokens,
+            "metrics": new_metrics,
+            "previous_metrics": old_metrics,
+            "conversation_turns": question.get("conversation_turns", []),
+            "previous_conversation_turns": old.get("conversation_turns", []) if old else [],
+            "request_ids": question.get("request_ids") or [question.get("request_id")],
+            "personality_trace": question.get("personality_trace") or {"available": False, "events": []},
             "tools": question.get("tools", []), "previous_tools": old_tools,
             "tool_names": new_tools, "tool_changes": _tool_delta(old_tools, new_tools),
             "failure": failure, "regression": regressed,
@@ -283,13 +398,20 @@ class BenchmarkWatchdog:
         metrics = question_metrics(question)
         return {
             "request_id": question.get("terminal_request_id") or question.get("request_id"),
+            "request_ids": question.get("request_ids") or [question.get("request_id")],
             "events": question.get("request_events", []),
+            "prompt_tokens": metrics.get("prompt_tokens"),
+            "completion_tokens": metrics.get("completion_tokens", metrics.get("tokens_generated")),
+            "total_tokens": metrics.get("total_tokens"),
             "response_time_seconds": metrics.get("response_time_seconds"),
             "ttft_seconds": metrics.get("ttft_seconds"),
+            "generation_duration_seconds": metrics.get("generation_duration_seconds"),
             "tokens_generated": metrics.get("tokens_generated"),
             "tokens_per_second": metrics.get("tokens_per_second"),
             "available_metrics": [key for key, value in metrics.items() if value is not None],
-            "missing_metrics": [key for key in ("ttft_seconds", "tokens_generated", "tokens_per_second") if metrics.get(key) is None],
+            "missing_metrics": [key for key in ("prompt_tokens", "completion_tokens", "total_tokens", "ttft_seconds",
+                                                  "generation_duration_seconds", "response_time_seconds", "tokens_per_second")
+                                if metrics.get(key) is None],
         }
 
     @staticmethod
@@ -330,15 +452,25 @@ class BenchmarkWatchdog:
     def _personality_dimensions(self, run_id: str | None) -> dict[str, Any]:
         """Expose only saved, scored Personality Diagnostics for this run."""
         names = {
-            "playfulness": "playfulness",
-            "flirtiness": None,  # No versioned contract dimension currently measures this.
+            "voice_identity": "voice_identity",
+            "tone_adaptation": "tone_adaptation",
             "warmth": "warmth",
             "humor": "humor",
+            "playfulness": "playfulness",
+            "expressiveness": "expressiveness",
+            "emotional_calibration": "emotional_calibration",
+            "conversational_continuity": "conversational_continuity",
+            "technical_competence": "technical_competence",
+            "authenticity": "authenticity",
             "conversational_naturalness": "conversational_naturalness",
-            "tone_adaptation": "tone_adaptation",
-            "consistency": "personality_consistency",
+            "appropriate_restraint": "appropriate_restraint",
+            "personality_consistency": "personality_consistency",
+            "flirtiness": None,  # No versioned contract dimension currently measures this.
         }
-        unavailable = {name: {"available": False, "value": None, "sample_count": 0}
+        unavailable = {name: {"available": False, "value": None, "sample_count": 0,
+                              "reason": ("No versioned Personality Contract dimension currently measures this behavior."
+                                         if name == "flirtiness" else
+                                         "No scored Personality Diagnostics for this dimension are saved on this run.")}
                        for name in names}
         if not run_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(run_id)):
             return unavailable

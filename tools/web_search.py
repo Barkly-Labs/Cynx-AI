@@ -199,6 +199,20 @@ RESEARCH_PATTERNS = {
 
 
 TOPIC_RULES = {
+    "adult_products": {
+        "positive": (
+            "dildo", "vibrator", "sex toy", "adult toy", "product listing",
+        ),
+        "priority": (
+            "review", "rating", "features", "materials", "body-safe",
+        ),
+        "context": (
+            "adult product", "sex toy", "dildo", "vibrator",
+        ),
+        "negative": (
+            "fiction", "erotic story", "porn scene",
+        ),
+    },
     "positions": {
         "positive": (
             "position",
@@ -251,6 +265,11 @@ PRODUCT_KEYWORDS = {
     "laptop",
     "mouse",
     "controller",
+}
+
+ADULT_PRODUCT_KEYWORDS = {
+    "dildo", "dildos", "vibrator", "vibrators", "sex toy", "sex toys",
+    "adult toy", "adult toys", "anal toy", "anal toys",
 }
 
 
@@ -325,6 +344,10 @@ ADULT_INDICATORS = {
     "position",
     "positions",
     "knot",
+    "dildo",
+    "vibrator",
+    "sex toy",
+    "adult toy",
 }
 
 
@@ -554,6 +577,17 @@ def build_intent(query: str) -> SearchIntent:
         context.extend(rules["context"])
 
         modifiers.append("product review")
+
+    if (
+        contains_any(query_lower, ADULT_PRODUCT_KEYWORDS)
+        and contains_any(query_lower, {"best", "top", "recommend", "review", "buy", "price", "find", "amazon", "etsy", "ebay", "walmart"})
+    ):
+        rules = TOPIC_RULES["adult_products"]
+        positive.extend(rules["positive"])
+        priority.extend(rules["priority"])
+        context.extend(rules["context"])
+        negative.extend(rules["negative"])
+        modifiers.append("adult product reviews")
 
     # -------------------------
     # Store targeting

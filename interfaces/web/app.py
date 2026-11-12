@@ -766,8 +766,8 @@ async def _dispatch_benchmark_scenario(data: dict):
     started = time.perf_counter()
     for index, message in enumerate(turns):
         request_id = data.get("request_id") if index == 0 else str(uuid.uuid4())
-        if index and run_id and question_id:
-            benchmark_runs.register_question_request(run_id, question_id, request_id)
+        if run_id and question_id:
+            benchmark_runs.register_question_request(run_id, question_id, request_id, index + 1)
         try:
             result = await _dispatch_chat({"message": message, "request_id": request_id, "conversation_id": conversation_id})
         except Exception:

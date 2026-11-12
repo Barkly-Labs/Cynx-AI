@@ -85,3 +85,30 @@ def test_chat_engine_keeps_browser_conversation_histories_separate():
 
     assert all("First session message" not in message.get("content", "") for message in second_messages)
     assert any("First session message" in message.get("content", "") for message in engine.conversation_history[first_key])
+
+
+def test_tool_execution_trace_contains_result_reference_and_duration_without_chain_of_thought():
+    class ToolResult:
+        success = True
+        output = {"answer": "actual tool result", "contact": "piper@example.org"}
+        metadata = {"source": "fixture"}
+
+    class ToolRouter(_Tools):
+        def call_tool(self, name, arguments):
+            return ToolResult()
+
+    events = []
+    engine = ChatEngine(
+        ollama_client=_Ollama(), prompt_builder=_PromptBuilder(), memory_store=None,
+        tool_router=ToolRouter(), mode_manager=None, context_manager=None,
+    )
+    result = engine._call_tool_with_pipeline("sample_tool", {"query": "actual prompt"}, None,
+                                             invocation_id="invoke-1", trace_callback=events.append)
+
+    assert result.output["answer"] == "actual tool result"
+    trace = events[-1]
+    assert trace["result_success"] is True
+    assert trace["result_output"]["answer"] == "actual tool result"
+    assert trace["output_reference"] == "invoke-1"
+    assert trace["duration_seconds"] >= 0
+    assert "chain of thought" not in str(trace).lower()

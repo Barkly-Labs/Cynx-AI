@@ -84,6 +84,25 @@ test("watchdog trait values come only from saved personality evaluations", () =>
   assert.match(source, /Traits are not inferred from response text/);
 });
 
+test("Benchmark Watch renders run-specific metadata, full turns, metric comparisons, and captured tool traces", () => {
+  assert.match(source, /Run identity and captured configuration/);
+  assert.match(source, /Current-run performance · saved measurements/);
+  assert.match(source, /renderWatchdogTurns\(selected\.conversation_turns\)/);
+  assert.match(source, /selected\.personality_trace\|\|telemetry\.events/);
+  assert.match(source, /comparisonTable/);
+  assert.match(source, /Input tokens: \$\{esc\(telemetry\.prompt_tokens/);
+  assert.match(source, /Output tokens: \$\{esc\(telemetry\.completion_tokens/);
+  assert.match(source, /Generation duration: \$\{esc\(telemetry\.generation_duration_seconds/);
+});
+
+test("Personality Diagnostics exposes the exact historical conversation and versioned score criteria", () => {
+  assert.match(source, /personalitySourceRun\?\.run_id===currentId/);
+  assert.match(source, /Complete scenario prompt and actual conversation/);
+  assert.match(source, /Versioned scoring criteria and methodology/);
+  assert.match(source, /scored samples · \$\{items\.filter\(x=>x\.status==='pass'\)\.length\} pass/);
+  assert.match(source, /configuration_availability/);
+});
+
 test("benchmark question and turn views render input, output, total, and timing metrics", () => {
   assert.match(source, /metricCell\('Input tokens',metrics\.prompt_tokens\)/);
   assert.match(source, /metricCell\('Output tokens',metrics\.completion_tokens\?\?metrics\.tokens_generated\)/);

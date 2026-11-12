@@ -14,6 +14,7 @@ Uses the existing SQLite memories table.
 """
 
 import json
+import re
 
 
 class MemoryManager:
@@ -177,7 +178,28 @@ class MemoryManager:
 
     def search(self, user_id, query, limit=5):
 
-        words = query.lower().split()
+        # Score distinct, meaningful terms instead of raw substrings. The old
+        # implementation gave every positive-importance memory a score even
+        # with zero query overlap, and tiny words such as "me" could match
+        # inside unrelated sensitive memories.
+        stop_words = {
+            "a", "about", "after", "again", "all", "also", "am", "an", "and",
+            "any", "are", "as", "at", "be", "because", "been", "before", "best",
+            "but", "by", "can", "could", "did", "do", "does", "find", "for", "from",
+            "get", "give", "had", "has", "have", "hey", "how", "i", "im", "in", "is",
+            "it", "its", "me", "my", "of", "on", "or", "please", "search", "some",
+            "tell", "that", "the", "their", "them", "there", "this", "to", "up", "was",
+            "what", "when", "where", "which", "who", "why", "with", "would", "you",
+            "your", "amazon", "online", "product", "products", "shop", "shopping",
+            "adult", "adults", "recommend", "recommendation", "recommendations",
+        }
+
+        words = {
+            word for word in re.findall(r"[a-z0-9]{3,}", str(query or "").lower())
+            if word not in stop_words
+        }
+        if not words:
+            return []
 
         cur = self.conn.cursor()
 
@@ -204,21 +226,13 @@ class MemoryManager:
 
             for row in cur.fetchall():
 
-                content = row[2].lower()
+                content_words = set(re.findall(r"[a-z0-9]{3,}", str(row[2] or "").lower()))
+                overlap = words.intersection(content_words)
 
-                score = 0
-
-                for word in words:
-
-                    if word in content:
-
-                        score += 1
-
-                # Importance bonus
-
-                score += row[3] * 0.1
-
-                if score > 0:
+                # Importance ranks relevant memories; it never makes an
+                # unrelated record eligible for injection by itself.
+                if overlap:
+                    score = len(overlap) + (row[3] or 0) * 0.01
 
                     results.append(
                         {
@@ -227,6 +241,7 @@ class MemoryManager:
                             "content": row[2],
                             "importance": row[3],
                             "score": score,
+                            "matched_terms": sorted(overlap),
                         }
                     )
 

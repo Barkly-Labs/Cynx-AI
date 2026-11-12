@@ -6,6 +6,7 @@ ToolRouter:
 - Log usage
 """
 
+import re
 from typing import Dict, Any
 from tools.base import BaseTool, ToolResult
 
@@ -259,6 +260,23 @@ class ToolRouter:
             return None
 
         text_lower = text.lower()
+
+        # Do not route adult products into search when the request explicitly
+        # targets a minor or non-consensual abuse. This narrow guard preserves
+        # ordinary consensual adult commerce and leaves the model's existing
+        # safety response path in control of restricted requests.
+        if self.is_restricted_adult_product_search(text):
+            return None
+
+        def search_query():
+            query = str(text).strip()
+            query = re.sub(r"^(?:(?:hey|hi)\s+)?(?:mommy|mom|hey cyn)[,:!?]*\s*", "", query, flags=re.IGNORECASE)
+            query = re.sub(
+                r"^(?:(?:can|could|would) you\s+)?(?:please\s+)?(?:search(?: the (?:web|internet))?|look\s*up|find(?:\s+me)?|recommend(?:\s+me)?|show\s+me)\s+(?:for\s+)?(?:the\s+)?",
+                "", query, flags=re.IGNORECASE,
+            )
+            query = re.sub(r"\b(?:i['’]?m|i am)\s+(?:an?\s+)?adult\b", "", query, flags=re.IGNORECASE)
+            return re.sub(r"\s+", " ", query).strip(" ,.!?\t\n") or str(text).strip()
 
         # ========================================================
         # First: detect smoke-counter intents
@@ -692,7 +710,7 @@ class ToolRouter:
 
         if any(word in normalized_text for word in research_words):
 
-            return {"tool": "web_search", "query": text}
+            return {"tool": "web_search", "query": search_query()}
 
         # --------------------------------------------------------
         # Known research question patterns
@@ -700,7 +718,7 @@ class ToolRouter:
 
         if any(pattern in normalized_text for pattern in research_question_patterns):
 
-            return {"tool": "web_search", "query": text}
+            return {"tool": "web_search", "query": search_query()}
 
         # --------------------------------------------------------
         # Stable knowledge should stay local by default.
@@ -725,13 +743,42 @@ class ToolRouter:
             "find info",
             "find sources",
             "find source",
+            "recommend",
+            "recommendations",
             "reviews",
             "price",
             "where can i buy",
         ]
 
-        if any(phrase in text_lower for phrase in search_phrases):
+        explicit_find_me = (
+            re.search(r"\bfind me\b", text_lower)
+            and not re.search(r"\b(?:we discussed|we talked|previously|earlier|remember|what were we)\b", text_lower)
+        )
+        if explicit_find_me or any(phrase in text_lower for phrase in search_phrases) or re.search(
+            r"\bfind me\b.{0,140}\b(?:best|top|info(?:rmation)?|sources?|results?|reviews?|price|buy|amazon|etsy|ebay|walmart|target)\b|"
+            r"\b(?:best|top|compare)\b.{0,100}\b(?:on|from|at)\s+(?:amazon|etsy|ebay|walmart|target|the web|online)\b",
+            text_lower,
+        ):
 
-            return {"tool": "web_search", "query": text}
+            return {"tool": "web_search", "query": search_query()}
 
         return None
+
+    @staticmethod
+    def is_restricted_adult_product_search(text: str) -> bool:
+        value = str(text or "").lower()
+        product = re.search(
+            r"\b(?:dildo|dildos|vibrator|vibrators|sex\s+toy|sex\s+toys|adult\s+toy|adult\s+toys|"
+            r"sexual\s+product|sexual\s+products)\b", value,
+        )
+        if not product:
+            return False
+        minor = re.search(
+            r"\b(?:underage|minor|minors|child|children|preteen)\b|"
+            r"\b(?:[0-9]|1[0-7])\s*[- ]?year[- ]old\b", value,
+        )
+        coercion = re.search(
+            r"\b(?:force|forced|coerce|coerced|nonconsensual|non-consensual|without consent|rape)\b",
+            value,
+        )
+        return bool(minor or coercion)

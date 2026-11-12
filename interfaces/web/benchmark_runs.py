@@ -33,23 +33,32 @@ _SECRET_PATTERNS = (
 )
 _HIDDEN_REASONING = re.compile(r"(?is)<think>.*?</think>|<analysis>.*?</analysis>")
 _STACK_TRACE = re.compile(r"(?s)Traceback \(most recent call last\):.*$")
+_TRACE_EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+_TRACE_PHONE = re.compile(r"(?<!\w)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\w)")
 
 
 def _redact_trace(value):
     """Keep trace content useful while removing common credential forms."""
     if isinstance(value, dict):
         return {
-            str(key): ("[REDACTED]" if re.search(r"(?i)(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|password|secret|credential)([_-]|$)", str(key))
+            str(key): ("[REDACTED]" if re.search(r"(?i)(^|[_-])(api[_-]?key|access[_-]?token|refresh[_-]?token|token|authorization|auth|password|secret|credential)([_-]|$)", str(key))
                        else _redact_trace(item))
             for key, item in value.items()
         }
     if isinstance(value, list):
-        return [_redact_trace(item) for item in value[:500]]
+        safe = [_redact_trace(item) for item in value[:500]]
+        if len(value) > 500:
+            safe.append(f"[TRACE ITEMS OMITTED: {len(value) - 500} beyond the 500-item limit]")
+        return safe
     if isinstance(value, str):
         result = _STACK_TRACE.sub("[RAW STACK TRACE REDACTED]", value[:50000])
         result = _HIDDEN_REASONING.sub("[HIDDEN REASONING REDACTED]", result)
+        result = _TRACE_EMAIL.sub("[EMAIL REDACTED]", result)
+        result = _TRACE_PHONE.sub("[PHONE REDACTED]", result)
         for pattern in _SECRET_PATTERNS:
             result = pattern.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]" if m.lastindex and m.lastindex >= 3 else "Bearer [REDACTED]", result)
+        if len(value) > 50000:
+            result += f"\n[TRACE TEXT OMITTED: {len(value) - 50000} characters beyond the 50000-character limit]"
         return result
     if value is None or isinstance(value, (bool, int, float)):
         return value
@@ -207,7 +216,7 @@ class BenchmarkRunManager:
             **details,
         })
 
-    def record_personality_trace(self, run_id: str, question_id: str, request_id: str, details: dict) -> None:
+    def record_personality_trace(self, run_id: str, question_id: str, request_id: str, details: dict, turn_index: int | None = None) -> None:
         """Persist an observed runtime trace event against its owning question."""
         with self._lock:
             try:
@@ -222,6 +231,7 @@ class BenchmarkRunManager:
             event = {
                 "event_id": str(uuid.uuid4()), "run_id": run_id,
                 "question_id": question_id, "request_id": request_id,
+                "turn_index": turn_index,
                 "stage": safe.pop("stage", "unknown"), "status": safe.pop("status", "observed"),
                 "timestamp": _now(), "details": safe,
             }
@@ -231,7 +241,7 @@ class BenchmarkRunManager:
                          request_id=request_id, trace_event_id=event["event_id"])
             self._write(run)
 
-    def register_question_request(self, run_id: str, question_id: str, request_id: str) -> None:
+    def register_question_request(self, run_id: str, question_id: str, request_id: str, turn_index: int | None = None) -> None:
         """Associate an additional real chat request with a multi-turn scenario."""
         with self._lock:
             try:
@@ -247,7 +257,7 @@ class BenchmarkRunManager:
             run["current_request_id"] = request_id
             self._trace_callbacks[request_id] = (
                 lambda details, rid=run_id, qid=question_id, req=request_id:
-                self.record_personality_trace(rid, qid, req, details)
+                self.record_personality_trace(rid, qid, req, details, turn_index)
             )
             self._append(run, "question_turn_request_registered", question_id=question_id, request_id=request_id)
             self._write(run)

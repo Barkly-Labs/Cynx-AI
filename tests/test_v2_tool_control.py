@@ -46,7 +46,7 @@ class FakeRouter:
     def detect(self, text):
         lower = text.lower()
         if "search the web" in lower or "latest python 3.14 release notes" in lower:
-            return {"tool": "web_search", "query": text}
+            return {"tool": "web_search", "query": "latest Python 3.14 release notes"}
         return None
 
     def call_tool(self, name, args):
@@ -93,23 +93,6 @@ class SearchOllama:
 
     def chat(self, messages, tools=None, **kwargs):
         self.calls.append({"messages": messages, "tools": tools})
-        if len(self.calls) == 1:
-            return {
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "function": {
-                                "name": "web_search",
-                                "arguments": {
-                                    "query": "latest Python 3.14 release notes"
-                                },
-                            }
-                        }
-                    ],
-                }
-            }
         return {
             "message": {
                 "role": "assistant",
@@ -216,8 +199,8 @@ def test_explicit_search_executes_exactly_one_authorized_search(monkeypatch):
     assert router.calls == [
         ("web_search", {"query": "latest Python 3.14 release notes"})
     ]
-    assert names(ollama.calls[0]["tools"]) == ["web_search"]
-    assert ollama.calls[1]["tools"] is None
+    assert len(ollama.calls) == 1
+    assert ollama.calls[0]["tools"] is None
 
 
 def test_v1_tool_exposure_is_preserved(monkeypatch):

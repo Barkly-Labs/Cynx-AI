@@ -241,6 +241,38 @@ def test_history_exposes_target_coverage_for_unscored_and_legacy_runs(tmp_path):
     assert legacy_history["run_context"]["dimension_targets"] == {"warmth": 2, "playfulness": 1}
 
 
+def test_personality_history_trend_is_limited_to_same_suite_and_reports_dimension_coverage(tmp_path):
+    run_id = str(uuid.uuid4())
+    run = _saved_run(run_id, created="2026-11-01", response="A calm reply.", score=3)
+    run["questions"][0]["target_dimensions"] = ["tone_adaptation", "made_up_dimension"]
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
+    record_dir = tmp_path / "personality_diagnostics"
+    record_dir.mkdir()
+    current_report = {
+        "schema": "cynx-personality-diagnostics-v1", "run_id": run_id,
+        "suite": "personality-diagnostics-v1.json", "created_at": "2026-11-01",
+        "personality_contract_version": "1.0.0", "evaluator_version": "judge-v1",
+        "evaluation_coverage": {"eligible_scenarios": 1, "evaluated_scenarios": 1,
+                                "dimension_evaluations": 1, "inconclusive_evaluations": 0},
+        "diagnostics": [{"evaluator_version": "cynx-local-judge-v1", "finding_class": "personality",
+                         "dimension": "tone_adaptation", "score": 3, "confidence": .9,
+                         "status": "pass", "scenario_id": "scenario-1", "scenario_category": "tone"}],
+    }
+    unrelated_id = str(uuid.uuid4())
+    unrelated = {**current_report, "run_id": unrelated_id, "suite": "technical-suite.json",
+                 "created_at": "2026-11-02", "diagnostics": [{**current_report["diagnostics"][0], "score": 0}]}
+    (record_dir / f"{run_id}.json").write_text(json.dumps(current_report), encoding="utf-8")
+    (record_dir / f"{unrelated_id}.json").write_text(json.dumps(unrelated), encoding="utf-8")
+
+    history = PersonalityDiagnosticsService(tmp_path).history(run_id=run_id)
+
+    assert [point["run_id"] for point in history["trend"]] == [run_id]
+    assert history["trend"][0]["dimensions"]["tone_adaptation"] == 3
+    assert history["trend"][0]["dimension_coverage"]["tone_adaptation"]["scored_samples"] == 1
+    assert history["run_context"]["targeted_scenarios"] == 1
+    assert history["run_context"]["dimension_targets"] == {"tone_adaptation": 1}
+
+
 def test_deterministic_findings_use_actual_tool_and_response_evidence(tmp_path):
     service = PersonalityDiagnosticsService(tmp_path)
     run_id = str(uuid.uuid4())

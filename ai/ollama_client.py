@@ -330,6 +330,28 @@ class OllamaClient:
                 final_chunk = data
                 break
 
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
+
+        # A disconnected/aborted stream must not be converted into a
+        # successful assistant answer. In particular, never let a partial
+        # prefix flow into ChatEngine's conversation history.
+        if not final_chunk.get("done"):
+            raise RuntimeError(
+                "Ollama chat stream ended before its terminal completion chunk."
+            )
+
+        if str(final_chunk.get("done_reason") or "").lower() in {
+            "length", "max_tokens", "limit"
+        }:
+            raise RuntimeError(
+                "Ollama chat stream ended at its generation limit; response is incomplete."
+            )
+
+        if not output.strip() and not tool_calls:
+            raise RuntimeError("Ollama chat stream contained no completed answer or tool call.")
+
         terminal.result("CYN-X CHAT COMPLETE")
 
         # Ollama sends its token and duration counters on the final `done`
@@ -347,7 +369,7 @@ class OllamaClient:
                 "content": output,
                 "tool_calls": list(tool_calls.values())
             },
-            "done": True,
+            "done": bool(final_chunk.get("done")),
             **{key: final_chunk[key] for key in telemetry_fields if key in final_chunk},
         }
 

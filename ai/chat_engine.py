@@ -51,7 +51,58 @@ class ChatRequestCancelled(Exception):
     """Raised when a web chat request is cancelled between Core operations."""
 
 
+class IncompleteModelResponse(RuntimeError):
+    """Raised when the model did not produce a complete user-facing answer."""
+
+
 class ChatEngine:
+
+    _CONTEXT_STOP_WORDS = {
+        "about", "after", "again", "also", "am", "an", "and", "are", "as", "at",
+        "be", "because", "best", "but", "can", "could", "did", "do", "does", "find",
+        "for", "from", "get", "give", "have", "help", "hey", "how", "i", "im", "in",
+        "is", "it", "me", "my", "of", "on", "or", "please", "search", "some", "the",
+        "this", "to", "what", "when", "where", "which", "who", "why", "with", "would",
+        "you", "your", "adult", "amazon", "product", "products", "shopping", "shop",
+    }
+
+    @staticmethod
+    def _is_v2_context_architecture(prompt_builder):
+        architecture = getattr(prompt_builder, "personality_arch", None)
+        return str(architecture or os.environ.get("CYNX_PERSONALITY_ARCH", "v1")).lower() == "v2"
+
+    @staticmethod
+    def _explicit_context_reference(text):
+        return bool(re.search(
+            r"\b(?:remember|do you recall|what were we|what did we|continue|pick up where|"
+            r"we discussed|we talked about|earlier|previously|that thing|explain that)\b",
+            text or "", re.IGNORECASE,
+        ))
+
+    @classmethod
+    def _context_is_relevant(cls, query, context):
+        if not context:
+            return False
+        if cls._explicit_context_reference(query):
+            return True
+        query_terms = {
+            term for term in re.findall(r"[a-z0-9]{3,}", str(query or "").lower())
+            if term not in cls._CONTEXT_STOP_WORDS
+        }
+        if not query_terms:
+            return False
+        context_terms = set(re.findall(r"[a-z0-9]{3,}", str(context).lower()))
+        return bool(query_terms.intersection(context_terms))
+
+    @staticmethod
+    def _is_standalone_retail_search(text):
+        if ChatEngine._explicit_context_reference(text):
+            return False
+        return bool(re.search(
+            r"\b(?:find|search|look\s*up|recommend|compare|show)\b.{0,140}\b"
+            r"(?:best|top|product|products|buy|price|reviews?|amazon|etsy|ebay|walmart|target|retailer|store)\b",
+            text or "", re.IGNORECASE,
+        ))
 
     def __init__(
         self,
@@ -109,6 +160,27 @@ class ChatEngine:
     def _raise_if_cancelled(cancellation_check):
         if cancellation_check is not None and cancellation_check():
             raise ChatRequestCancelled("Chat request cancelled.")
+
+    @staticmethod
+    def _completed_assistant_text(response):
+        """Return only a complete textual answer; never persist an empty/truncated one."""
+        if not isinstance(response, dict):
+            raise IncompleteModelResponse("Model returned an invalid response.")
+        reason = str(response.get("done_reason") or "").lower()
+        if reason in {"length", "max_tokens", "limit"}:
+            raise IncompleteModelResponse("Model response ended at its generation limit.")
+        message = response.get("message") or {}
+        content = message.get("content") if isinstance(message, dict) else None
+        if content is None:
+            content = response.get("response") or response.get("text")
+        if not isinstance(content, str) or not content.strip():
+            raise IncompleteModelResponse("Model returned no complete response text.")
+        if content.strip().lower().rstrip(".!?,") in {
+            "i", "we", "you", "they", "he", "she", "it", "my", "our",
+            "the", "a", "an", "because", "but", "and", "so", "if", "when", "to",
+        }:
+            raise IncompleteModelResponse("Model returned an unfinished response fragment.")
+        return content
 
     def _call_tool_with_pipeline(
         self,
@@ -176,7 +248,10 @@ class ChatEngine:
                                 "duration_seconds": round(time.perf_counter() - tool_started, 4),
                                 "output_reference": invocation_id or name,
                                 "output_reference_scope": "pair this invocation ID with the trace request ID",
-                                "output_capture": "omitted from trace; inspect developer logs if available",
+                                "result_success": bool(result.success),
+                                "result_output": result.output,
+                                "result_metadata": result.metadata if isinstance(result.metadata, (dict, list, str, int, float, bool)) else None,
+                                "output_capture": "captured in redacted trace; sensitive values are filtered before persistence",
                                 "failure_explanation": str(result.output)[:500] if not result.success and result.output else None,
                                 "included_in_model_context": None})
             except Exception:
@@ -619,6 +694,10 @@ class ChatEngine:
         if not self.tool_router:
             return None
 
+        if (hasattr(self.tool_router, "is_restricted_adult_product_search")
+                and self.tool_router.is_restricted_adult_product_search(user_text)):
+            return []
+
         tools = self.tool_router.as_ollama_tools()
 
         detected = None
@@ -629,13 +708,13 @@ class ChatEngine:
             except Exception:
                 detected = None
 
-        # Keep deterministic/stateful tools Python-authoritative.
-        # For ordinary turns, let Ollama decide whether it actually
-        # needs web_search (or calculator) instead of making Python
-        # keyword detection the sole gate for tool access.
+        # Keep deterministic/stateful tools Python-authoritative. Explicit
+        # web retrieval is also routed by Python so a model refusal or missed
+        # function call cannot silently defeat a direct search request.
         if detected and detected.get("tool") in {
             "smoke_counter",
             "chart",
+            "web_search",
         }:
             allowed_tool = detected.get("tool")
 
@@ -644,6 +723,21 @@ class ChatEngine:
                 for tool in tools
                 if tool.get("function", {}).get("name") == allowed_tool
             ]
+
+        if (getattr(self.prompt_builder, "personality_arch", None)
+                or os.environ.get("CYNX_PERSONALITY_ARCH", "v1")).lower() == "v2":
+            # V2 only exposes optional capabilities when the current request
+            # has an observable need. Tool availability alone must not turn
+            # ordinary conversation into a model-side routing decision.
+            if re.search(
+                r"\d\s*(?:[+*/×÷−]|-(?!>))\s*\d|\b(?:calculate|compute|what is)\b.{0,60}\d.{0,20}(?:plus|minus|times|divided|multiplied)",
+                user_text or "", re.IGNORECASE,
+            ):
+                return [
+                    tool for tool in tools
+                    if tool.get("function", {}).get("name") == "calculator"
+                ]
+            return []
 
         model_optional_tools = {
             "web_search",
@@ -663,6 +757,55 @@ class ChatEngine:
             for tool in tools
             if tool.get("function", {}).get("name") in model_optional_tools
         ]
+
+    @staticmethod
+    def _validate_tool_calls(tool_calls, tool_specs):
+        """Accept only offered tools with parseable object arguments."""
+        allowed = {}
+        for schema in tool_specs or []:
+            function = schema.get("function") or {}
+            name = function.get("name")
+            if name:
+                allowed[name] = function.get("parameters") or {}
+
+        accepted = []
+        rejected = []
+        for call in tool_calls or []:
+            function = call.get("function") or {}
+            name = function.get("name") or call.get("name")
+            raw_arguments = function.get("arguments", call.get("arguments", {}))
+            if isinstance(raw_arguments, str):
+                try:
+                    arguments = json.loads(raw_arguments)
+                except (TypeError, ValueError):
+                    rejected.append((name, "invalid_arguments"))
+                    continue
+            else:
+                arguments = raw_arguments
+
+            if name not in allowed:
+                rejected.append((name, "tool_not_offered"))
+                continue
+            if not isinstance(arguments, dict):
+                rejected.append((name, "invalid_arguments"))
+                continue
+
+            parameters = allowed[name]
+            required = parameters.get("required") or []
+            properties = parameters.get("properties") or {}
+            if any(key not in arguments for key in required) or (
+                properties and any(key not in properties for key in arguments)
+            ):
+                rejected.append((name, "invalid_arguments"))
+                continue
+
+            normalized = dict(call)
+            normalized_function = dict(function)
+            normalized_function["arguments"] = arguments
+            normalized["function"] = normalized_function
+            accepted.append(normalized)
+
+        return accepted, rejected
 
     def handle_user_message(
         self,
@@ -715,6 +858,37 @@ class ChatEngine:
                       generation_wall_duration_seconds=round(time.perf_counter() - call_started, 4),
                       error_type=type(exc).__name__)
                 raise
+            reason = str(result.get("done_reason") or "").lower()
+            result_message = result.get("message") or {}
+            result_content = (
+                result_message.get("content", "")
+                if isinstance(result_message, dict) else ""
+            ) or result.get("response") or result.get("text") or ""
+            result_tools = (
+                result_message.get("tool_calls", [])
+                if isinstance(result_message, dict) else []
+            )
+            if result.get("done") is False or reason in {"length", "max_tokens", "limit"}:
+                trace("generation_response_received", status="failed", phase=phase,
+                      model=result.get("model") or getattr(self.ollama, "model", None),
+                      done_reason=result.get("done_reason"),
+                      failure_explanation="Generation ended before a complete response.")
+                raise IncompleteModelResponse("Model response ended before completion.")
+            if not str(result_content).strip() and not result_tools:
+                trace("generation_response_received", status="failed", phase=phase,
+                      model=result.get("model") or getattr(self.ollama, "model", None),
+                      done_reason=result.get("done_reason"),
+                      failure_explanation="Model returned no response text or tool call.")
+                raise IncompleteModelResponse("Model returned no complete response text.")
+            if result_tools == [] and str(result_content).strip():
+                try:
+                    self._completed_assistant_text(result)
+                except IncompleteModelResponse:
+                    trace("generation_response_received", status="failed", phase=phase,
+                          model=result.get("model") or getattr(self.ollama, "model", None),
+                          done_reason=result.get("done_reason"),
+                          failure_explanation="Model returned an unfinished response fragment.")
+                    raise
             eval_duration = result.get("eval_duration")
             trace("generation_response_received", status="completed", phase=phase,
                   model=result.get("model") or getattr(self.ollama, "model", None),
@@ -876,6 +1050,19 @@ class ChatEngine:
                         MAX_MEMORY_CONTEXT
                     )
 
+        # Keep V2 context scoped to the current turn. Standalone product
+        # research is self-contained and should not inherit sensitive personal
+        # memories; ordinary greetings should not inherit unrelated context.
+        if self._is_v2_context_architecture(self.prompt_builder):
+            if self._is_standalone_retail_search(text):
+                mem_summary = ""
+                knowledge_context = ""
+            else:
+                if not self._context_is_relevant(text, mem_summary):
+                    mem_summary = ""
+                if not self._context_is_relevant(text, knowledge_context):
+                    knowledge_context = ""
+
         # -----------------------------
         # 2. Build Cyn prompt
         # -----------------------------
@@ -1027,15 +1214,6 @@ class ChatEngine:
 
         tool_specs = self._ollama_tools(text, mode)
 
-        # web_search detection is advisory: exposing the tool is enough.
-        # Ollama decides whether to call it. Deterministic/stateful tools
-        # remain Python-authoritative below.
-        if (
-            detected_tool
-            and detected_tool.get("tool") == "web_search"
-        ):
-            detected_tool = None
-
         if tool_specs:
 
             terminal.available_tools(
@@ -1094,9 +1272,16 @@ class ChatEngine:
             []
         )
 
+        history_for_context = history
+        if self._is_v2_context_architecture(self.prompt_builder):
+            if self._is_standalone_retail_search(text) or not self._context_is_relevant(
+                text, "\n".join(str(item.get("content", "")) for item in history)
+            ):
+                history_for_context = []
+
         messages = [
             {"role": "system", "content": prompt},
-            *history,
+            *history_for_context,
             {"role": "user", "content": text}
         ]
         trace("conversation_context_assembled", messages=messages,
@@ -1115,9 +1300,9 @@ class ChatEngine:
         # Python-authoritative web search execution
         # --------------------------------------------------
         #
-        # If the router explicitly detected web_search,
-        # execute it here instead of waiting for Ollama
-        # to decide whether it wants to call the tool.
+        # If the router detects an explicit/current research request,
+        # execute it here instead of relying on model discretion. This keeps
+        # ordinary requests that happen to expose tools unaffected.
         #
         # This makes research routing deterministic:
         #
@@ -1277,10 +1462,19 @@ class ChatEngine:
                                 "as the authoritative source for "
                                 "this research request. "
                                 "Answer the user's actual question. "
+                                "For ordinary product-shopping requests, "
+                                "treat the request as commerce/product research, "
+                                "not as a request for erotic content. Compare only "
+                                "products and details actually supported by these "
+                                "results; do not invent products, prices, ratings, "
+                                "or availability. "
                                 "Do not invent studies, sources, "
                                 "citations, statistics, or facts "
                                 "that are not supported by the "
                                 "search results. "
+                                "If the search failed or returned no usable "
+                                "product evidence, say that plainly and do not "
+                                "make a recommendation from memory. "
                                 "If the search results do not "
                                 "establish something, say so."
                             )
@@ -1336,14 +1530,7 @@ class ChatEngine:
                 f"{time.perf_counter() - final_start:.2f}s"
             )
 
-            assistant_text = (
-                (final_response.get("message") or {}).get(
-                    "content"
-                )
-                or final_response.get("response")
-                or final_response.get("text")
-                or str(final_response)
-            )
+            assistant_text = self._completed_assistant_text(final_response)
             trace("response_transformation", original_model_output=assistant_text,
                   final_user_facing_response=assistant_text, modifications=[])
             self._emit_pipeline_event(
@@ -1662,14 +1849,7 @@ class ChatEngine:
                 f"{time.perf_counter() - final_start:.2f}s"
             )
 
-            assistant_text = (
-                (final_response.get("message") or {}).get(
-                    "content",
-                )
-                or final_response.get("response")
-                or final_response.get("text")
-                or str(final_response)
-            )
+            assistant_text = self._completed_assistant_text(final_response)
             self._emit_pipeline_event(
                 pipeline_callback,
                 "stage",
@@ -1805,43 +1985,24 @@ class ChatEngine:
         # Validate tool_calls before proceeding. If the model returned any tool name
         # that is not registered in the tool router, log and treat as if no tool was requested
         # so the flow falls back to a normal assistant response without executing tools.
-        invalid_tool_names = []
-
-        validated_tool_calls = []
+        validated_tool_calls, rejected_tool_calls = self._validate_tool_calls(
+            tool_calls, tool_specs
+        )
+        invalid_tool_names = [name for name, _reason in rejected_tool_calls if name]
         blocked_optional_web_search = False
         blocked_optional_calculator = False
 
-        for tc in tool_calls:
-
-            name = (
-                tc.get("function") or {}
-            ).get("name") or tc.get("name")
-
-            if name and self.tool_router and hasattr(
-                self.tool_router,
-                "tools"
-            ):
-
-                if name in self.tool_router.tools:
-
-                    validated_tool_calls.append(
-                        tc
-                    )
-
+        if (self.tool_router
+                and hasattr(self.tool_router, "is_restricted_adult_product_search")
+                and self.tool_router.is_restricted_adult_product_search(text)):
+            safe_calls = []
+            for call in validated_tool_calls:
+                call_name = (call.get("function") or {}).get("name") or call.get("name")
+                if call_name == "web_search":
+                    blocked_optional_web_search = True
                 else:
-
-                    invalid_tool_names.append(
-                        name
-                    )
-
-            else:
-
-                # If tool router missing or name absent, treat as invalid to be safe
-                if name:
-
-                    invalid_tool_names.append(
-                        name
-                    )
+                    safe_calls.append(call)
+            validated_tool_calls = safe_calls
 
         retrieval_cue = re.compile(
             r"\b(?:search|find|look\s+up|lookup|browse|verify|check|online|"
@@ -1903,16 +2064,17 @@ class ChatEngine:
                 "without executing tools."
             )
 
-            # Proceed as if there were no tool calls
+            # Discard malformed/unoffered tool-call output and regenerate
+            # without tools; it is not a user-facing answer and must not be
+            # saved into conversation history.
+            response = traced_ollama_chat(
+                phase="retry_without_tools",
+                messages=messages,
+                tools=None,
+            )
+            self._raise_if_cancelled(cancellation_check)
+            message = response.get("message", {})
             tool_calls = []
-
-            message = {
-                "role": "assistant",
-                "content": message.get(
-                    "content",
-                    ""
-                )
-            }
 
         else:
 
@@ -2781,13 +2943,7 @@ class ChatEngine:
                 f"{time.perf_counter() - final_start:.2f}s"
             )
 
-            assistant_text = (
-                (final_response.get("message") or {}).get(
-                    "content"
-                )
-                or
-                str(final_response)
-            )
+            assistant_text = self._completed_assistant_text(final_response)
             trace("model_response_received", output=assistant_text,
                   generation_duration_seconds=round(time.perf_counter() - final_start, 4),
                   model=getattr(self.ollama, "model", None), done_reason=final_response.get("done_reason"), tool_calls=[])
@@ -2864,14 +3020,7 @@ class ChatEngine:
                 stage="generating_response",
                 status="active",
             )
-        assistant_text = (
-            (response.get("message") or {}).get(
-                "content"
-            )
-            or response.get("response")
-            or response.get("text")
-            or str(response)
-        )
+        assistant_text = self._completed_assistant_text(response)
         trace("model_response_received", output=assistant_text,
               generation_duration_seconds=round(time.perf_counter() - start, 4),
               model=getattr(self.ollama, "model", None), done_reason=response.get("done_reason"), tool_calls=[])

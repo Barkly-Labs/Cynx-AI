@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from interfaces.web.benchmark_runs import BenchmarkRunManager, _run_elapsed
+from interfaces.web.benchmark_runs import BenchmarkRunManager, _redact_trace, _run_elapsed
 from interfaces.web.pipeline import PipelineEventStore
 
 
@@ -394,3 +394,41 @@ def test_invalid_suite_record_is_rejected_instead_of_silently_reducing_total(tmp
 
     with pytest.raises(ValueError, match="invalid question at position 2"):
         manager.start("invalid.json", "automatic", "invalid-suite-request-001")
+
+
+def test_tool_trace_data_is_pii_redacted_before_persistence():
+    safe = _redact_trace({"result_output": {"result": "Saved result for piper@example.org; phone 313-555-0199"},
+                          "api_key": "secret-value"})
+    serialized = json.dumps(safe)
+    assert "piper@example.org" not in serialized
+    assert "313-555-0199" not in serialized
+    assert safe["api_key"] == "[REDACTED]"
+    assert "Saved result" in serialized
+    long_text = _redact_trace("x" * 50005)
+    assert "TRACE TEXT OMITTED: 5 characters" in long_text
+
+
+def test_multiturn_trace_events_retain_their_turn_number(tmp_path):
+    manager = None
+    def dispatch(payload):
+        request_id = payload["request_id"]
+        manager.register_question_request(payload["_benchmark_run_id"], payload["_benchmark_question_id"], request_id, 2)
+        manager.trace_callback(request_id)({"stage": "tool_execution", "status": "completed", "tool_name": "fixture",
+                                            "result_output": "Result for piper@example.org"})
+        return {"response": "Completed turn", "response_time": 0.1}
+
+    suites = tmp_path / "suites"; suites.mkdir()
+    results = tmp_path / "results"
+    (suites / "scenario.json").write_text(json.dumps([{
+        "test_id": "SCENARIO", "category": "PERSONALITY", "question": "First?",
+        "turns": ["First?", "Second?"],
+    }]), encoding="utf-8")
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), dispatch)
+    started = manager.start("scenario.json", "automatic", "turn-trace-start-001")
+    finished = _wait(manager, started["run_id"], lambda run: run["status"] == "completed")
+
+    trace = finished["questions"][0]["personality_trace"]["events"]
+    item = next(event for event in trace if event["stage"] == "tool_execution")
+    assert item["turn_index"] == 2
+    assert "piper@example.org" not in json.dumps(item)
+    assert "[EMAIL REDACTED]" in json.dumps(item)

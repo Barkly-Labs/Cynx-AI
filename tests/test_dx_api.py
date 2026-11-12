@@ -114,7 +114,17 @@ def test_dx_benchmark_watchdog_reads_persisted_runs_without_running_benchmark(tm
         "questions": [{"question_id": "new-q", "test_id": "WATCH_1", "category": "SOCIAL_STYLE",
                        "question": "Say hello.", "test": {"expected_behavior": "Greet"}, "status": "completed",
                        "quality_status": "failed", "response": "I cannot help with that.",
-                       "score": {"overall": 0.0}, "tools": [], "metrics": {}}],
+                       "score": {"overall": 0.0}, "tools": [], "metrics": {
+                           "prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14,
+                           "tokens_per_second": 8, "generation_duration_seconds": .5,
+                           "response_time_seconds": 1, "ttft_seconds": .2,
+                       }, "request_ids": ["watch-request"],
+                       "conversation_turns": [{"turn_index": 1, "user_message": "Say hello.",
+                                               "response": "I cannot help with that.", "request_id": "watch-request"}],
+                       "personality_trace": {"events": [{"stage": "configuration_loaded", "details": {
+                           "model": "cynx-local:latest", "preset": "warm", "architecture": "v2",
+                           "prompt_layers": ["core", "personality"],
+                       }}]}}],
     }
     tmp_path.joinpath("watch-old.json").write_text(json.dumps(old))
     tmp_path.joinpath("watch-new.json").write_text(json.dumps(new))
@@ -136,6 +146,11 @@ def test_dx_benchmark_watchdog_reads_persisted_runs_without_running_benchmark(tm
     assert report["baseline_run_id"] == "watch-old"
     assert report["regression_feed"][0]["regression"] is True
     assert report["questions"][0]["failure"]["signals"][0]["kind"] == "possible_unexpected_refusal"
+    assert report["questions"][0]["conversation_turns"][0]["user_message"] == "Say hello."
+    assert report["questions"][0]["telemetry"]["prompt_tokens"] == 10
+    assert report["metadata"]["model_identifiers"] == ["cynx-local:latest"]
+    assert report["metadata"]["personality_presets"] == ["warm"]
+    assert report["evaluation_coverage"]["rubric_eligible_questions"] == 1
     assert report["personality_dimensions"]["warmth"] == {
         "available": True, "value": 3.5, "sample_count": 1,
         "source": "saved_personality_diagnostics",
@@ -383,8 +398,8 @@ def test_personality_scenario_turns_share_chat_conversation_but_use_distinct_req
         return {"response": f"Answer {len(request_ids)}", "response_time": 0.1}
 
     class RunManager:
-        def register_question_request(self, run_id, question_id, request_id):
-            registrations.append((run_id, question_id, request_id))
+        def register_question_request(self, run_id, question_id, request_id, turn_index=None):
+            registrations.append((run_id, question_id, request_id, turn_index))
 
     monkeypatch.setattr(web_app, "_dispatch_chat", fake_chat)
     monkeypatch.setattr(web_app, "benchmark_runs", RunManager())
@@ -400,7 +415,8 @@ def test_personality_scenario_turns_share_chat_conversation_but_use_distinct_req
 
     assert conversation_ids == ["scenario-conversation", "scenario-conversation"]
     assert request_ids[0] == "first-request" and request_ids[0] != request_ids[1]
-    assert registrations == [("run-1", "question-1", request_ids[1])]
+    assert registrations == [("run-1", "question-1", request_ids[0], 1),
+                              ("run-1", "question-1", request_ids[1], 2)]
     assert [turn["response"] for turn in result["conversation_turns"]] == ["Answer 1", "Answer 2"]
 
 
