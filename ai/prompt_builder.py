@@ -297,6 +297,7 @@ class PromptBuilder:
         memory: str = "",
         context: str = "",
         prompt_layers: Optional[Dict[str, bool]] = None,
+        personality_matrix=None,
     ) -> str:
 
         memory = self.trim_context(memory, self.MAX_MEMORY_CHARS)
@@ -312,6 +313,7 @@ class PromptBuilder:
             memory_summary=(memory if layers["conversation"] else ""),
             additional_context=(context if layers["conversation"] else ""),
             enabled_layers=layers,
+            personality_matrix=personality_matrix,
         )
 
     # ---------------------------------------------
@@ -380,6 +382,7 @@ class PromptBuilder:
         intent: str = "",
         conversation_summary: str = "",
         prompt_layers: Optional[Dict[str, bool]] = None,
+        personality_matrix=None,
     ) -> str:
 
         layers = self.normalize_prompt_layers(
@@ -393,6 +396,7 @@ class PromptBuilder:
                 knowledge=knowledge_context,
                 tools=tools_spec,
                 prompt_layers=layers,
+                personality_matrix=personality_matrix,
             )
             self.last_prompt_components = [
                 {"source": component.name, "text": component.content}
@@ -412,6 +416,7 @@ class PromptBuilder:
             memory=memory_summary,
             context=knowledge_context,
             prompt_layers=layers,
+            personality_matrix=personality_matrix,
         )
 
         self.last_prompt_components = [

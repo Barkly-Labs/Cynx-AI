@@ -14,6 +14,7 @@ import uuid
 import asyncio
 import json
 import math
+import re
 from pathlib import Path
 
 import requests
@@ -56,6 +57,8 @@ from interfaces.web.benchmark_runs import BenchmarkRunManager
 from benchmark.telemetry import generation_metrics
 from benchmark.watchdog import BenchmarkWatchdog
 from benchmark.personality.diagnostics import PersonalityDiagnosticsService
+from ai.personality_studio import PersonalityStudioStore, TRAITS, TRAIT_INFO, STARTER_TRAITS, validate_traits
+from ai.personality import configure_personality_studio_store
 
 
 
@@ -92,6 +95,8 @@ prompt_builder = PromptBuilder()
 
 
 conn = connect()
+personality_studio = PersonalityStudioStore(get_config().db_path)
+configure_personality_studio_store(personality_studio)
 
 
 
@@ -243,6 +248,373 @@ def dx_home(request: Request):
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK_SUITES = PROJECT_ROOT / "benchmark" / "suites"
 DX_BENCHMARK_RUNS = PROJECT_ROOT / "benchmark" / "results" / "dx_runs"
+
+
+PERSONALITY_EVALUATION_PROMPT = """You are an evaluator of observable conversational style, not a hidden-reasoning reader.
+Compare the target tendencies and scenario against the assistant's actual response.
+Return JSON only with keys: dimensions (array), overall_consistency (object or null), limitations (array).
+For every supplied trait, return trait, score (integer 0-4 or null), confidence (0-1 or null),
+evidence (an exact short substring from the response or empty string), explanation (one concise sentence),
+potential_contradictions (array of concise observable concerns), missing_evidence (array of evidence needed),
+and status ('observed' or 'insufficient_evidence'). Do not require every trait to appear in one response.
+Use null when context does not provide fair evidence. Scores are evaluator interpretations, not objective facts.
+Do not include chain-of-thought, private reasoning, or invented quotes. For one response overall consistency must be null.
+For a multi-turn transcript, assess recognizable voice across turns only when evidence supports it."""
+
+_STUDIO_HIDDEN_TEXT = re.compile(r"(?is)<think>.*?(?:</think>|$)|<analysis>.*?(?:</analysis>|$)")
+_STUDIO_SECRET = re.compile(r"(?i)\b(?:api[_ -]?key|access[_ -]?token|password|secret)\s*[:=]\s*[^\s,;]+|\bsk-[A-Za-z0-9_-]{16,}")
+_STUDIO_EMAIL = re.compile(r"(?i)\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b")
+_STUDIO_PHONE = re.compile(r"(?<!\w)(?:\+?1[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\w)")
+
+
+def _studio_safe_text(value: str) -> str:
+    text = _STUDIO_HIDDEN_TEXT.sub("[hidden reasoning removed]", str(value or ""))
+    text = _STUDIO_SECRET.sub("[credential redacted]", text)
+    text = _STUDIO_EMAIL.sub("[email redacted]", text)
+    return _STUDIO_PHONE.sub("[phone redacted]", text)
+
+
+def _studio_generate(prompt: str, traits: dict[str, int], model: str | None = None) -> dict:
+    """Generate a draft-only answer through the production prompt and local Ollama client."""
+    from ai.prompt_builder import PromptBuilder as IsolatedPromptBuilder
+    architecture = (os.getenv("CYNX_PERSONALITY_ARCH", "v1") or "v1").strip().lower()
+    builder = IsolatedPromptBuilder(personality_arch=architecture)
+    system_prompt = builder.build_prompt(user_input=prompt, personality_matrix=traits)
+    result = ollama_client.chat(
+        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
+        tools=None, stream=False, **({"model": model} if model else {}),
+    )
+    message = result.get("message") or {}
+    response_text = _studio_safe_text(str(message.get("content") or result.get("response") or "").strip())
+    if result.get("done") is False or not response_text:
+        raise RuntimeError("The local model did not return a complete response.")
+    return {"response": response_text, "model": result.get("model") or getattr(ollama_client, "model", "unknown"),
+            "metrics": {"prompt_tokens": result.get("prompt_eval_count"), "completion_tokens": result.get("eval_count"),
+                        "total_duration_ns": result.get("total_duration"), "generation_duration_ns": result.get("eval_duration")},
+            "generation_parameters": {"temperature": 0.7, "context_tokens": 8192, "streaming": False}}
+
+
+def _studio_generate_conversation(prompts: list[str], traits: dict[str, int], model: str) -> dict:
+    """Run isolated multi-turn context without touching chat history or memory."""
+    from ai.prompt_builder import PromptBuilder as IsolatedPromptBuilder
+    architecture = (os.getenv("CYNX_PERSONALITY_ARCH", "v1") or "v1").strip().lower()
+    builder = IsolatedPromptBuilder(personality_arch=architecture)
+    system_prompt = builder.build_prompt(user_input=prompts[0], personality_matrix=traits)
+    messages = [{"role": "system", "content": system_prompt}]
+    turns, metrics = [], []
+    result = {}
+    for index, user_text in enumerate(prompts, 1):
+        messages.append({"role": "user", "content": user_text})
+        result = ollama_client.chat(messages=messages, tools=None, stream=False, model=model)
+        raw = str((result.get("message") or {}).get("content") or result.get("response") or "").strip()
+        answer = _studio_safe_text(raw)
+        if result.get("done") is False or not answer:
+            raise RuntimeError(f"Local generation did not complete turn {index}.")
+        messages.append({"role": "assistant", "content": answer})
+        turn_metrics = {"prompt_tokens": result.get("prompt_eval_count"), "completion_tokens": result.get("eval_count"),
+                        "total_duration_ns": result.get("total_duration"), "generation_duration_ns": result.get("eval_duration")}
+        turns.append({"turn_index": index, "user_message": _studio_safe_text(user_text), "response": answer, "metrics": turn_metrics})
+        metrics.append(turn_metrics)
+    transcript = "\n\n".join(f"Turn {item['turn_index']} user: {item['user_message']}\nTurn {item['turn_index']} CYN-X: {item['response']}" for item in turns)
+    return {"response": transcript, "turns": turns, "metrics": metrics, "model": result.get("model") or model,
+            "generation_parameters": {"temperature": 0.7, "context_tokens": 8192, "streaming": False}}
+
+
+def _studio_evaluate(prompt: str, response_text: str, traits: dict[str, int], model: str) -> dict:
+    """Score only evidence present in the actual response; reject invented quotations."""
+    request = {
+        "target_tendencies_percent": traits,
+        "trait_definitions": TRAIT_INFO,
+        "scenario": _studio_safe_text(prompt),
+        "actual_response": _studio_safe_text(response_text),
+    }
+    result = ollama_client.chat(
+        messages=[{"role": "system", "content": PERSONALITY_EVALUATION_PROMPT},
+                  {"role": "user", "content": json.dumps(request, ensure_ascii=False)}],
+        tools=None, stream=False, format="json", temperature=0.1, num_ctx=8192,
+    )
+    raw = (result.get("message") or {}).get("content") or result.get("response") or ""
+    try:
+        data = json.loads(raw)
+    except (TypeError, ValueError) as exc:
+        raise RuntimeError("The local evaluator returned invalid structured results.") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("dimensions"), list):
+        raise RuntimeError("The local evaluator response did not include dimension results.")
+    by_trait = {item.get("trait"): item for item in data["dimensions"] if isinstance(item, dict)}
+    dimensions = []
+    for trait in TRAITS:
+        item = by_trait.get(trait, {})
+        score = item.get("score")
+        confidence = item.get("confidence")
+        evidence = item.get("evidence") if isinstance(item.get("evidence"), str) else ""
+        if evidence and evidence not in response_text:
+            score, confidence, evidence = None, None, ""
+        if isinstance(score, bool) or not isinstance(score, int) or not 0 <= score <= 4:
+            score = None
+        if isinstance(confidence, bool) or not isinstance(confidence, (int, float)) or not 0 <= confidence <= 1:
+            confidence = None
+        status = "observed" if score is not None and evidence else "insufficient_evidence"
+        predicted = round(traits[trait] / 25, 2)
+        dimensions.append({"trait": trait, "target": traits[trait], "predicted_score": predicted,
+                           "prediction_method": "heuristic linear mapping from target percent to 0–4; not calibrated",
+                           "observed_score": score, "deviation": round(score - predicted, 2) if score is not None else None,
+                           "confidence": confidence, "evidence": evidence,
+                           "explanation": _studio_safe_text(str(item.get("explanation") or "Not assessed by the evaluator."))[:500],
+                           "potential_contradictions": [_studio_safe_text(value)[:300] for value in (item.get("potential_contradictions") or []) if isinstance(value, str)][:5],
+                           "missing_evidence": [_studio_safe_text(value)[:300] for value in (item.get("missing_evidence") or []) if isinstance(value, str)][:5],
+                           "status": status})
+    consistency = data.get("overall_consistency")
+    if not isinstance(consistency, dict) or "Turn 2 user:" not in response_text:
+        consistency = None
+    else:
+        score = consistency.get("score")
+        confidence_value = consistency.get("confidence")
+        consistency = ({"score": float(score), "confidence": confidence_value if isinstance(confidence_value, (int, float)) and not isinstance(confidence_value, bool) and 0 <= confidence_value <= 1 else None,
+                        "explanation": _studio_safe_text(str(consistency.get("explanation") or ""))[:500]}
+                       if isinstance(score, (int, float)) and not isinstance(score, bool) and 0 <= score <= 4 else None)
+    return {"method": "local-model-evaluator", "evaluator_model": model,
+            "score_scale": "0–4; null means insufficient evidence; not objective truth",
+            "confidence_note": "Evaluator-reported confidence; not a calibrated probability.",
+            "dimensions": dimensions, "prediction_status": "heuristic",
+            "prediction_method": "Target percentage is mapped linearly to a 0–4 expected-expression score; this mapping is uncalibrated.",
+            "overall_consistency": consistency,
+            "limitations": ["A single response cannot establish consistency across conversations.",
+                            "Scores are interpretations of visible output and require human review."]}
+
+
+def _studio_validate_model(model: str | None) -> str:
+    current = str(getattr(ollama_client, "model", ""))
+    if not model or model == current:
+        return current
+    try:
+        response = requests.get(f"{ollama_client.base_url}/api/tags", timeout=3)
+        response.raise_for_status()
+        installed = {str(item.get("name", "")) for item in response.json().get("models", [])}
+    except Exception as exc:
+        raise RuntimeError("Ollama model catalog is unavailable.") from exc
+    if model not in installed:
+        raise ValueError("Choose a model installed in the local Ollama instance.")
+    return model
+
+
+@app.get("/api/dx/personality/studio")
+def dx_personality_studio():
+    active = personality_studio.active()
+    return {"active": active, "versions": personality_studio.history(),
+            "presets": personality_studio.presets(), "traits": [{"id": key, "name": key.replace("_", " ").title(),
+            "description": TRAIT_INFO[key]} for key in TRAITS], "starter_draft": dict(STARTER_TRAITS),
+            "evaluation_history": personality_studio.evaluations(), "runtime_source": "active persisted configuration after explicit activation; legacy prompt before first activation"}
+
+
+@app.post("/api/dx/personality/preview")
+async def dx_personality_preview(data: dict):
+    from fastapi import HTTPException
+    prompt = str(data.get("prompt") or "").strip()
+    try:
+        traits = validate_traits(data.get("traits"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not prompt or len(prompt) > 6000:
+        raise HTTPException(status_code=422, detail="Enter a test message up to 6,000 characters.")
+    try:
+        model = _studio_validate_model(data.get("model"))
+        result = await run_in_threadpool(_studio_generate, prompt, traits, model)
+    except Exception as exc:
+        web_logger.exception("Personality Studio preview failed")
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=502, detail=f"Local preview failed: {type(exc).__name__}")
+    return {**result, "experimental": True, "persistence": "not saved to conversation history or memory", "active_configuration_unchanged": True}
+
+
+@app.post("/api/dx/personality/evaluate")
+async def dx_personality_evaluate(data: dict):
+    from fastapi import HTTPException
+    prompt = str(data.get("prompt") or "").strip()
+    try:
+        traits = validate_traits(data.get("traits"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not prompt or len(prompt) > 6000:
+        raise HTTPException(status_code=422, detail="Enter a test message up to 6,000 characters.")
+    try:
+        model = _studio_validate_model(data.get("model"))
+        generated = await run_in_threadpool(_studio_generate, prompt, traits, model)
+        report = await run_in_threadpool(_studio_evaluate, prompt, generated["response"], traits, generated["model"])
+        report["generation"] = {"model": generated["model"], "parameters": generated["generation_parameters"], "metrics": generated["metrics"]}
+        active = personality_studio.active()
+        config = active if active.get("activated") and active.get("traits") == traits else None
+        saved = personality_studio.record_evaluation(traits=traits, prompt=_studio_safe_text(prompt), response=generated["response"],
+            model=generated["model"], evaluation=report, config=config, evaluator_model=report["evaluator_model"])
+    except Exception as exc:
+        web_logger.exception("Personality Studio evaluation failed")
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=502, detail=f"Local evaluation failed: {type(exc).__name__}")
+    return {**saved, "metrics": generated.get("metrics"), "active_configuration_unchanged": True}
+
+
+@app.post("/api/dx/personality/compare")
+async def dx_personality_compare(data: dict):
+    from fastapi import HTTPException
+    prompt = str(data.get("prompt") or "").strip()
+    try:
+        left, right = validate_traits(data.get("left")), validate_traits(data.get("right"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not prompt or len(prompt) > 6000:
+        raise HTTPException(status_code=422, detail="Enter a test message up to 6,000 characters.")
+    try:
+        models = (_studio_validate_model(data.get("left_model")), _studio_validate_model(data.get("right_model")))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    results = []
+    try:
+        for traits, selected_model in zip((left, right), models):
+            generated = await run_in_threadpool(_studio_generate, prompt, traits, selected_model)
+            evaluation = await run_in_threadpool(_studio_evaluate, prompt, generated["response"], traits, generated["model"])
+            evaluation["generation"] = {"model": generated["model"], "parameters": generated["generation_parameters"], "metrics": generated["metrics"]}
+            saved = personality_studio.record_evaluation(traits=traits, prompt=_studio_safe_text(prompt), response=generated["response"],
+                model=generated["model"], evaluation=evaluation, evaluator_model=evaluation["evaluator_model"])
+            results.append({**saved, "metrics": generated.get("metrics")})
+    except Exception as exc:
+        web_logger.exception("Personality Studio comparison failed")
+        raise HTTPException(status_code=502, detail=f"Local comparison failed: {type(exc).__name__}")
+    return {"results": results, "controlled_input": prompt, "note": "Same prompt and selected local models; generation variability remains.", "active_configuration_unchanged": True}
+
+
+@app.post("/api/dx/personality/evaluate-batch")
+async def dx_personality_evaluate_batch(data: dict):
+    from fastapi import HTTPException
+    prompts = data.get("prompts")
+    try:
+        traits = validate_traits(data.get("traits"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not isinstance(prompts, list) or not 1 <= len(prompts) <= 20 or any(not isinstance(item, str) or not item.strip() or len(item) > 6000 for item in prompts):
+        raise HTTPException(status_code=422, detail="Provide 1–20 non-empty test messages, each up to 6,000 characters.")
+    try:
+        model = _studio_validate_model(data.get("model"))
+    except (ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=422 if isinstance(exc, ValueError) else 503, detail=str(exc))
+    results, errors = [], []
+    for index, prompt in enumerate(prompts, 1):
+        try:
+            generated = await run_in_threadpool(_studio_generate, prompt.strip(), traits, model)
+            evaluation = await run_in_threadpool(_studio_evaluate, prompt.strip(), generated["response"], traits, generated["model"])
+            evaluation["generation"] = {"model": generated["model"], "parameters": generated["generation_parameters"], "metrics": generated["metrics"]}
+            record = personality_studio.record_evaluation(traits=traits, prompt=_studio_safe_text(prompt.strip()),
+                response=generated["response"], model=generated["model"], evaluation=evaluation,
+                evaluator_model=evaluation["evaluator_model"])
+            results.append({**record, "metrics": generated.get("metrics")})
+        except Exception as exc:
+            web_logger.exception("Personality Studio batch item failed; item=%s", index)
+            errors.append({"index": index, "message": f"Evaluation failed: {type(exc).__name__}"})
+    return {"results": results, "errors": errors, "status": "completed" if not errors else "partial" if results else "failed",
+            "active_configuration_unchanged": True}
+
+
+@app.post("/api/dx/personality/conversation")
+async def dx_personality_conversation(data: dict):
+    from fastapi import HTTPException
+    turns = data.get("turns")
+    try:
+        traits = validate_traits(data.get("traits"))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not isinstance(turns, list) or not 2 <= len(turns) <= 10 or any(not isinstance(item, str) or not item.strip() or len(item) > 4000 for item in turns):
+        raise HTTPException(status_code=422, detail="Provide 2–10 non-empty conversation turns, each up to 4,000 characters.")
+    try:
+        model = _studio_validate_model(data.get("model"))
+        generated = await run_in_threadpool(_studio_generate_conversation, [item.strip() for item in turns], traits, model)
+        evaluation = await run_in_threadpool(_studio_evaluate, "\n".join(f"User turn {i}: {item}" for i, item in enumerate(turns, 1)),
+                                             generated["response"], traits, generated["model"])
+        evaluation["conversation_turns"] = generated["turns"]
+        evaluation["overall_consistency_status"] = "model_based_observation" if evaluation.get("overall_consistency") else "insufficient_evidence"
+        evaluation["generation"] = {"model": generated["model"], "parameters": generated["generation_parameters"], "per_turn_metrics": generated["metrics"]}
+        record = personality_studio.record_evaluation(traits=traits,
+            prompt=_studio_safe_text("\n".join(f"User turn {i}: {item}" for i, item in enumerate(turns, 1))),
+            response=generated["response"], model=generated["model"], evaluation=evaluation,
+            evaluator_model=evaluation["evaluator_model"])
+    except Exception as exc:
+        web_logger.exception("Personality Studio conversation evaluation failed")
+        if isinstance(exc, ValueError):
+            raise HTTPException(status_code=422, detail=str(exc))
+        raise HTTPException(status_code=502, detail=f"Local conversation evaluation failed: {type(exc).__name__}")
+    return {**record, "metrics": generated["metrics"], "active_configuration_unchanged": True}
+
+
+@app.post("/api/dx/personality/activate")
+def dx_personality_activate(data: dict):
+    from fastapi import HTTPException
+    try:
+        active = personality_studio.activate(data.get("traits"), int(data.get("expected_version")), str(data.get("description") or "Studio configuration"))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"active": active, "activated": True}
+
+
+@app.post("/api/dx/personality/restore")
+def dx_personality_restore(data: dict):
+    from fastapi import HTTPException
+    try:
+        active = personality_studio.restore(str(data.get("config_id", "")), int(data.get("expected_version")))
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=422, detail="A saved version and current version are required.")
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    return {"active": active, "activated": active["activated"], "restored": True}
+
+
+@app.post("/api/dx/personality/presets")
+def dx_personality_save_preset(data: dict):
+    from fastapi import HTTPException
+    try:
+        preset = personality_studio.save_preset(data.get("name", ""), data.get("traits"), data.get("description", ""), data.get("preset_id"))
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="A preset with that name already exists.")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"preset": preset, "active_configuration_unchanged": True}
+
+
+@app.delete("/api/dx/personality/presets/{preset_id}")
+def dx_personality_delete_preset(preset_id: str):
+    personality_studio.delete_preset(preset_id)
+    return {"ok": True}
+
+
+@app.get("/api/dx/personality/evaluations")
+def dx_personality_evaluation_history():
+    return {"evaluations": personality_studio.evaluations()}
+
+
+@app.get("/api/dx/personality/export/{preset_id}")
+def dx_personality_export_preset(preset_id: str):
+    from fastapi import HTTPException
+    preset = next((item for item in personality_studio.presets() if item["preset_id"] == preset_id), None)
+    if not preset:
+        raise HTTPException(status_code=404, detail="Preset not found")
+    return {"schema": "cynx-personality-studio-preset-v1", "name": preset["name"],
+            "description": preset["description"], "traits": preset["traits"]}
+
+
+@app.post("/api/dx/personality/import")
+def dx_personality_import_preset(data: dict):
+    from fastapi import HTTPException
+    if data.get("schema") != "cynx-personality-studio-preset-v1":
+        raise HTTPException(status_code=422, detail="Unsupported preset file schema.")
+    try:
+        preset = personality_studio.save_preset(data.get("name", "Imported draft"), data.get("traits"), data.get("description", "Imported draft"))
+    except (ValueError, sqlite3.IntegrityError) as exc:
+        raise HTTPException(status_code=422, detail="Preset is invalid or its name is already used.")
+    return {"preset": preset, "active_configuration_unchanged": True}
 
 
 @app.get("/api/dx/health")

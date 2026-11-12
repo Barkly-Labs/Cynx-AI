@@ -129,6 +129,20 @@ PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
 # ============================================================
 
 _manager: PromptManager = None
+_studio_store = None
+
+
+def configure_personality_studio_store(store) -> None:
+    """Attach the durable DX store; normal chat remains legacy until activation."""
+    global _studio_store
+    _studio_store = store
+
+
+def active_studio_traits():
+    if _studio_store is None:
+        return None
+    active = _studio_store.active()
+    return active["traits"] if active.get("activated") else None
 
 
 def get_manager() -> PromptManager:
@@ -259,15 +273,30 @@ def apply_personality_preset(name: str) -> Dict[str, int]:
 # ============================================================
 
 
-def build_personality_prompt() -> str:
+def build_personality_prompt(matrix: Dict[str, int] = None) -> str:
     """
     Convert the active personality matrix into compact behavioral
     instructions for the language model.
     """
 
-    p = PERSONALITY_MATRIX
+    active_matrix = active_studio_traits() if matrix is None else None
+    studio_matrix = matrix if matrix is not None else active_matrix
+    p = studio_matrix if studio_matrix is not None else PERSONALITY_MATRIX
 
-    return f"""
+    studio_values = ""
+    if studio_matrix is not None:
+        labels = {
+            "warmth": "Warmth", "playfulness": "Playfulness", "affection": "Affection",
+            "mischievousness": "Mischievousness", "intelligence": "Intelligence",
+            "curiosity": "Curiosity", "sarcasm": "Sarcasm", "flirtiness": "Flirtiness",
+            "assertiveness": "Assertiveness", "seriousness": "Seriousness",
+        }
+        studio_values = "\n[STUDIO PERSONALITY TENDENCIES — NOT QUOTAS]\n" + "\n".join(
+            f"- {labels[key]}: {int(p[key])}% tendency; express only when contextually appropriate."
+            for key in labels if isinstance(p.get(key), (int, float))
+        ) + "\nThese settings never override safety, accuracy, consent, the user's current intent, or context."
+
+    return studio_values + f"""
 [CYN-X CHARACTER]
 CYN-X is Piper's AI: intelligent, curious, mischievous, confident, dry, playful, affectionate,
 and technically capable. She's smug, sarcastic, blunt, warm, and sometimes playfully mean;

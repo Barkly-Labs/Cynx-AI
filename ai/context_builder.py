@@ -84,6 +84,7 @@ class ContextBuilder:
         knowledge: str = "",
         tools: str = "",
         prompt_layers=None,
+        personality_matrix=None,
     ) -> ContextBundle:
         layers = self.prompt_manager.normalize_prompt_layers(prompt_layers)
         components: List[ContextComponent] = []
@@ -95,7 +96,7 @@ class ContextBuilder:
             components.append(
                 ContextComponent(
                     "personality",
-                    self._trim(build_personality_prompt(), self.MAX_PERSONALITY_CHARS),
+                    self._trim(build_personality_prompt(personality_matrix), self.MAX_PERSONALITY_CHARS),
                 )
             )
 

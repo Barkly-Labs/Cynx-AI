@@ -210,15 +210,16 @@ class PromptManager:
     # Personality Matrix
     # ---------------------------------------------
 
-    def load_personality_matrix(self):
+    def load_personality_matrix(self, personality_matrix=None):
 
         try:
 
-            from .personality import build_personality_prompt
+            from .personality import build_personality_prompt, active_studio_traits
 
-            personality = build_personality_prompt()
+            studio_matrix = personality_matrix if personality_matrix is not None else active_studio_traits()
+            personality = build_personality_prompt(studio_matrix)
 
-            return self.trim_text(personality, self.MAX_PERSONALITY_CHARS)
+            return self.trim_text(personality, 6000 if studio_matrix is not None else self.MAX_PERSONALITY_CHARS)
 
         except Exception as e:
 
@@ -286,6 +287,7 @@ class PromptManager:
         additional_context="",
         include_safety=True,
         enabled_layers=None,
+        personality_matrix=None,
     ):
 
         # ---------------------------------------------
@@ -316,15 +318,13 @@ class PromptManager:
         # Personality Matrix
         # -----------------------------
 
-        personality_matrix = ""
-
         if layers["personality"]:
 
-            personality_matrix = self.load_personality_matrix()
+            personality_text = self.load_personality_matrix(personality_matrix)
 
-            if personality_matrix:
+            if personality_text:
 
-                parts.append(personality_matrix)
+                parts.append(personality_text)
 
         # -----------------------------
         # Voice
