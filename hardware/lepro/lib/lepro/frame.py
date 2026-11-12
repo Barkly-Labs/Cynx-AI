@@ -8,7 +8,12 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
-from hardware.lepro.lib.lepro.crypto import MAIN_IV, decrypt_cbc, derive_aes_key, derive_session_key
+from hardware.lepro.lib.lepro.crypto import (
+    MAIN_IV,
+    decrypt_cbc,
+    derive_aes_key,
+    derive_session_key,
+)
 from hardware.lepro.lib.lepro.protocol import (
     MAGIC_FRAG_FIRST,
     MAGIC_FRAG_FIRST_ENC,
@@ -30,21 +35,23 @@ from hardware.lepro.lib.lepro.protocol import (
 # Opcodes native RX dispatch decrypts with MAC key + MAIN_IV
 OP_BOND_RESP_ALT = 0xAAAA  # encrypted bond failure/success on some firmware paths
 
-_DECRYPT_OPCODES = frozenset({
-    OP_SEARCH_RESP,
-    OP_BOND_RESP,
-    OP_BOND_RESP_ALT,
-    OP_DP_RESP,
-    0x1005,
-    0x1007,
-    0x1009,
-    0x100B,
-    0x1011,
-    0x1013,
-    0x1051,
-    0x2000,
-    0x2100,
-})
+_DECRYPT_OPCODES = frozenset(
+    {
+        OP_SEARCH_RESP,
+        OP_BOND_RESP,
+        OP_BOND_RESP_ALT,
+        OP_DP_RESP,
+        0x1005,
+        0x1007,
+        0x1009,
+        0x100B,
+        0x1011,
+        0x1013,
+        0x1051,
+        0x2000,
+        0x2100,
+    }
+)
 
 
 @dataclass
@@ -210,16 +217,21 @@ class RxAssembler:
         subtype: int,
         payload: bytes,
     ) -> bytes:
-        return bytes([
-            0x5A,
-            magic2,
-            (seq >> 8) & 0xFF,
-            seq & 0xFF,
-            ptype,
-            subtype,
-            0x00,
-            len(payload) & 0xFF,
-        ]) + payload
+        return (
+            bytes(
+                [
+                    0x5A,
+                    magic2,
+                    (seq >> 8) & 0xFF,
+                    seq & 0xFF,
+                    ptype,
+                    subtype,
+                    0x00,
+                    len(payload) & 0xFF,
+                ]
+            )
+            + payload
+        )
 
 
 @dataclass(frozen=True)
@@ -312,9 +324,15 @@ if __name__ == "__main__":
     print(f"Parsed frames: {frames}")
 
     # 11:17 session spot-check
-    session = [p for p in packets if len(p) > 10 and p[6:8] in (b"\x10\x01", b"\x11\x03", b"\x20\x00")]
+    session = [
+        p
+        for p in packets
+        if len(p) > 10 and p[6:8] in (b"\x10\x01", b"\x11\x03", b"\x20\x00")
+    ]
     for pkt in session[:3]:
         f = asm.feed(pkt)
         if f:
-            print(f"  opcode={f[0].opcode:#06x} len={len(f[0].payload)} dec={f[0].decrypted}")
+            print(
+                f"  opcode={f[0].opcode:#06x} len={len(f[0].payload)} dec={f[0].decrypted}"
+            )
     print("frame.py self-test: OK")

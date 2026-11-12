@@ -5,10 +5,9 @@ import requests
 
 from ai.ollama_client import OllamaClient
 
-
 PEG_ERROR = (
     '{"error":"llama-server chat error: map[code:500 message:'
-    'The model produced output that does not match the expected peg-native format '
+    "The model produced output that does not match the expected peg-native format "
     'type:server_error]"}'
 )
 
@@ -65,7 +64,9 @@ TOOLS = [
         "What is 123 * 456?",
     ],
 )
-def test_peg_native_tool_failure_retries_same_turn_without_tools(monkeypatch, user_text):
+def test_peg_native_tool_failure_retries_same_turn_without_tools(
+    monkeypatch, user_text
+):
     calls = []
     responses = [
         FakeResponse(500, text=PEG_ERROR),
@@ -162,10 +163,14 @@ def test_peg_fallback_current_user_appears_exactly_once(monkeypatch):
     assert len(calls) == 2
     assert calls[1]["messages"] == messages
     assert calls[1]["messages"] == calls[0]["messages"]
-    assert sum(
-        1 for message in calls[1]["messages"]
-        if message.get("role") == "user" and message.get("content") == current
-    ) == 1
+    assert (
+        sum(
+            1
+            for message in calls[1]["messages"]
+            if message.get("role") == "user" and message.get("content") == current
+        )
+        == 1
+    )
 
 
 def test_peg_fallback_does_not_inject_failure_as_assistant_message(monkeypatch):
@@ -208,10 +213,12 @@ def test_streaming_peg_error_does_not_use_nonstreaming_fallback(monkeypatch):
     client = OllamaClient(model="cyn-x:latest")
 
     with pytest.raises(requests.HTTPError):
-        list(client.chat(
-            messages=[{"role": "user", "content": "hello"}],
-            tools=TOOLS,
-            stream=True,
-        ))
+        list(
+            client.chat(
+                messages=[{"role": "user", "content": "hello"}],
+                tools=TOOLS,
+                stream=True,
+            )
+        )
 
     assert len(calls) == 1

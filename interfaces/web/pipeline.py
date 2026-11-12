@@ -68,10 +68,7 @@ class PipelineEventStore:
                 return {"events": [], "done": False}
 
             return {
-                "events": [
-                    event for event in request["events"]
-                    if event["id"] > after
-                ],
+                "events": [event for event in request["events"] if event["id"] > after],
                 "done": request["done"],
             }
 
@@ -83,7 +80,7 @@ class PipelineEventStore:
                 self._requests.items(),
                 key=lambda item: item[1]["started"],
                 reverse=True,
-            )[:max(1, min(int(limit), 100))]:
+            )[: max(1, min(int(limit), 100))]:
                 events = request["events"]
                 last = events[-1] if events else {}
                 stages = [
@@ -96,14 +93,16 @@ class PipelineEventStore:
                     for event in events
                     if event.get("type") == "stage"
                 ]
-                items.append({
-                    "request_id": request_id,
-                    "done": request["done"],
-                    "cancel_requested": request["cancel_requested"],
-                    "elapsed_seconds": last.get("elapsed_seconds", 0),
-                    "last_event": last.get("type", ""),
-                    "stages": stages,
-                })
+                items.append(
+                    {
+                        "request_id": request_id,
+                        "done": request["done"],
+                        "cancel_requested": request["cancel_requested"],
+                        "elapsed_seconds": last.get("elapsed_seconds", 0),
+                        "last_event": last.get("type", ""),
+                        "stages": stages,
+                    }
+                )
             return items
 
     def _prune(self, now):
@@ -113,9 +112,7 @@ class PipelineEventStore:
             if value["done"]
         ]
         expired = {
-            request_id
-            for request_id, started in completed
-            if now - started > 3600
+            request_id for request_id, started in completed if now - started > 3600
         }
         for request_id in expired:
             del self._requests[request_id]
@@ -128,10 +125,12 @@ class PipelineEventStore:
 
     @staticmethod
     def _append_event(request, event_type, details):
-        request["events"].append({
-            "id": len(request["events"]) + 1,
-            "type": event_type,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "elapsed_seconds": round(time.monotonic() - request["started"], 3),
-            **details,
-        })
+        request["events"].append(
+            {
+                "id": len(request["events"]) + 1,
+                "type": event_type,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "elapsed_seconds": round(time.monotonic() - request["started"], 3),
+                **details,
+            }
+        )

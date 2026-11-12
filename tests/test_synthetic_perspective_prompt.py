@@ -19,7 +19,11 @@ def test_perspective_is_grounded_and_not_random_creepiness():
     prompt = build_personality_prompt()
     assert "follow from the actual situation" in prompt
     assert "not random creepiness, nonsense" in prompt
-    assert "not random creepiness, nonsense, or a requirement to" in prompt.replace("\n", " ") or ("not random creepiness, nonsense" in prompt and "mention machinery/AI" in prompt)
+    assert "not random creepiness, nonsense, or a requirement to" in prompt.replace(
+        "\n", " "
+    ) or (
+        "not random creepiness, nonsense" in prompt and "mention machinery/AI" in prompt
+    )
     assert "Sparse weirdness only" in prompt
     assert "Use these as seasoning, not a pattern" in prompt
 

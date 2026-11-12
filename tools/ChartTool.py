@@ -11,7 +11,6 @@ from typing import Any, Dict
 
 from tools.base import BaseTool, ToolResult
 
-
 DB_FILE = Path(__file__).resolve().parent / "smoking_log.db"
 
 
@@ -21,15 +20,13 @@ class ChartTool(BaseTool):
 
     def _ensure_db(self):
         with sqlite3.connect(DB_FILE) as conn:
-            conn.execute(
-                """CREATE TABLE IF NOT EXISTS smoke_sessions (
+            conn.execute("""CREATE TABLE IF NOT EXISTS smoke_sessions (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     timestamp TEXT NOT NULL,
                     smoke_type TEXT NOT NULL,
                     units REAL NOT NULL,
                     cigarettes REAL NOT NULL DEFAULT 0
-                )"""
-            )
+                )""")
             conn.commit()
 
     def _smoke_data(self, scope: str = "7d", smoke_type: str | None = None):
@@ -72,15 +69,21 @@ class ChartTool(BaseTool):
                     GROUP BY day, smoke_type
                     ORDER BY day
                 """
-                rows = conn.execute(sql, (start.isoformat(timespec="seconds"), smoke_type, smoke_type)).fetchall()
+                rows = conn.execute(
+                    sql, (start.isoformat(timespec="seconds"), smoke_type, smoke_type)
+                ).fetchall()
 
         # Fill missing days so a 7d/30d graph is honest and easy to read.
         if scope == "all":
             days = sorted({r["day"] for r in rows})
         else:
             count = 1 if scope == "today" else (30 if scope == "30d" else 7)
-            first = (now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(days=count - 1))
-            days = [(first + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(count)]
+            first = now.replace(hour=0, minute=0, second=0, microsecond=0) - timedelta(
+                days=count - 1
+            )
+            days = [
+                (first + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(count)
+            ]
 
         totals = {day: 0.0 for day in days}
         for row in rows:
@@ -128,13 +131,15 @@ class ChartTool(BaseTool):
                     if not isinstance(vals, list):
                         continue
                     try:
-                        vals = [float(x) for x in vals[:len(labels)]]
+                        vals = [float(x) for x in vals[: len(labels)]]
                     except (TypeError, ValueError):
                         return ToolResult(False, "Chart series values must be numeric.")
-                    series.append({
-                        "name": str(item.get("name") or f"Series {index + 1}"),
-                        "values": vals
-                    })
+                    series.append(
+                        {
+                            "name": str(item.get("name") or f"Series {index + 1}"),
+                            "values": vals,
+                        }
+                    )
                 if not series:
                     return ToolResult(False, "No valid chart series were provided.")
             else:
@@ -151,10 +156,7 @@ class ChartTool(BaseTool):
             labels = [str(x) for x in labels]
 
         if source == "smoke_counter":
-            series = [{
-                "name": "Smoking units",
-                "values": values
-            }]
+            series = [{"name": "Smoking units", "values": values}]
 
         chart_spec = {
             "type": "chart",
@@ -162,16 +164,18 @@ class ChartTool(BaseTool):
             "meta": {
                 "title": title,
                 "description": "Generated from structured CYN-X data.",
-                "footer": "Source: SQLite smoke counter" if source == "smoke_counter" else "Source: supplied data"
+                "footer": (
+                    "Source: SQLite smoke counter"
+                    if source == "smoke_counter"
+                    else "Source: supplied data"
+                ),
             },
             "labels": labels,
-            "series": series
+            "series": series,
         }
 
         return ToolResult(
-            True,
-            f"Created {chart_type} chart: {title}",
-            metadata=chart_spec
+            True, f"Created {chart_type} chart: {title}", metadata=chart_spec
         )
 
 

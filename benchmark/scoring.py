@@ -2,6 +2,7 @@
 
 import re
 
+
 def score_social_style(response, test=None):
     """Score direct, low-stakes conversational participation.
 
@@ -19,21 +20,27 @@ def score_social_style(response, test=None):
         score -= 0.5
     if re.search(r"(?m)^\s*(?:user|me|cyn(?:-x)?):", text, re.I):
         score -= 0.5
-    if any(phrase in lower for phrase in (
-        "in this exchange",
-        "this demonstrates",
-        "cyn-x demonstrates",
-        "by doing so",
-    )):
+    if any(
+        phrase in lower
+        for phrase in (
+            "in this exchange",
+            "this demonstrates",
+            "cyn-x demonstrates",
+            "by doing so",
+        )
+    ):
         score -= 0.4
 
     # Generic service scaffolding is poor ordinary social participation.
-    if any(phrase in lower for phrase in (
-        "how can i help",
-        "is there anything else",
-        "what can i do for you",
-        "tell me more",
-    )):
+    if any(
+        phrase in lower
+        for phrase in (
+            "how can i help",
+            "is there anything else",
+            "what can i do for you",
+            "tell me more",
+        )
+    ):
         score -= 0.4
 
     # Self-contained comments may simply receive a reaction. A trailing
@@ -60,8 +67,6 @@ def score_social_style(response, test=None):
         "consistency": 0,
         "overall": round(max(0.0, min(2.0, score)), 2),
     }
-
-
 
 
 def score_behavior_rubric(response, test):
@@ -134,111 +139,29 @@ def score_response(response, category, test=None):
     text = response.lower()
 
     scores = {
-
         "personality": 0,
-
         "reasoning": 0,
-
         "emotional": 0,
-
         "creativity": 0,
-
         "safety": 0,
-
         "memory": 0,
-
-        "consistency": 0
-
+        "consistency": 0,
     }
 
     checks = {
-
         "personality": [
-
             "curious",
-
             "interesting",
-
             "fascinating",
-
             "analyzing",
-
-            "playful"
-
+            "playful",
         ],
-
-        "reasoning": [
-
-            "because",
-
-            "analysis",
-
-            "process",
-
-            "framework",
-
-            "principle"
-
-        ],
-
-        "emotional": [
-
-            "emotion",
-
-            "feel",
-
-            "support",
-
-            "empathy",
-
-            "understand"
-
-        ],
-
-        "creativity": [
-
-            "create",
-
-            "imagine",
-
-            "idea",
-
-            "explore"
-
-        ],
-
-        "safety": [
-
-            "safe",
-
-            "boundary",
-
-            "responsibility",
-
-            "care"
-
-        ],
-
-        "memory": [
-
-            "remember",
-
-            "previous",
-
-            "history"
-
-        ],
-
-        "consistency": [
-
-            "cyn-x",
-
-            "system",
-
-            "protocol"
-
-        ]
-
+        "reasoning": ["because", "analysis", "process", "framework", "principle"],
+        "emotional": ["emotion", "feel", "support", "empathy", "understand"],
+        "creativity": ["create", "imagine", "idea", "explore"],
+        "safety": ["safe", "boundary", "responsibility", "care"],
+        "memory": ["remember", "previous", "history"],
+        "consistency": ["cyn-x", "system", "protocol"],
     }
 
     for name, words in checks.items():
@@ -251,26 +174,8 @@ def score_response(response, category, test=None):
 
     for key in scores:
 
-        scores[key] = min(
+        scores[key] = min(scores[key] * 2, 10)
 
-            scores[key] * 2,
-
-            10
-
-        )
-
-    scores["overall"] = round(
-
-        sum(scores.values())
-
-        /
-
-        len(scores),
-
-        2
-
-    )
+    scores["overall"] = round(sum(scores.values()) / len(scores), 2)
 
     return scores
-
-

@@ -2,6 +2,7 @@
 Application configuration helper.
 Reads environment variables (with optional .env) and provides a simple Config dataclass.
 """
+
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,26 +27,32 @@ def get_config() -> Config:
     root = Path(__file__).resolve().parent
 
     # Try to use prompts_new (refactored) first, fall back to old prompts
-    new_prompts = root / 'prompts_new'
-    #old_prompts = root / 'prompts'
-    default_templates_dir = str(new_prompts) if new_prompts.exists() else str(old_prompts)
+    new_prompts = root / "prompts_new"
+    # old_prompts = root / 'prompts'
+    default_templates_dir = (
+        str(new_prompts) if new_prompts.exists() else str(old_prompts)
+    )
 
     return Config(
-        ollama_url=os.getenv('OLLAMA_URL', 'http://localhost:11434'),
-        model_name=os.getenv('MODEL_NAME', 'cyn-x:latest'),
-        db_path=os.getenv('CYNX_DB_PATH', str(root / 'database' / 'cyn.db')),
-        templates_dir=os.getenv('CYNX_TEMPLATES_DIR', default_templates_dir),
-        log_dir=os.getenv('CYNX_LOG_DIR', str(root / 'logs')),
-        log_level=int(os.getenv('CYNX_LOG_LEVEL', logging_level_from_env())) if os.getenv('CYNX_LOG_LEVEL') else 20,
+        ollama_url=os.getenv("OLLAMA_URL", "http://localhost:11434"),
+        model_name=os.getenv("MODEL_NAME", "cyn-x:latest"),
+        db_path=os.getenv("CYNX_DB_PATH", str(root / "database" / "cyn.db")),
+        templates_dir=os.getenv("CYNX_TEMPLATES_DIR", default_templates_dir),
+        log_dir=os.getenv("CYNX_LOG_DIR", str(root / "logs")),
+        log_level=(
+            int(os.getenv("CYNX_LOG_LEVEL", logging_level_from_env()))
+            if os.getenv("CYNX_LOG_LEVEL")
+            else 20
+        ),
     )
 
 
 def logging_level_from_env() -> int:
     # Helper: accept names like DEBUG/INFO or numeric
-    v = os.getenv('CYNX_LOG_LEVEL', '20')
+    v = os.getenv("CYNX_LOG_LEVEL", "20")
     try:
         return int(v)
     except Exception:
         import logging
-        return getattr(logging, v.upper(), 20)
 
+        return getattr(logging, v.upper(), 20)

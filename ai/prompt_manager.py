@@ -30,11 +30,9 @@ from ai.terminal_ui import terminal
 
 class PromptManager:
 
-
     CORE_ORDER = [
         "core.md",
     ]
-
 
     OPTIONAL_FILES = {
         "personality": "personality.md",
@@ -45,9 +43,8 @@ class PromptManager:
         "examples": "examples.md",
         "cyn-studio": "cyn-studio.md",
         "projects": "projects.md",
-        "reasoning": "reasoning.md"
+        "reasoning": "reasoning.md",
     }
-
 
     OPTIONS_FILES = {
         "playful": "playful.md",
@@ -55,7 +52,6 @@ class PromptManager:
         "creative": "creative.md",
         "researcher": "researcher.md",
     }
-
 
     # ---------------------------------------------
     # Prompt Limits
@@ -75,8 +71,6 @@ class PromptManager:
 
     MAX_CONTEXT_CHARS = 4000
 
-
-
     # ---------------------------------------------
     # Prompt Layer Defaults
     # ---------------------------------------------
@@ -89,75 +83,36 @@ class PromptManager:
         "safety": True,
         "modes": True,
         "examples": True,
-        "overrides": True
+        "overrides": True,
     }
 
-
-
-    def __init__(
-        self,
-        prompts_dir: Optional[str] = None
-    ):
-
+    def __init__(self, prompts_dir: Optional[str] = None):
 
         if prompts_dir:
 
-            self.prompts_dir = Path(
-                prompts_dir
-            )
+            self.prompts_dir = Path(prompts_dir)
 
         else:
 
-            self.prompts_dir = (
-
-                Path(__file__)
-                .resolve()
-                .parents[1]
-                /
-                "prompts_new"
-
-            )
-
+            self.prompts_dir = Path(__file__).resolve().parents[1] / "prompts_new"
 
         if not self.prompts_dir.exists():
 
-            raise FileNotFoundError(
+            raise FileNotFoundError(f"Missing prompts directory: {self.prompts_dir}")
 
-                f"Missing prompts directory: {self.prompts_dir}"
-
-            )
-
-
-        self.modes_dir = (
-
-            self.prompts_dir
-            /
-            "modes"
-
-        )
-
+        self.modes_dir = self.prompts_dir / "modes"
 
         self._cache = {}
 
         self._mode_cache = {}
 
-
-
-
     # ---------------------------------------------
     # Prompt Layer Utilities
     # ---------------------------------------------
 
-    def normalize_prompt_layers(
-        self,
-        enabled_layers=None
-    ):
+    def normalize_prompt_layers(self, enabled_layers=None):
 
-
-        layers = dict(
-            self.DEFAULT_PROMPT_LAYERS
-        )
-
+        layers = dict(self.DEFAULT_PROMPT_LAYERS)
 
         if enabled_layers:
 
@@ -165,87 +120,47 @@ class PromptManager:
 
                 if name in layers:
 
-                    layers[name] = bool(
-                        enabled
-                    )
-
+                    layers[name] = bool(enabled)
 
         return layers
-
-
-
 
     # ---------------------------------------------
     # File Loading
     # ---------------------------------------------
 
-    def _load_file(
-        self,
-        path: Path
-    ):
-
+    def _load_file(self, path: Path):
 
         key = str(path)
-
 
         if key in self._cache:
 
             return self._cache[key]
 
-
         if not path.exists():
 
             return ""
 
-
-        text = path.read_text(
-
-            encoding="utf-8"
-
-        )
-
+        text = path.read_text(encoding="utf-8")
 
         self._cache[key] = text
 
-
         return text
-
-
-
 
     # ---------------------------------------------
     # Context Protection
     # ---------------------------------------------
 
-    def trim_text(
-        self,
-        text,
-        limit
-    ):
-
+    def trim_text(self, text, limit):
 
         if not text:
 
             return ""
 
-
         if len(text) <= limit:
 
             return text
 
-
-        return (
-
-            text[:limit]
-
-            +
-
-            "\n\n[Prompt section trimmed]"
-
-        )
-
-
-
+        return text[:limit] + "\n\n[Prompt section trimmed]"
 
     # ---------------------------------------------
     # Core Prompts
@@ -253,264 +168,112 @@ class PromptManager:
 
     def load_core_prompts(self):
 
-
         print("\n=== CORE FILE SIZES ===")
-
 
         for file in self.CORE_ORDER:
 
-            text = self._load_file(
+            text = self._load_file(self.prompts_dir / file)
 
-                self.prompts_dir
-                /
-                file
-
-            )
-
-
-            print(
-
-                file,
-
-                "chars:",
-
-                len(text),
-
-                "words:",
-
-                len(text.split())
-
-            )
-
-
-
+            print(file, "chars:", len(text), "words:", len(text.split()))
 
         parts = []
 
-
         for file in self.CORE_ORDER:
 
-
-            text = self._load_file(
-
-                self.prompts_dir
-                /
-                file
-
-            )
-
+            text = self._load_file(self.prompts_dir / file)
 
             if text:
 
                 parts.append(text)
 
-
-
         core = "\n\n".join(parts)
 
+        terminal.section("CORE PREVIEW")
 
-        terminal.section(
-            "CORE PREVIEW"
-        )
+        terminal.dim(core[:500])
 
-        terminal.dim(
-            core[:500]
-        )
+        terminal.info("CORE CONTAINS PIPER")
 
+        if "Piper" in core or "piper" in core:
 
-        terminal.info(
-            "CORE CONTAINS PIPER"
-        )
-
-
-        if (
-            "Piper" in core
-            or
-            "piper" in core
-        ):
-
-            terminal.info(
-                "YES - Piper exists in core"
-            )
+            terminal.info("YES - Piper exists in core")
 
         else:
 
-            terminal.warning(
-                "NO - Piper missing"
-            )
+            terminal.warning("NO - Piper missing")
 
+        terminal.dim(core[:1000])
 
-        terminal.dim(
-            core[:1000]
-        )
-
-
-
-        return self.trim_text(
-
-            core,
-
-            self.MAX_CORE_CHARS
-
-        )
-
-
-
+        return self.trim_text(core, self.MAX_CORE_CHARS)
 
     # ---------------------------------------------
     # Personality Matrix
     # ---------------------------------------------
 
-    def load_personality_matrix(self):
-
+    def load_personality_matrix(self, personality_matrix=None):
 
         try:
 
-            from .personality import (
-                build_personality_prompt
-            )
+            from .personality import build_personality_prompt, active_studio_traits
 
+            studio_matrix = personality_matrix if personality_matrix is not None else active_studio_traits()
+            personality = build_personality_prompt(studio_matrix)
 
-            personality = (
-                build_personality_prompt()
-            )
-
-
-            return self.trim_text(
-
-                personality,
-
-                self.MAX_PERSONALITY_CHARS
-
-            )
-
+            return self.trim_text(personality, 6000 if studio_matrix is not None else self.MAX_PERSONALITY_CHARS)
 
         except Exception as e:
 
-            terminal.warning(
-
-                "PERSONALITY MATRIX ERROR: "
-
-                + str(e)
-
-            )
-
+            terminal.warning("PERSONALITY MATRIX ERROR: " + str(e))
 
             return ""
-
-
-
 
     # ---------------------------------------------
     # Optional Prompts
     # ---------------------------------------------
 
-    def load_optional(
-        self,
-        name
-    ):
+    def load_optional(self, name):
 
-
-        filename = self.OPTIONAL_FILES.get(
-
-            name
-
-        )
-
+        filename = self.OPTIONAL_FILES.get(name)
 
         if not filename:
 
             return ""
 
-
-        return self._load_file(
-
-            self.prompts_dir
-            /
-            filename
-
-        )
-
-
-
+        return self._load_file(self.prompts_dir / filename)
 
     # ---------------------------------------------
     # Options
     # ---------------------------------------------
 
-    def load_option(
-        self,
-        name
-    ):
+    def load_option(self, name):
 
-
-        filename = self.OPTIONS_FILES.get(
-
-            name
-
-        )
-
+        filename = self.OPTIONS_FILES.get(name)
 
         if not filename:
 
             return ""
 
-
-        return self._load_file(
-
-            self.prompts_dir
-            /
-            filename
-
-        )
-
-
-
+        return self._load_file(self.prompts_dir / filename)
 
     # ---------------------------------------------
     # Modes
     # ---------------------------------------------
 
-    def load_mode(
-        self,
-        mode_name
-    ):
-
+    def load_mode(self, mode_name):
 
         if mode_name in self._mode_cache:
 
             return self._mode_cache[mode_name]
 
+        path = self.modes_dir / f"{mode_name}.md"
 
-
-        path = (
-
-            self.modes_dir
-
-            /
-
-            f"{mode_name}.md"
-
-        )
-
-
-        text = self._load_file(
-
-            path
-
-        )
-
+        text = self._load_file(path)
 
         if text:
 
             self._mode_cache[mode_name] = text
 
-
-
         return text
-
-
-
 
     # ---------------------------------------------
     # Build System Prompt
@@ -524,29 +287,18 @@ class PromptManager:
         additional_context="",
         include_safety=True,
         enabled_layers=None,
+        personality_matrix=None,
     ):
-
 
         # ---------------------------------------------
         # Normalize Layer Configuration
         # ---------------------------------------------
 
-        layers = self.normalize_prompt_layers(
+        layers = self.normalize_prompt_layers(enabled_layers)
 
-            enabled_layers
-
-        )
-
-
-        print(
-            "[PROMPT MANAGER LAYERS]",
-            layers
-        )
-
+        print("[PROMPT MANAGER LAYERS]", layers)
 
         parts = []
-
-
 
         # -----------------------------
         # Core Identity
@@ -554,50 +306,25 @@ class PromptManager:
 
         core = ""
 
-
         if layers["core"]:
 
             core = self.load_core_prompts()
 
-
             if core:
 
-                parts.append(
-
-                    "[CORE IDENTITY - ALWAYS FOLLOW]\n"
-                    +
-
-                    core
-
-                )
-
-
+                parts.append("[CORE IDENTITY - ALWAYS FOLLOW]\n" + core)
 
         # -----------------------------
         # Personality Matrix
         # -----------------------------
 
-        personality_matrix = ""
-
-
         if layers["personality"]:
 
-            personality_matrix = (
+            personality_text = self.load_personality_matrix(personality_matrix)
 
-                self.load_personality_matrix()
+            if personality_text:
 
-            )
-
-
-            if personality_matrix:
-
-                parts.append(
-
-                    personality_matrix
-
-                )
-
-
+                parts.append(personality_text)
 
         # -----------------------------
         # Voice
@@ -605,31 +332,13 @@ class PromptManager:
 
         voice = ""
 
-
         if layers["voice"]:
 
-            voice = self.load_optional(
-
-                "voice"
-
-            )
-
+            voice = self.load_optional("voice")
 
             if voice:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        voice,
-
-                        self.MAX_PERSONALITY_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(voice, self.MAX_PERSONALITY_CHARS))
 
         # -----------------------------
         # Overrides
@@ -637,31 +346,13 @@ class PromptManager:
 
         overrides = ""
 
-
         if layers["overrides"]:
 
-            overrides = self.load_optional(
-
-                "overrides"
-
-            )
-
+            overrides = self.load_optional("overrides")
 
             if overrides:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        overrides,
-
-                        self.MAX_CONTEXT_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(overrides, self.MAX_CONTEXT_CHARS))
 
         # -----------------------------
         # CYN Studio Knowledge
@@ -669,40 +360,15 @@ class PromptManager:
 
         cyn_studio = ""
 
-
         if layers["conversation"]:
 
-            cyn_studio = self.load_optional(
+            cyn_studio = self.load_optional("cyn-studio")
 
-                "cyn-studio"
-
-            )
-
-
-            print(
-
-                "CYN STUDIO LENGTH:",
-
-                len(cyn_studio)
-
-            )
-
+            print("CYN STUDIO LENGTH:", len(cyn_studio))
 
             if cyn_studio:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        cyn_studio,
-
-                        self.MAX_CONTEXT_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(cyn_studio, self.MAX_CONTEXT_CHARS))
 
         # -----------------------------
         # Conversation
@@ -710,31 +376,13 @@ class PromptManager:
 
         conversation = ""
 
-
         if layers["conversation"]:
 
-            conversation = self.load_optional(
-
-                "conversation"
-
-            )
-
+            conversation = self.load_optional("conversation")
 
             if conversation:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        conversation,
-
-                        self.MAX_CONTEXT_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(conversation, self.MAX_CONTEXT_CHARS))
 
         # -----------------------------
         # Examples
@@ -742,31 +390,13 @@ class PromptManager:
 
         examples = ""
 
-
         if layers["examples"]:
 
-            examples = self.load_optional(
-
-                "examples"
-
-            )
-
+            examples = self.load_optional("examples")
 
             if examples:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        examples,
-
-                        self.MAX_CONTEXT_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(examples, self.MAX_CONTEXT_CHARS))
 
         # -----------------------------
         # Reasoning Framework
@@ -774,31 +404,13 @@ class PromptManager:
 
         reasoning = ""
 
-
         if layers["conversation"]:
 
-            reasoning = self.load_optional(
-
-                "reasoning"
-
-            )
-
+            reasoning = self.load_optional("reasoning")
 
             if reasoning:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        reasoning,
-
-                        self.MAX_CONTEXT_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(reasoning, self.MAX_CONTEXT_CHARS))
 
         # -----------------------------
         # Projects
@@ -806,31 +418,13 @@ class PromptManager:
 
         projects = ""
 
-
         if layers["conversation"]:
 
-            projects = self.load_optional(
-
-                "projects"
-
-            )
-
+            projects = self.load_optional("projects")
 
             if projects:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        projects,
-
-                        self.MAX_CONTEXT_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(projects, self.MAX_CONTEXT_CHARS))
 
         # -----------------------------
         # Safety
@@ -838,369 +432,117 @@ class PromptManager:
 
         safety = ""
 
+        if layers["safety"] and include_safety:
 
-        if (
-            layers["safety"]
-            and
-            include_safety
-        ):
-
-
-            safety = self.load_optional(
-
-                "safety"
-
-            )
-
+            safety = self.load_optional("safety")
 
             if safety:
 
-                parts.append(
-
-                    self.trim_text(
-
-                        safety,
-
-                        self.MAX_SAFETY_CHARS
-
-                    )
-
-                )
-
-
+                parts.append(self.trim_text(safety, self.MAX_SAFETY_CHARS))
 
         # -----------------------------
         # Active Modes
         # -----------------------------
 
-        if (
-            layers["modes"]
-            and
-            active_modes
-        ):
-
+        if layers["modes"] and active_modes:
 
             for mode in active_modes:
 
-
-                mode_text = self.load_mode(
-
-                    mode
-
-                )
-
+                mode_text = self.load_mode(mode)
 
                 if mode_text:
 
-
                     parts.append(
-
                         self.trim_text(
-
-                            f"[{mode.upper()} MODE]\n"
-                            f"{mode_text}",
-
-                            self.MAX_MODE_CHARS
-
+                            f"[{mode.upper()} MODE]\n" f"{mode_text}",
+                            self.MAX_MODE_CHARS,
                         )
-
                     )
-
-
 
         # -----------------------------
         # Active Options
         # -----------------------------
 
-        if (
-            layers["modes"]
-            and
-            active_options
-        ):
-
+        if layers["modes"] and active_options:
 
             for option in active_options:
 
-
-                option_text = self.load_option(
-
-                    option
-
-                )
-
+                option_text = self.load_option(option)
 
                 if option_text:
 
-
                     parts.append(
-
                         self.trim_text(
-
-                            f"[{option.upper()} OPTION]\n"
-                            f"{option_text}",
-
-                            self.MAX_OPTION_CHARS
-
+                            f"[{option.upper()} OPTION]\n" f"{option_text}",
+                            self.MAX_OPTION_CHARS,
                         )
-
                     )
-
-
 
         # -----------------------------
         # Memory
         # -----------------------------
 
-        if (
-            layers["conversation"]
-            and
-            memory_summary
-        ):
-
+        if layers["conversation"] and memory_summary:
 
             parts.append(
-
-                self.trim_text(
-
-                    f"[MEMORY]\n"
-                    f"{memory_summary}",
-
-                    self.MAX_MEMORY_CHARS
-
-                )
-
+                self.trim_text(f"[MEMORY]\n" f"{memory_summary}", self.MAX_MEMORY_CHARS)
             )
-
-
 
         # -----------------------------
         # Retrieved knowledge/tools
         # -----------------------------
 
-        if (
-            layers["conversation"]
-            and
-            additional_context
-        ):
+        if layers["conversation"] and additional_context:
 
-
-            parts.append(
-
-                self.trim_text(
-
-                    additional_context,
-
-                    self.MAX_CONTEXT_CHARS
-
-                )
-
-            )
-
-
+            parts.append(self.trim_text(additional_context, self.MAX_CONTEXT_CHARS))
 
         # ---------------------------------------------
         # Final Prompt
         # ---------------------------------------------
 
-        prompt = "\n\n".join(
-
-            p
-
-            for p in parts
-
-            if p
-
-        )
-
+        prompt = "\n\n".join(p for p in parts if p)
 
         # ---------------------------------------------
         # Debug Information
         # ---------------------------------------------
 
-        def section_label(
-            name,
-            text
-        ):
+        def section_label(name, text):
 
-            return (
+            return f"[PROMPT SECTION] " f"{name}: " f"{len(text or '')} chars"
 
-                f"[PROMPT SECTION] "
-                f"{name}: "
-                f"{len(text or '')} chars"
+        print(section_label("core", core))
 
-            )
+        print(section_label("personality_matrix", personality_matrix))
 
+        print(section_label("voice", voice))
 
-        print(
+        print(section_label("overrides", overrides))
 
-            section_label(
+        print(section_label("studio", cyn_studio))
 
-                "core",
-                core
+        print(section_label("conversation", conversation))
 
-            )
+        print(section_label("examples", examples))
 
-        )
+        print(section_label("reasoning", reasoning))
 
+        print(section_label("projects", projects))
 
-        print(
+        print(section_label("safety", safety))
 
-            section_label(
+        print(section_label("memory", memory_summary))
 
-                "personality_matrix",
-                personality_matrix
-
-            )
-
-        )
-
+        print(section_label("additional_context", additional_context))
 
         print(
-
-            section_label(
-
-                "voice",
-                voice
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "overrides",
-                overrides
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "studio",
-                cyn_studio
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "conversation",
-                conversation
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "examples",
-                examples
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "reasoning",
-                reasoning
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "projects",
-                projects
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "safety",
-                safety
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "memory",
-                memory_summary
-
-            )
-
-        )
-
-
-        print(
-
-            section_label(
-
-                "additional_context",
-                additional_context
-
-            )
-
-        )
-
-
-        print(
-
             "[PROMPT LAYERS ACTIVE]",
-
-            [
-
-                name
-
-                for name, enabled
-
-                in layers.items()
-
-                if enabled
-
-            ]
-
+            [name for name, enabled in layers.items() if enabled],
         )
 
-
         print(
-
             f"[FINAL SYSTEM PROMPT] "
             f"{len(prompt)} chars / "
             f"{len(prompt.split())} words"
-
         )
-
 
         return prompt

@@ -112,7 +112,9 @@ async def prepare_cert_refetch(session: LeproSession) -> None:
     On **patched** firmware (`lepro-firmware patch`) this call is harmless but not
     required for cert refresh — the prov_mode gate NOP makes state 0x2d always fetch.
     """
-    magic = encrypt_bond_request(session.mac, session_rand=session._require_session_rand())
+    magic = encrypt_bond_request(
+        session.mac, session_rand=session._require_session_rand()
+    )
     try:
         resp = await session._request_bond(magic, "requestBond(cert-refresh)")
     except TimeoutError:
@@ -120,7 +122,9 @@ async def prepare_cert_refetch(session: LeproSession) -> None:
         return
     result = parse_bond_result(resp)
     if is_bond_success(resp):
-        print("Cert refresh: requestBond ok (prov_mode should allow CDN fetch on WiFi-up)")
+        print(
+            "Cert refresh: requestBond ok (prov_mode should allow CDN fetch on WiFi-up)"
+        )
     elif result == BOND_ERR_ALREADY:
         print("Cert refresh: already bonded (requestBond side effect may still apply)")
     else:
@@ -152,7 +156,9 @@ def build_wifi_mqtt_json(
     return json.dumps(payload, separators=(",", ":"))
 
 
-async def _connect(mac: str, *, debug_rx: bool = False) -> tuple[BleakTransport, BleakClient]:
+async def _connect(
+    mac: str, *, debug_rx: bool = False
+) -> tuple[BleakTransport, BleakClient]:
     device = await BleakScanner.find_device_by_address(mac, timeout=15)
     if device is None:
         device = await BleakScanner.find_device_by_name("LP", timeout=10)
@@ -161,7 +167,9 @@ async def _connect(mac: str, *, debug_rx: bool = False) -> tuple[BleakTransport,
 
     client = BleakClient(device)
     await client.connect()
-    transport = BleakTransport(client=client, cmd_char=GATT_CMD, rsp_char=GATT_RSP, debug_rx=debug_rx)
+    transport = BleakTransport(
+        client=client, cmd_char=GATT_CMD, rsp_char=GATT_RSP, debug_rx=debug_rx
+    )
     await client.start_notify(GATT_RSP, transport.on_notify)
     await asyncio.sleep(0.3)
     return transport, client
@@ -221,7 +229,9 @@ async def send_wifi_mqtt(
         else:
             print(f"Provision ack payload: {resp.payload.hex()}")
     except TimeoutError as e:
-        raise SystemExit("Timed out waiting for 0x1009 provision ack — check WiFi/MQTT reachability") from e
+        raise SystemExit(
+            "Timed out waiting for 0x1009 provision ack — check WiFi/MQTT reachability"
+        ) from e
 
 
 async def cmd_provision(args: argparse.Namespace) -> None:
@@ -230,7 +240,9 @@ async def cmd_provision(args: argparse.Namespace) -> None:
         from hardware.lepro.lib.lepro.session import DryRunTransport, SessionConfig
 
         transport = DryRunTransport()
-        session = LeproSession(mac, transport, config=SessionConfig(dry_run=True, send_delay=0))
+        session = LeproSession(
+            mac, transport, config=SessionConfig(dry_run=True, send_delay=0)
+        )
         await session.run_phase_discovery()
         creds = load_creds(mac)
         if creds:
@@ -303,7 +315,9 @@ async def cmd_provision_with_creds(
         uid=args.uid,
         dry_run=getattr(args, "dry_run", False),
     )
-    if not getattr(args, "no_cert_refresh", False) and not getattr(args, "dry_run", False):
+    if not getattr(args, "no_cert_refresh", False) and not getattr(
+        args, "dry_run", False
+    ):
         save_cert_paths(session.mac, root, cert)
 
 
@@ -329,5 +343,3 @@ def _add_cert_refresh_flags(p: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Use --root/--cert from CLI/config instead of last stored paths",
     )
-
-

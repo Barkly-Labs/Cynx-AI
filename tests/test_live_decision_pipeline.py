@@ -260,7 +260,9 @@ def test_ollama_stream_observer_reports_output_and_reassembles_tool_calls(monkey
             "index": 0,
             "function": {"arguments": "\"weather\"}"},
         }]}},
-        {"done": True},
+        {"done": True, "model": "cyn-x:latest", "prompt_eval_count": 17,
+         "prompt_eval_duration": 2_000_000_000, "eval_count": 3,
+         "eval_duration": 750_000_000, "total_duration": 3_000_000_000},
     ]
 
     class Response:
@@ -290,3 +292,7 @@ def test_ollama_stream_observer_reports_output_and_reassembles_tool_calls(monkey
     assert call["id"] == "call-1"
     assert call["function"]["name"] == "web_search"
     assert json.loads(call["function"]["arguments"]) == {"query": "weather"}
+    assert result["prompt_eval_count"] == 17
+    assert result["eval_count"] == 3
+    assert result["eval_duration"] == 750_000_000
+    assert result["prompt_eval_duration"] == 2_000_000_000

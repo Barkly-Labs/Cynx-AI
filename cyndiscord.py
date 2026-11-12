@@ -64,12 +64,14 @@ chat_engine = ChatEngine(
     mode_manager=mode_manager,
     memory_manager=memory_manager,
     memory_extractor=memory_extractor,
-    context_manager=context_manager
+    context_manager=context_manager,
 )
+
 
 @client.event
 async def on_ready():
     print(f"Logged in as {client.user}")
+
 
 @client.event
 async def on_message(message):
@@ -77,16 +79,11 @@ async def on_message(message):
         return
 
     # Only respond when mentioned or when using !ai
-    if not (
-        client.user in message.mentions
-        or message.content.startswith("!ai")
-    ):
+    if not (client.user in message.mentions or message.content.startswith("!ai")):
         return
 
     prompt = (
-        message.content.replace("!ai", "")
-        .replace(f"<@{client.user.id}>", "")
-        .strip()
+        message.content.replace("!ai", "").replace(f"<@{client.user.id}>", "").strip()
     )
 
     if not prompt:
@@ -97,29 +94,24 @@ async def on_message(message):
     if channel not in history:
         history[channel] = []
 
-    history[channel].append({
-        "role": "user",
-        "content": prompt
-    })
+    history[channel].append({"role": "user", "content": prompt})
 
     async with message.channel.typing():
         try:
             # Use ChatEngine so tools are detected and executed
             reply = chat_engine.handle_user_message(user_id=channel, text=prompt)
 
-            history[channel].append({
-                "role": "assistant",
-                "content": reply
-            })
+            history[channel].append({"role": "assistant", "content": reply})
 
             # Prevent history from growing forever
             history[channel] = history[channel][-20:]
 
             # Discord message limit
             for i in range(0, len(reply), 1900):
-                await message.channel.send(reply[i:i+1900])
+                await message.channel.send(reply[i : i + 1900])
 
         except Exception as e:
             await message.channel.send(f"Error: {e}")
+
 
 client.run(TOKEN)

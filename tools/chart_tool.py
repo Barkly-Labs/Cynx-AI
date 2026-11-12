@@ -78,32 +78,20 @@ class ChartTool(BaseTool):
 
         try:
             if not isinstance(args, dict):
-                return ToolResult(
-                    False,
-                    "Chart tool arguments must be an object."
-                )
+                return ToolResult(False, "Chart tool arguments must be an object.")
 
             chart_type = args.get("chart_type")
             title = args.get("title")
             data = args.get("data")
 
             if not chart_type:
-                return ToolResult(
-                    False,
-                    "Chart type is required."
-                )
+                return ToolResult(False, "Chart type is required.")
 
             if not title:
-                return ToolResult(
-                    False,
-                    "Chart title is required."
-                )
+                return ToolResult(False, "Chart title is required.")
 
             if data is None:
-                return ToolResult(
-                    False,
-                    "Chart data is required."
-                )
+                return ToolResult(False, "Chart data is required.")
 
             chart = self.create_chart(
                 chart_type=chart_type,
@@ -164,9 +152,7 @@ class ChartTool(BaseTool):
         self._validate_title(title)
         self._validate_data(data)
 
-        normalized_series = self._normalize_series(
-            series or []
-        )
+        normalized_series = self._normalize_series(series or [])
 
         # ------------------------------------------------------------
         # Validate chart-specific requirements
@@ -202,10 +188,7 @@ class ChartTool(BaseTool):
         if layout is not None:
             self._validate_layout(layout)
 
-        if (
-            y_axis_min is not None
-            or y_axis_max is not None
-        ):
+        if y_axis_min is not None or y_axis_max is not None:
             self._validate_y_axis(
                 y_axis_min=y_axis_min,
                 y_axis_max=y_axis_max,
@@ -224,14 +207,10 @@ class ChartTool(BaseTool):
         }
 
         if description:
-            chart["meta"]["description"] = str(
-                description
-            ).strip()
+            chart["meta"]["description"] = str(description).strip()
 
         if footer:
-            chart["meta"]["footer"] = str(
-                footer
-            ).strip()
+            chart["meta"]["footer"] = str(footer).strip()
 
         # ------------------------------------------------------------
         # Cartesian chart configuration
@@ -249,9 +228,7 @@ class ChartTool(BaseTool):
                 chart["xAxisScale"] = x_axis_scale
 
             if x_axis_label:
-                chart["xAxisLabel"] = str(
-                    x_axis_label
-                ).strip()
+                chart["xAxisLabel"] = str(x_axis_label).strip()
 
             if y_axis_min is not None:
                 chart["yAxisMin"] = y_axis_min
@@ -390,14 +367,10 @@ class ChartTool(BaseTool):
         """
 
         if not isinstance(data_key, str):
-            raise ValueError(
-                "data_key must be a string."
-            )
+            raise ValueError("data_key must be a string.")
 
         if not data_key.strip():
-            raise ValueError(
-                "data_key cannot be empty."
-            )
+            raise ValueError("data_key cannot be empty.")
 
         result: Dict[str, Any] = {
             "dataKey": data_key,
@@ -411,10 +384,7 @@ class ChartTool(BaseTool):
 
         if value_format is not None:
             if value_format not in ChartTool.SUPPORTED_VALUE_FORMATS:
-                raise ValueError(
-                    "Unsupported value format: "
-                    f"{value_format}"
-                )
+                raise ValueError("Unsupported value format: " f"{value_format}")
 
             result["valueFormat"] = value_format
 
@@ -426,14 +396,10 @@ class ChartTool(BaseTool):
 
         if stack is not None:
             if not isinstance(stack, str):
-                raise ValueError(
-                    "stack must be a string."
-                )
+                raise ValueError("stack must be a string.")
 
             if not stack.strip():
-                raise ValueError(
-                    "stack cannot be empty."
-                )
+                raise ValueError("stack cannot be empty.")
 
             result["stack"] = stack
 
@@ -449,9 +415,7 @@ class ChartTool(BaseTool):
     ) -> str:
 
         if not isinstance(chart_type, str):
-            raise ValueError(
-                "chart_type must be a string."
-            )
+            raise ValueError("chart_type must be a string.")
 
         return chart_type.strip().lower()
 
@@ -462,18 +426,14 @@ class ChartTool(BaseTool):
     ) -> List[Dict[str, Any]]:
 
         if not isinstance(series, list):
-            raise ValueError(
-                "series must be a list."
-            )
+            raise ValueError("series must be a list.")
 
         normalized: List[Dict[str, Any]] = []
 
         for index, item in enumerate(series):
 
             if not isinstance(item, dict):
-                raise ValueError(
-                    f"Series entry {index} must be an object."
-                )
+                raise ValueError(f"Series entry {index} must be an object.")
 
             data_key = item.get("dataKey")
 
@@ -482,14 +442,10 @@ class ChartTool(BaseTool):
                 data_key = item.get("data_key")
 
             if not isinstance(data_key, str):
-                raise ValueError(
-                    f"Series entry {index} requires dataKey."
-                )
+                raise ValueError(f"Series entry {index} requires dataKey.")
 
             if not data_key.strip():
-                raise ValueError(
-                    f"Series entry {index} has an empty dataKey."
-                )
+                raise ValueError(f"Series entry {index} has an empty dataKey.")
 
             clean: Dict[str, Any] = {
                 "dataKey": data_key,
@@ -534,13 +490,9 @@ class ChartTool(BaseTool):
                 clean[output_key] = value
 
             if "valueFormat" in clean:
-                if (
-                    clean["valueFormat"]
-                    not in cls.SUPPORTED_VALUE_FORMATS
-                ):
+                if clean["valueFormat"] not in cls.SUPPORTED_VALUE_FORMATS:
                     raise ValueError(
-                        "Unsupported value format: "
-                        f"{clean['valueFormat']}"
+                        "Unsupported value format: " f"{clean['valueFormat']}"
                     )
 
             normalized.append(clean)
@@ -557,9 +509,7 @@ class ChartTool(BaseTool):
     ) -> None:
 
         if chart_type not in self.SUPPORTED_CHART_TYPES:
-            supported = ", ".join(
-                sorted(self.SUPPORTED_CHART_TYPES)
-            )
+            supported = ", ".join(sorted(self.SUPPORTED_CHART_TYPES))
 
             raise ValueError(
                 f"Unsupported chart type '{chart_type}'. "
@@ -572,14 +522,10 @@ class ChartTool(BaseTool):
     ) -> None:
 
         if not isinstance(title, str):
-            raise ValueError(
-                "Chart title must be a string."
-            )
+            raise ValueError("Chart title must be a string.")
 
         if not title.strip():
-            raise ValueError(
-                "Chart title cannot be empty."
-            )
+            raise ValueError("Chart title cannot be empty.")
 
     @staticmethod
     def _validate_data(
@@ -587,21 +533,15 @@ class ChartTool(BaseTool):
     ) -> None:
 
         if not isinstance(data, list):
-            raise ValueError(
-                "Chart data must be a list."
-            )
+            raise ValueError("Chart data must be a list.")
 
         if not data:
-            raise ValueError(
-                "Chart data cannot be empty."
-            )
+            raise ValueError("Chart data cannot be empty.")
 
         for index, row in enumerate(data):
 
             if not isinstance(row, dict):
-                raise ValueError(
-                    f"Chart data row {index} must be an object."
-                )
+                raise ValueError(f"Chart data row {index} must be an object.")
 
     @staticmethod
     def _validate_cartesian_chart(
@@ -612,36 +552,26 @@ class ChartTool(BaseTool):
     ) -> None:
 
         if not isinstance(x_key, str):
-            raise ValueError(
-                f"{chart_type} charts require x_key."
-            )
+            raise ValueError(f"{chart_type} charts require x_key.")
 
         if not x_key.strip():
-            raise ValueError(
-                f"{chart_type} charts require x_key."
-            )
+            raise ValueError(f"{chart_type} charts require x_key.")
 
         if not series:
-            raise ValueError(
-                f"{chart_type} charts require at least "
-                "one series."
-            )
+            raise ValueError(f"{chart_type} charts require at least " "one series.")
 
         for series_item in series:
 
             data_key = series_item["dataKey"]
 
             if data_key == x_key:
-                raise ValueError(
-                    "Series dataKey cannot be the same as xKey."
-                )
+                raise ValueError("Series dataKey cannot be the same as xKey.")
 
             for row_index, row in enumerate(data):
 
                 if data_key not in row:
                     raise ValueError(
-                        f"Data row {row_index} is missing "
-                        f"series key '{data_key}'."
+                        f"Data row {row_index} is missing " f"series key '{data_key}'."
                     )
 
     @staticmethod
@@ -652,43 +582,30 @@ class ChartTool(BaseTool):
     ) -> None:
 
         if not isinstance(name_key, str):
-            raise ValueError(
-                "Pie charts require name_key."
-            )
+            raise ValueError("Pie charts require name_key.")
 
         if not isinstance(value_key, str):
-            raise ValueError(
-                "Pie charts require value_key."
-            )
+            raise ValueError("Pie charts require value_key.")
 
         if not name_key.strip():
-            raise ValueError(
-                "Pie charts require name_key."
-            )
+            raise ValueError("Pie charts require name_key.")
 
         if not value_key.strip():
-            raise ValueError(
-                "Pie charts require value_key."
-            )
+            raise ValueError("Pie charts require value_key.")
 
         if name_key == value_key:
-            raise ValueError(
-                "Pie chart name_key and value_key "
-                "must be different."
-            )
+            raise ValueError("Pie chart name_key and value_key " "must be different.")
 
         for index, row in enumerate(data):
 
             if name_key not in row:
                 raise ValueError(
-                    f"Pie data row {index} is missing "
-                    f"name key '{name_key}'."
+                    f"Pie data row {index} is missing " f"name key '{name_key}'."
                 )
 
             if value_key not in row:
                 raise ValueError(
-                    f"Pie data row {index} is missing "
-                    f"value key '{value_key}'."
+                    f"Pie data row {index} is missing " f"value key '{value_key}'."
                 )
 
             value = row[value_key]
@@ -697,9 +614,7 @@ class ChartTool(BaseTool):
                 value,
                 (int, float),
             ):
-                raise ValueError(
-                    f"Pie value at row {index} must be numeric."
-                )
+                raise ValueError(f"Pie value at row {index} must be numeric.")
 
     @staticmethod
     def _validate_x_axis_scale(
@@ -710,20 +625,15 @@ class ChartTool(BaseTool):
     ) -> None:
 
         if x_axis_scale != "linear":
-            raise ValueError(
-                "x_axis_scale must be 'linear'."
-            )
+            raise ValueError("x_axis_scale must be 'linear'.")
 
         if chart_type != "line":
             raise ValueError(
-                "x_axis_scale='linear' is only supported "
-                "for line charts."
+                "x_axis_scale='linear' is only supported " "for line charts."
             )
 
         if not x_key:
-            raise ValueError(
-                "x_key is required for a linear x-axis."
-            )
+            raise ValueError("x_key is required for a linear x-axis.")
 
         for index, row in enumerate(data):
 
@@ -744,9 +654,7 @@ class ChartTool(BaseTool):
     ) -> None:
 
         if layout != "vertical":
-            raise ValueError(
-                "layout must be 'vertical'."
-            )
+            raise ValueError("layout must be 'vertical'.")
 
     @staticmethod
     def _validate_y_axis(
@@ -760,9 +668,7 @@ class ChartTool(BaseTool):
                 y_axis_min,
                 (int, float),
             ):
-                raise ValueError(
-                    "y_axis_min must be numeric."
-                )
+                raise ValueError("y_axis_min must be numeric.")
 
         if y_axis_max is not None:
 
@@ -770,19 +676,11 @@ class ChartTool(BaseTool):
                 y_axis_max,
                 (int, float),
             ):
-                raise ValueError(
-                    "y_axis_max must be numeric."
-                )
+                raise ValueError("y_axis_max must be numeric.")
 
-        if (
-            y_axis_min is not None
-            and y_axis_max is not None
-        ):
+        if y_axis_min is not None and y_axis_max is not None:
             if y_axis_min >= y_axis_max:
-                raise ValueError(
-                    "y_axis_min must be less than "
-                    "y_axis_max."
-                )
+                raise ValueError("y_axis_min must be less than " "y_axis_max.")
 
     # ================================================================
     # OUTPUT
@@ -821,9 +719,7 @@ if __name__ == "__main__":
     chart = tool.create_chart(
         chart_type="line",
         title="Smoking This Week",
-        description=(
-            "Daily cigarette count recorded by CYN-X."
-        ),
+        description=("Daily cigarette count recorded by CYN-X."),
         x_key="day",
         series=[
             ChartTool.make_series(

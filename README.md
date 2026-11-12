@@ -1,4 +1,4 @@
-﻿# 🤖 CYN-X
+# 🤖 CYN-X
 ### A personality-driven local AI assistant by Barkly Labs
 
 <p align="center">

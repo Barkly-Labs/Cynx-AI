@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from typing import Any
@@ -213,9 +212,7 @@ class LeproDevice:
             # Decode the response.
             try:
                 if frame.decrypted:
-                    text = frame.payload.rstrip(
-                        b"\x00"
-                    ).decode("utf-8")
+                    text = frame.payload.rstrip(b"\x00").decode("utf-8")
 
                 else:
                     text = decrypt_dp_json(

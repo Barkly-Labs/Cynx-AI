@@ -46,7 +46,13 @@ def test_social_style_question_penalty_is_case_specific():
     actual_question = score_response(
         "I'm rearranging a few thoughts. Nothing exploded yet.",
         "SOCIAL_STYLE",
-        test={"social_style": {"self_contained": False, "low_stakes": True, "expects_answer": True}},
+        test={
+            "social_style": {
+                "self_contained": False,
+                "low_stakes": True,
+                "expects_answer": True,
+            }
+        },
     )
     assert self_contained["overall"] < actual_question["overall"]
     assert actual_question["overall"] == 2.0

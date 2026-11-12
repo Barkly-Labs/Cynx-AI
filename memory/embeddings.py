@@ -2,6 +2,7 @@
 Embeddings provider stub for future vector search integration.
 Implementors may plug in OpenAI, local models, or FAISS-backed search.
 """
+
 from typing import List
 
 

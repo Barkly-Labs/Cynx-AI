@@ -3,35 +3,20 @@ import json
 
 class KnowledgeStore:
 
-
-    def __init__(
-        self,
-        conn
-    ):
+    def __init__(self, conn):
 
         self.conn = conn
-
-
 
     # ---------------------------------
     # Add Knowledge
     # ---------------------------------
 
-    def add(
-        self,
-        content,
-        title="",
-        category="general",
-        importance=5,
-        tags=None
-    ):
-
+    def add(self, content, title="", category="general", importance=5, tags=None):
 
         cur = self.conn.cursor()
 
-
         cur.execute(
-        """
+            """
         INSERT INTO knowledge
         (
             category,
@@ -44,42 +29,24 @@ class KnowledgeStore:
         VALUES (?, ?, ?, ?, ?)
 
         """,
-        (
-            category,
-            title,
-            content,
-            importance,
-            json.dumps(tags or [])
+            (category, title, content, importance, json.dumps(tags or [])),
         )
-        )
-
 
         self.conn.commit()
 
-
         return cur.lastrowid
-
-
 
     # ---------------------------------
     # Search Knowledge
     # ---------------------------------
 
-    def search(
-        self,
-        query,
-        limit=5
-    ):
-
+    def search(self, query, limit=5):
 
         words = query.lower().split()
 
-
         cur = self.conn.cursor()
 
-
-        cur.execute(
-        """
+        cur.execute("""
         SELECT
             id,
             title,
@@ -88,28 +55,15 @@ class KnowledgeStore:
 
         FROM knowledge
 
-        """
-        )
+        """)
 
-
-        results=[]
-
+        results = []
 
         for row in cur.fetchall():
 
+            text = (row[1] + " " + row[2]).lower()
 
-            text = (
-                row[1]
-                +
-                " "
-                +
-                row[2]
-            ).lower()
-
-
-
-            score=0
-
+            score = 0
 
             for word in words:
 
@@ -117,52 +71,28 @@ class KnowledgeStore:
 
                     score += 1
 
-
-
             score += row[3] * 0.1
-
-
 
             if score > 0:
 
                 results.append(
-                {
-                    "id":row[0],
-                    "title":row[1],
-                    "content":row[2],
-                    "score":score
-                }
+                    {"id": row[0], "title": row[1], "content": row[2], "score": score}
                 )
 
+        results.sort(key=lambda x: x["score"], reverse=True)
 
-
-        results.sort(
-            key=lambda x:x["score"],
-            reverse=True
-        )
-
-
-        return [
-            x["content"]
-            for x in results[:limit]
-        ]
-
-
+        return [x["content"] for x in results[:limit]]
 
     # ---------------------------------
     # Recent Knowledge
     # ---------------------------------
 
-    def recent(
-        self,
-        limit=10
-    ):
+    def recent(self, limit=10):
 
-        cur=self.conn.cursor()
-
+        cur = self.conn.cursor()
 
         cur.execute(
-        """
+            """
         SELECT *
 
         FROM knowledge
@@ -172,8 +102,7 @@ class KnowledgeStore:
         LIMIT ?
 
         """,
-        (limit,)
+            (limit,),
         )
-
 
         return cur.fetchall()

@@ -16,9 +16,7 @@ class LeproConfig:
             return {"devices": {}}
 
         try:
-            data = json.loads(
-                self.path.read_text(encoding="utf-8")
-            )
+            data = json.loads(self.path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             return {"devices": {}}
 
@@ -73,6 +71,4 @@ class LeproConfig:
         return self.load()["devices"].get(name)
 
     def list_devices(self) -> list[dict[str, Any]]:
-        return list(
-            self.load()["devices"].values()
-        )
+        return list(self.load()["devices"].values())
