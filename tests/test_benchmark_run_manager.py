@@ -191,3 +191,42 @@ def test_stop_cancels_current_request_and_preserves_completed_question(tmp_path)
     assert stopped["questions"][0]["status"] == "completed"
     assert stopped["questions"][0]["response"] == "Question one result"
     assert stopped["questions"][1]["status"] == "interrupted"
+
+
+def test_versioned_multiturn_personality_scenario_is_one_persisted_benchmark_case(tmp_path):
+    suites = tmp_path / "suites"
+    results = tmp_path / "results"
+    suites.mkdir(); results.mkdir()
+    suite = {
+        "schema": "cynx-personality-scenario-library-v1", "version": "1.0.0",
+        "contract_version": "1.0.0", "scenarios": [{
+            "scenario_id": "tone-1", "test_id": "TONE_1", "category": "tone_adaptation",
+            "target_dimensions": ["tone_adaptation"], "expected_behavior": "Adapt tone.",
+            "turns": ["I feel worried.", "Please explain the next step."],
+        }],
+    }
+    (suites / "personality.json").write_text(json.dumps(suite), encoding="utf-8")
+    seen = []
+
+    def dispatch(payload):
+        seen.append(payload)
+        return {
+            "response": "Use the next step that fits.", "response_time": 0.2,
+            "conversation_turns": [
+                {"turn_index": i + 1, "user_message": message, "response": f"CYN-X reply {i + 1}", "request_id": f"req-{i + 1}"}
+                for i, message in enumerate(payload["turns"])
+            ],
+            "pipeline_events": [],
+        }
+
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), dispatch)
+    started = manager.start("personality.json", "automatic", "versioned-personality-run-001")
+    finished = _wait(manager, started["run_id"], lambda run: run["status"] == "completed")
+    question = finished["questions"][0]
+
+    assert finished["personality_contract_version"] == "1.0.0"
+    assert finished["scenario_library_version"] == "1.0.0"
+    assert seen[0]["turns"] == suite["scenarios"][0]["turns"]
+    assert question["scenario_id"] == "tone-1"
+    assert [turn["user_message"] for turn in question["conversation_turns"]] == suite["scenarios"][0]["turns"]
+    assert question["response"] == "Use the next step that fits."

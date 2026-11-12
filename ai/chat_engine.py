@@ -1293,7 +1293,8 @@ class ChatEngine:
             )
             self._raise_if_cancelled(cancellation_check)
             trace("model_response_received", output=(final_response.get("message") or {}).get("content", ""),
-                  generation_duration_seconds=round(time.perf_counter() - final_start, 4), tool_calls=[])
+                  generation_duration_seconds=round(time.perf_counter() - final_start, 4),
+                  done_reason=final_response.get("done_reason"), tool_calls=[])
 
             terminal.timing(
                 f"[FINAL OLLAMA TIME] "
@@ -1759,6 +1760,7 @@ class ChatEngine:
               ttft_seconds=round(generation_started_at - start, 4) if generation_started_at else None,
               tokens_generated=response.get("eval_count"),
               generation_duration_nanoseconds=response.get("eval_duration"),
+              done_reason=response.get("done_reason"),
               tool_calls=[{"name": ((tc.get("function") or {}).get("name") or tc.get("name")),
                            "arguments": (tc.get("function") or {}).get("arguments")}
                           for tc in (response.get("message") or {}).get("tool_calls", [])],
@@ -2761,7 +2763,7 @@ class ChatEngine:
             )
             trace("model_response_received", output=assistant_text,
                   generation_duration_seconds=round(time.perf_counter() - final_start, 4),
-                  model=getattr(self.ollama, "model", None), tool_calls=[])
+                  model=getattr(self.ollama, "model", None), done_reason=final_response.get("done_reason"), tool_calls=[])
             trace("response_transformation", original_model_output=assistant_text,
                   final_user_facing_response=assistant_text, modifications=[])
             self._emit_pipeline_event(
@@ -2845,7 +2847,7 @@ class ChatEngine:
         )
         trace("model_response_received", output=assistant_text,
               generation_duration_seconds=round(time.perf_counter() - start, 4),
-              model=getattr(self.ollama, "model", None), tool_calls=[])
+              model=getattr(self.ollama, "model", None), done_reason=response.get("done_reason"), tool_calls=[])
         trace("response_transformation", original_model_output=assistant_text,
               final_user_facing_response=assistant_text, modifications=[])
         self._emit_pipeline_event(

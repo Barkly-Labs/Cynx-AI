@@ -53,6 +53,7 @@ from tools.filesystem import FilesystemTool
 from interfaces.web.pipeline import PipelineEventStore
 from interfaces.web.benchmark_runs import BenchmarkRunManager
 from benchmark.watchdog import BenchmarkWatchdog
+from benchmark.personality.diagnostics import PersonalityDiagnosticsService
 
 
 
@@ -281,9 +282,12 @@ def dx_benchmark_suites():
     suites = []
     for path in sorted(BENCHMARK_SUITES.glob("*.json")):
         try:
-            cases = json.loads(path.read_text(encoding="utf-8"))
+            suite_data = json.loads(path.read_text(encoding="utf-8"))
+            cases = suite_data if isinstance(suite_data, list) else suite_data.get("scenarios", suite_data.get("questions", [])) if isinstance(suite_data, dict) else None
             if isinstance(cases, list):
-                suites.append({"id": path.name, "name": path.stem.replace("_", " ").replace("-", " "), "count": len(cases)})
+                suites.append({"id": path.name, "name": path.stem.replace("_", " ").replace("-", " "), "count": len(cases),
+                               "personality_contract_version": suite_data.get("contract_version") if isinstance(suite_data, dict) else None,
+                               "scenario_library_version": suite_data.get("version") if isinstance(suite_data, dict) else None})
         except (OSError, ValueError):
             continue
     return {"suites": suites}
@@ -297,14 +301,20 @@ def dx_benchmark_suite(suite_id: str):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Benchmark suite not found")
     try:
-        cases = json.loads(path.read_text(encoding="utf-8"))
+        suite_data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Benchmark suite could not be read")
+    if isinstance(suite_data, dict):
+        cases = suite_data.get("scenarios", suite_data.get("questions", []))
+    else:
+        cases = suite_data
     if not isinstance(cases, list):
         from fastapi import HTTPException
         raise HTTPException(status_code=422, detail="Benchmark suite format is invalid")
-    return {"id": suite_id, "cases": cases}
+    return {"id": suite_id, "cases": cases,
+            "personality_contract_version": suite_data.get("contract_version") if isinstance(suite_data, dict) else None,
+            "scenario_library_version": suite_data.get("version") if isinstance(suite_data, dict) else None}
 
 
 @app.post("/api/dx/benchmark/runs")
@@ -409,6 +419,40 @@ def dx_benchmark_watchdog(run_id: str | None = None, baseline_id: str | None = N
     if report is None:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
     return report
+
+
+@app.get("/api/dx/benchmark/personality/history")
+def dx_personality_history(run_id: str | None = None, baseline_id: str | None = None, limit: int = 50):
+    from fastapi import HTTPException
+    try:
+        if run_id:
+            personality_diagnostics._run_path(run_id)
+        if baseline_id:
+            personality_diagnostics._run_path(baseline_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    return personality_diagnostics.history(run_id=run_id, baseline_id=baseline_id, limit=limit)
+
+
+@app.post("/api/dx/benchmark/personality/{run_id}/evaluate")
+async def dx_evaluate_personality(run_id: str, refresh: bool = False):
+    from fastapi import HTTPException
+    try:
+        return await run_in_threadpool(personality_diagnostics.evaluate_run, run_id, refresh=refresh)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@app.get("/api/dx/benchmark/personality/{run_id}")
+def dx_personality_run(run_id: str):
+    from fastapi import HTTPException
+    try:
+        personality_diagnostics._run_path(run_id)
+    except KeyError:
+        raise HTTPException(status_code=404, detail="Benchmark run not found")
+    return personality_diagnostics.history(run_id=run_id)
 
 
 @app.get("/api/dx/benchmark/runs/{run_id}")
@@ -673,16 +717,79 @@ async def _dispatch_chat(data: dict):
     return await run_in_threadpool(process_request)
 
 
+async def _dispatch_benchmark_scenario(data: dict):
+    """Run scenario turns as separate ordinary chat requests in one conversation."""
+    run_id = data.get("_benchmark_run_id")
+    question_id = data.get("_benchmark_question_id")
+    conversation_id = data.get("conversation_id")
+    turns = data.get("turns") or []
+    turn_records = []
+    pipeline_history = []
+    started = time.perf_counter()
+    for index, message in enumerate(turns):
+        request_id = data.get("request_id") if index == 0 else str(uuid.uuid4())
+        if index and run_id and question_id:
+            benchmark_runs.register_question_request(run_id, question_id, request_id)
+        try:
+            result = await _dispatch_chat({"message": message, "request_id": request_id, "conversation_id": conversation_id})
+        except Exception:
+            web_logger.exception("Personality scenario turn failed; run_id=%s question_id=%s request_id=%s", run_id, question_id, request_id)
+            events = pipeline_events.read(request_id).get("events", [])
+            pipeline_history.extend({**event, "request_id": request_id, "turn_index": index + 1} for event in events)
+            return {
+                "response": turn_records[-1]["response"] if turn_records else "",
+                "response_time": round(time.perf_counter() - started, 3),
+                "conversation_turns": turn_records,
+                "pipeline_events": pipeline_history,
+                "failed": True,
+                "error": "A scenario turn failed. Inspect its request ID in the benchmark diagnostics.",
+            }
+        events = pipeline_events.read(request_id).get("events", [])
+        pipeline_history.extend({**event, "request_id": request_id, "turn_index": index + 1} for event in events)
+        turn_expectations = data.get("turn_expectations") or []
+        expected_tools = turn_expectations[index].get("expected_tools") if index < len(turn_expectations) and isinstance(turn_expectations[index], dict) else None
+        actual_tools = sorted({str(event.get("name")) for event in events if event.get("type") == "tool" and event.get("name")})
+        turn_records.append({
+            "turn_index": index + 1,
+            "user_message": message,
+            "response": result.get("response", ""),
+            "request_id": request_id,
+            "response_time_seconds": result.get("response_time"),
+            "cancelled": bool(result.get("cancelled")),
+            "tools": actual_tools,
+            "expected_tools": expected_tools,
+        })
+        if result.get("cancelled"):
+            return {
+                "response": turn_records[-1]["response"],
+                "response_time": round(time.perf_counter() - started, 3),
+                "conversation_turns": turn_records,
+                "pipeline_events": pipeline_history,
+                "cancelled": True,
+            }
+    return {
+        "response": turn_records[-1]["response"] if turn_records else "",
+        "response_time": round(time.perf_counter() - started, 3),
+        "conversation_turns": turn_records,
+        "pipeline_events": pipeline_history,
+    }
+
+
 def _dispatch_benchmark_question(data: dict):
-    """Run through the exact dispatcher shared by the ordinary /chat route."""
+    """Use the application chat request pathway for every benchmark turn."""
+    if data.get("turns"):
+        return asyncio.run(_dispatch_benchmark_scenario(data))
     return asyncio.run(_dispatch_chat(data))
 
+
+personality_diagnostics = PersonalityDiagnosticsService(DX_BENCHMARK_RUNS, ollama_client=ollama_client)
 
 benchmark_runs = BenchmarkRunManager(
     BENCHMARK_SUITES,
     DX_BENCHMARK_RUNS,
     pipeline_events,
     _dispatch_benchmark_question,
+    on_finished=personality_diagnostics.queue_evaluate,
 )
 
 

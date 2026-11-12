@@ -140,6 +140,62 @@ def test_dx_watchdog_tab_is_inside_existing_benchmark_workspace():
     assert ".watchdog-inspector" in styles.text
 
 
+def test_versioned_personality_scenarios_are_added_to_existing_benchmark_catalog():
+    client = TestClient(web_app.app)
+    catalog = client.get("/api/dx/benchmark/suites")
+    suite = client.get("/api/dx/benchmark/suites/personality-diagnostics-v1.json")
+
+    assert catalog.status_code == suite.status_code == 200
+    item = next(entry for entry in catalog.json()["suites"] if entry["id"] == "personality-diagnostics-v1.json")
+    assert item["count"] >= 10
+    assert item["personality_contract_version"] == "1.0.0"
+    assert all(case.get("turns") and case.get("target_dimensions") for case in suite.json()["cases"])
+
+
+def test_personality_diagnostics_endpoints_read_and_persist_run_scoped_records(tmp_path, monkeypatch):
+    run_id = "85db1028-6819-42aa-b860-6711403053e2"
+    run = {
+        "schema": "cynx-dx-benchmark-run-v1", "run_id": run_id,
+        "suite": "personality-diagnostics-v1.json", "status": "completed", "created_at": "2026-11-12T12:00:00+00:00",
+        "personality_contract_version": "1.0.0", "scenario_library_version": "1.0.0",
+        "questions": [{
+            "question_id": "question-1", "scenario_id": "serious-support-01", "test_id": "SUPPORT_01",
+            "scenario_category": "emotional_sensitivity", "target_dimensions": ["warmth"],
+            "expected_behavior": "Respond calmly and acknowledge the stated feeling.",
+            "question": "I feel lonely.", "status": "completed", "quality_status": "scored",
+            "response": "I hear that this has been lonely.", "request_id": "request-1", "request_ids": ["request-1"],
+            "conversation_turns": [{"turn_index": 1, "user_message": "I feel lonely.", "response": "I hear that this has been lonely.", "request_id": "request-1"}],
+            "request_events": [], "tools": [], "metrics": {},
+        }],
+    }
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
+
+    class Judge:
+        model = "local-test-judge"
+
+        def chat(self, messages, tools=None, **kwargs):
+            assert tools is None
+            return {"message": {"content": json.dumps({"evaluations": [{
+                "dimension": "warmth", "score": 3.2, "confidence": 0.8,
+                "observed_behavior": "Acknowledged loneliness.", "expected_behavior": "Acknowledge the feeling.",
+                "explanation": "The answer uses a measured acknowledgment.", "potential_contributing_factors": [],
+                "recommendations": [], "evidence": [{"turn_index": 1, "quote": "I hear that this has been lonely."}],
+            }]})}}
+
+    service = web_app.personality_diagnostics
+    monkeypatch.setattr(service, "runs_dir", tmp_path)
+    monkeypatch.setattr(service, "records_dir", tmp_path / "personality_diagnostics")
+    monkeypatch.setattr(service, "ollama", Judge())
+    client = TestClient(web_app.app)
+
+    evaluated = client.post(f"/api/dx/benchmark/personality/{run_id}/evaluate?refresh=true", json={})
+    historical = client.get(f"/api/dx/benchmark/personality/history?run_id={run_id}")
+
+    assert evaluated.status_code == historical.status_code == 200
+    assert evaluated.json()["diagnostics"][0]["dimension"] == "warmth"
+    assert historical.json()["trend"][0]["dimensions"]["warmth"] == 3.2
+
+
 def test_backend_benchmark_runs_after_start_response_and_uses_chat_dispatcher(tmp_path, monkeypatch):
     suites = tmp_path / "suites"
     runs = tmp_path / "runs"
@@ -219,6 +275,44 @@ def test_benchmark_dispatch_persists_chat_engine_trace_events(tmp_path, monkeypa
     assert {event["stage"] for event in question["personality_trace"]["events"]} >= {
         "configuration_loaded", "instructions_assembled", "routing_decision", "response_returned"
     }
+
+
+def test_personality_scenario_turns_share_chat_conversation_but_use_distinct_request_ids(monkeypatch):
+    import asyncio
+
+    conversation_ids = []
+    request_ids = []
+    registrations = []
+
+    class Events:
+        def read(self, request_id):
+            return {"events": []}
+
+    async def fake_chat(data):
+        conversation_ids.append(data["conversation_id"])
+        request_ids.append(data["request_id"])
+        return {"response": f"Answer {len(request_ids)}", "response_time": 0.1}
+
+    class RunManager:
+        def register_question_request(self, run_id, question_id, request_id):
+            registrations.append((run_id, question_id, request_id))
+
+    monkeypatch.setattr(web_app, "_dispatch_chat", fake_chat)
+    monkeypatch.setattr(web_app, "benchmark_runs", RunManager())
+    monkeypatch.setattr(web_app, "pipeline_events", Events())
+    data = {
+        "request_id": "first-request", "conversation_id": "scenario-conversation",
+        "_benchmark_run_id": "run-1", "_benchmark_question_id": "question-1",
+        "turns": ["First user turn", "Second user turn"],
+        "turn_expectations": [{"expected_tools": []}, {"expected_tools": []}],
+    }
+
+    result = asyncio.run(web_app._dispatch_benchmark_scenario(data))
+
+    assert conversation_ids == ["scenario-conversation", "scenario-conversation"]
+    assert request_ids[0] == "first-request" and request_ids[0] != request_ids[1]
+    assert registrations == [("run-1", "question-1", request_ids[1])]
+    assert [turn["response"] for turn in result["conversation_turns"]] == ["Answer 1", "Answer 2"]
 
 
 def test_chat_route_uses_validated_conversation_id_for_short_term_context(monkeypatch):

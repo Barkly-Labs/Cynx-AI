@@ -84,11 +84,12 @@ class BenchmarkRunManager:
 
     ACTIVE_STATES = {"running", "pausing", "stopping", "paused"}
 
-    def __init__(self, suites_dir: Path, results_dir: Path, pipeline_events, dispatch: Callable):
+    def __init__(self, suites_dir: Path, results_dir: Path, pipeline_events, dispatch: Callable, on_finished: Callable | None = None):
         self.suites_dir = Path(suites_dir).resolve()
         self.results_dir = Path(results_dir).resolve()
         self.pipeline_events = pipeline_events
         self.dispatch = dispatch
+        self.on_finished = on_finished
         self._lock = threading.RLock()
         self._threads: dict[str, threading.Thread] = {}
         self._trace_callbacks: dict[str, Callable] = {}
@@ -137,7 +138,7 @@ class BenchmarkRunManager:
             except KeyError:
                 return
             question = next((q for q in run.get("questions", []) if q.get("question_id") == question_id), None)
-            if question is None or question.get("request_id") != request_id:
+            if question is None or request_id not in (question.get("request_ids") or [question.get("request_id")]):
                 return
             trace = question.setdefault("personality_trace", {"schema": "cynx-personality-trace-v1", "events": []})
             safe = _redact_trace(details)
@@ -152,6 +153,37 @@ class BenchmarkRunManager:
             self._append(run, "personality_trace_updated", question_id=question_id,
                          request_id=request_id, trace_event_id=event["event_id"])
             self._write(run)
+
+    def register_question_request(self, run_id: str, question_id: str, request_id: str) -> None:
+        """Associate an additional real chat request with a multi-turn scenario."""
+        with self._lock:
+            try:
+                run = self._read(run_id)
+            except KeyError:
+                return
+            question = next((q for q in run.get("questions", []) if q.get("question_id") == question_id), None)
+            if question is None:
+                return
+            request_ids = question.setdefault("request_ids", [question.get("request_id")])
+            if request_id not in request_ids:
+                request_ids.append(request_id)
+            run["current_request_id"] = request_id
+            self._trace_callbacks[request_id] = (
+                lambda details, rid=run_id, qid=question_id, req=request_id:
+                self.record_personality_trace(rid, qid, req, details)
+            )
+            self._append(run, "question_turn_request_registered", question_id=question_id, request_id=request_id)
+            self._write(run)
+
+    def _clear_question_trace_callbacks(self, run_id: str, question_id: str) -> None:
+        with self._lock:
+            try:
+                run = self._read(run_id)
+            except KeyError:
+                return
+            question = next((q for q in run.get("questions", []) if q.get("question_id") == question_id), None)
+            for request_id in (question or {}).get("request_ids", []):
+                self._trace_callbacks.pop(request_id, None)
 
     def trace_callback(self, request_id: str):
         with self._lock:
@@ -254,9 +286,17 @@ class BenchmarkRunManager:
         if path.parent != self.suites_dir or path.suffix.lower() != ".json" or not path.is_file():
             raise ValueError("Benchmark suite not found")
         try:
-            cases = json.loads(path.read_text(encoding="utf-8"))
+            suite_data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError) as exc:
             raise ValueError("Benchmark suite could not be read") from exc
+        if isinstance(suite_data, dict):
+            cases = suite_data.get("scenarios", suite_data.get("questions", []))
+            contract_version = suite_data.get("contract_version")
+            scenario_library_version = suite_data.get("version")
+        else:
+            cases = suite_data
+            contract_version = None
+            scenario_library_version = None
         if not isinstance(cases, list) or not cases or len(cases) > 500:
             raise ValueError("Benchmark suite must contain between 1 and 500 questions")
         if len(idempotency_key) < 8 or len(idempotency_key) > 160:
@@ -278,14 +318,27 @@ class BenchmarkRunManager:
             run_id = str(uuid.uuid4())
             questions = []
             for index, case in enumerate(cases):
-                if not isinstance(case, dict) or not isinstance(case.get("question"), str):
+                turns = case.get("turns") if isinstance(case, dict) else None
+                turns = [str(turn).strip() for turn in turns if isinstance(turn, str) and turn.strip()] if isinstance(turns, list) else []
+                question_text = case.get("question") if isinstance(case, dict) else None
+                if not isinstance(question_text, str) or not question_text.strip():
+                    question_text = turns[0] if turns else None
+                if not isinstance(case, dict) or not isinstance(question_text, str) or not question_text.strip() or len(turns) > 20:
                     continue
                 questions.append({
                     "question_id": str(uuid.uuid4()),
                     "position": index + 1,
                     "test_id": str(case.get("test_id", index + 1)),
                     "category": str(case.get("category", "unknown")),
-                    "question": case["question"],
+                    "question": question_text,
+                    "turns": turns,
+                    "turn_expectations": case.get("turn_expectations", []),
+                    "scenario_id": case.get("scenario_id"),
+                    "scenario_version": case.get("scenario_version", scenario_library_version),
+                    "scenario_category": case.get("scenario_category", case.get("category")),
+                    "target_dimensions": case.get("target_dimensions", []),
+                    "expected_behavior": case.get("expected_behavior"),
+                    "failure_conditions": case.get("failure_conditions", []),
                     "test": case,
                     "status": "pending",
                     "quality_status": "unscored",
@@ -310,6 +363,8 @@ class BenchmarkRunManager:
                 "idempotency_key": idempotency_key,
                 "name": path.stem.replace("_", " ").replace("-", " "),
                 "suite": suite_id,
+                "personality_contract_version": contract_version or next((case.get("contract_version") for case in cases if isinstance(case, dict) and case.get("contract_version")), None),
+                "scenario_library_version": scenario_library_version or next((case.get("scenario_version") for case in cases if isinstance(case, dict) and case.get("scenario_version")), None),
                 "mode": "manual" if mode == "manual" else "automatic",
                 "status": "running",
                 "created_at": now,
@@ -372,11 +427,14 @@ class BenchmarkRunManager:
                     run["current_request_id"] = None
                     self._append(run, "run_finished", status=run["status"], counts=counts)
                     self._write(run)
+                    if self.on_finished:
+                        self.on_finished(run_id)
                     return
 
                 request_id = str(uuid.uuid4())
                 question["status"] = "running"
                 question["request_id"] = request_id
+                question["request_ids"] = [request_id]
                 question["started_at"] = _now()
                 run["current_question_id"] = question["question_id"]
                 run["current_request_id"] = request_id
@@ -384,6 +442,14 @@ class BenchmarkRunManager:
                 self._append(run, "question_started", question_id=question["question_id"], position=question["position"], request_id=request_id)
                 self._write(run)
                 payload = {"message": question["question"], "request_id": request_id}
+                if question.get("turns"):
+                    payload.update({
+                        "turns": question["turns"],
+                        "turn_expectations": question.get("turn_expectations", []),
+                        "conversation_id": str(uuid.uuid4()),
+                        "_benchmark_run_id": run_id,
+                        "_benchmark_question_id": question["question_id"],
+                    })
                 self._trace_callbacks[request_id] = (
                     lambda details, rid=run_id, qid=question["question_id"], req=request_id:
                     self.record_personality_trace(rid, qid, req, details)
@@ -391,14 +457,19 @@ class BenchmarkRunManager:
 
             try:
                 result = self.dispatch(payload)
-                with self._lock:
-                    self._trace_callbacks.pop(request_id, None)
+                self._clear_question_trace_callbacks(run_id, question["question_id"])
                 response_text = str(result.get("response", "") or "")
-                events = self.pipeline_events.read(request_id).get("events", [])
-                tools = self._tool_summary(events)
+                events = result.get("pipeline_events") if isinstance(result.get("pipeline_events"), list) else self.pipeline_events.read(request_id).get("events", [])
+                tools = result.get("tools") if isinstance(result.get("tools"), list) else self._tool_summary(events)
+                conversation_turns = result.get("conversation_turns") if isinstance(result.get("conversation_turns"), list) else []
                 if result.get("cancelled"):
                     outcome = "interrupted"
                     error = "This question was cancelled before CYN-X returned a response."
+                    score = analysis = None
+                    quality_status = "unscored"
+                elif result.get("failed"):
+                    outcome = "failed"
+                    error = str(result.get("error") or "A scenario turn did not complete.")[:500]
                     score = analysis = None
                     quality_status = "unscored"
                 else:
@@ -426,10 +497,10 @@ class BenchmarkRunManager:
                     for event in events
                 ]
             except Exception:
-                with self._lock:
-                    self._trace_callbacks.pop(request_id, None)
+                self._clear_question_trace_callbacks(run_id, question["question_id"])
                 logger.exception("Benchmark question failed; run_id=%s request_id=%s", run_id, request_id)
                 response_text = ""
+                conversation_turns = []
                 tools = []
                 score = analysis = None
                 quality_status = "unscored"
@@ -455,6 +526,7 @@ class BenchmarkRunManager:
                 question["status"] = outcome
                 question["quality_status"] = quality_status
                 question["response"] = response_text
+                question["conversation_turns"] = conversation_turns
                 question["score"] = score
                 question["analysis"] = analysis
                 question["error"] = error
@@ -477,6 +549,8 @@ class BenchmarkRunManager:
                     run["stop_requested"] = False
                     self._append(run, "run_stopped", question_id=question["question_id"])
                     self._write(run)
+                    if self.on_finished:
+                        self.on_finished(run_id)
                     return
                 if run.get("pause_requested"):
                     run["status"] = "paused"
@@ -629,6 +703,8 @@ class BenchmarkRunManager:
                 run["elapsed_total_seconds"] += _elapsed_since(run.get("started_at"))
                 run["started_at"] = None
                 self._append(run, "run_stopped")
+                if self.on_finished:
+                    self.on_finished(run_id)
             self._write(run)
         if request_id:
             self.pipeline_events.request_cancel(request_id)
@@ -636,6 +712,7 @@ class BenchmarkRunManager:
 
     def delete_completed(self) -> int:
         deleted = 0
+        deleted_run_ids = set()
         with self._lock:
             for path in self.results_dir.glob("*.json"):
                 try:
@@ -644,6 +721,10 @@ class BenchmarkRunManager:
                     continue
                 if run.get("schema") == "cynx-dx-benchmark-run-v1" and run.get("status") in self.ACTIVE_STATES:
                     continue
+                if run.get("run_id"):
+                    deleted_run_ids.add(str(run["run_id"]))
                 path.unlink(missing_ok=True)
                 deleted += 1
+            for run_id in deleted_run_ids:
+                (self.results_dir / "personality_diagnostics" / f"{run_id}.json").unlink(missing_ok=True)
         return deleted
