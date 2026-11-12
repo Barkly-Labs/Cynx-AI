@@ -43,3 +43,23 @@ test("personality severity rows use a shared scale and report finding totals", (
   assert.match(source, /Inspect \$\{sum\} diagnostics/);
   assert.match(source, /<strong>\$\{sum\}<\/strong>/);
 });
+
+test("performance fields use persisted whole-question generation aggregates", () => {
+  assert.match(source, /generationDetails=events\.filter\(e=>e\.stage==='generation_response_received'\)/);
+  assert.match(source, /sumTraceMetric\('tokens_generated'\)/);
+  assert.match(source, /sumTraceMetric\('generation_duration_nanoseconds'\)/);
+  assert.match(source, /selected\?\.metrics\?\.tokens_generated\?\?traceTokens/);
+  assert.match(source, /selected\?\.metrics\?\.tokens_per_second\?\?/);
+  assert.doesNotMatch(source, /const generated=traceDetails\.find/);
+});
+
+test("request diagnostics prefer the failing turn ID and preserve event turn mapping", () => {
+  assert.match(source, /q\.terminal_request_id\|\|q\.request_id/);
+  assert.match(source, /selected\.request_ids\|\|\[selected\.request_id\]/);
+  assert.match(source, /aria-valuetext',`\$\{attempted\} of \$\{total\} questions processed`/);
+});
+
+test("legacy unavailable tool telemetry is not rendered as zero calls", () => {
+  assert.match(source, /toolsObserved\?selected\.tools\.length:'Unavailable'/);
+  assert.match(source, /selected\?\.tool_telemetry_available===true/);
+});

@@ -103,9 +103,13 @@ chat request dispatcher; it does not call a second model engine.
 
 - The current `/chat` path is non-streaming, so TTFT and streaming updates are
   not available unless emitted by the active model trace.
-- Model token counts, tokens/second, configured generation parameters,
-  tokenizer-based context utilization, and per-run available-tool inventory are
-  not consistently captured by the current request pathway.
+- When the model trace provides generation token counts and evaluation duration,
+  new benchmark snapshots now persist TTFT, total generated tokens, and
+  aggregate tokens/second. If any turn in a multi-turn question lacks the
+  required values, the corresponding aggregate remains unavailable.
+- Configured generation parameters, tokenizer-based context utilization, and
+  per-run available-tool inventory are not captured by the current request
+  pathway.
 - The standard benchmark scorer does not emit personality trait scores. The
   Watchdog leaves these explicitly unavailable; Personality Diagnostics is a
   separate local-judge flow for eligible versioned scenarios.
@@ -114,6 +118,95 @@ chat request dispatcher; it does not call a second model engine.
   and coverage charts, all sourced from saved diagnostic records.
 - Legacy snapshots do not contain request identifiers, per-question trace
   events, tokens, or TTFT. Their missing values remain unavailable.
+
+## Run Benchmark datapoint-to-source audit (2026-11-12)
+
+This pass traced the rendered Run Benchmark values from `dx.js` through the
+existing API and manager snapshot to their originating suite, scorer, request
+trace, or lifecycle clock. The table groups values by UI binding; repeated
+appearances of the same source (for example, TTFT in Results and Performance)
+are counted once. Status `Connected` means the existing source was already
+correct; `Fixed` means the existing source now reaches the appropriate view;
+`Unavailable` means the runtime does not provide evidence for the value.
+
+| Datapoint binding | UI location | Pipeline source and stage | Persistence/API/frontend path | Status and change |
+|---|---|---|---|---|
+| Suite ID, suite display name, question count | Dataset selector | `benchmark/suites/*.json`; catalog reads cases | `/api/dx/benchmark/suites` → suite selector | Connected; count is the actual case-list length. |
+| Run ID, run name, suite, mode, creation time, run status | Run history and run header | Manager-generated run ID; selected suite/mode; persisted lifecycle timestamps/status | `BenchmarkRunManager` JSON snapshot → runs/detail API → `dx.js` | Connected. |
+| Total questions, processed questions, progress percentage | Overview progress bar | Persisted question statuses; processed = total minus pending and running | Manager `counts` and `total` → `/updates` → progress calculation | Connected; accessible value text reports processed count rather than claiming all processed cases passed. |
+| Completed, pending, rubric-passed, failed, interrupted | Overview counters | Question status plus explicit scorer rubric verdict | Manager `_counts()` → `counts` → overview cards | Connected; rubric pass is distinct from request completion. Failed combines failed requests and explicit rubric failures as defined by existing manager semantics. |
+| Run elapsed seconds | Overview and Performance | Manager’s accumulated active execution intervals | Snapshot `elapsed_total_seconds` → `_run_elapsed()` → public `elapsed_seconds` → UI | Connected; paused time excluded for new snapshots; old records use their existing fallback. |
+| Current/last question position and total | Overview | Current question ID or last non-pending persisted question | Snapshot questions/current ID → `dx.js` | Connected. |
+| Question test ID, category, exact prompt, question status | Overview and Results | Selected suite case and manager lifecycle status | Snapshot question fields → detail/updates API → UI | Connected. |
+| Question start timestamp, live duration, final duration | Overview and Results | Manager `started_at`; browser elapsed display while running; persisted manager `duration_seconds` on finish | Snapshot fields → detail/updates API → UI | Connected; live duration is a view of elapsed time from the saved start timestamp, final duration is persisted. |
+| Actual generated response and multi-turn response records | Overview and Results | Normal `/chat` dispatch result and each actual scenario turn | `response` and `conversation_turns` snapshot fields → API → UI | Connected; no placeholder response is persisted. Streaming is unavailable on the current benchmark web path. |
+| Error explanation, question status, terminal request ID | Overview, Results, Errors | Dispatch exception/cancellation and returned terminal request ID | Safe `error`, `status`, `terminal_request_id` in question snapshot → API → UI | Fixed; failure diagnostics now point to the actual failing/cancelled final turn when multi-turn. Raw exceptions remain logs only. |
+| Live request stage and stage status | Overview | `PipelineEventStore` stages for current request; saved request events after completion | `/updates` live events or question `request_events` → UI | Connected for stages actually emitted; no event is represented as success. |
+| Connection status | Overview | Success/failure of active/detail/update API polling | Client poll result/catch state → connection label | Connected; interrupted connection says retrying. |
+| Question result status and quality status | Questions / Results | Request lifecycle plus rubric evaluation | Snapshot `status`, `quality_status` → detail API → Results tag | Connected; request completion does not imply rubric pass. |
+| Overall score, rubric passed count, rubric total | Questions / Results and Watchdog | Existing `score_response()` output | Saved `score` → run API → UI | Connected; missing/unscored values remain unavailable. |
+| Question response duration | Results and Performance | Real dispatch `response_time`; manager-measured duration fallback only when dispatch did not supply valid duration | `metrics.response_time_seconds` and `duration_seconds` in snapshot/API | Connected; invalid/non-finite timing is not accepted as a measurement. |
+| Time to first token (TTFT) | Results, Performance, Watchdog | `ai/chat_engine.py` first output or generation trace event | Per-request `personality_trace` → shared `generation_metrics()` → saved `metrics`, public question, Watchdog | Fixed; first actual observed output is used; no timing is inferred for non-streaming requests. |
+| Tokens generated | Results, Performance, Watchdog | Ollama `eval_count` on each `generation_response_received` trace event | Trace event details → shared aggregate → saved question metrics/API → UI | Fixed; sums all turns only when each turn has a measured count. |
+| Tokens per second | Results, Performance, Watchdog | Total measured generation tokens divided by total measured Ollama evaluation nanoseconds | Same trace aggregate → persisted/API metric → UI | Fixed; unavailable if any turn is missing a count/duration or total generation duration is zero. |
+| Tool call name, status, duration, and count | Results, Performance, Watchdog comparison | Actual tool lifecycle events captured in request pipeline | Request events → request-scoped tool summary → `tools` and availability flag in snapshot/API → UI | Fixed; repeated invocation IDs are scoped by request ID; old ambiguous empty lists are unavailable, not falsely zero. |
+| Request event ID, request ID, turn index, event type, stage/status, elapsed time | Personality Trace and Watchdog telemetry | Actual pipeline event and originating chat request | Saved `request_events` retains request/turn association → API → UI | Fixed for new manager snapshots; legacy event records may lack these identifiers. |
+| Run/question/request identifiers, trace stage, trace status, timestamp, redacted details | Personality Trace | Runtime trace callbacks and request pipeline instrumentation | Per-question `personality_trace.events` in run JSON → run API → UI | Connected; only actual emitted events appear. |
+| Diagnostic final response | Personality Trace | Final saved response from the benchmark question | Question `response` → run API → trace panel | Connected. |
+| Watchdog total, passed, failed, regressions, interrupted, health | Watchdog | Selected run’s saved question states/rubric results and matched baseline | Watchdog reads run snapshots → `/watchdog` → client cards/status | Connected; no baseline or unavailable data is synthesized. |
+| Watchdog baseline run ID/note; regression test ID/category/failure kind/explanation | Watchdog feed and comparison | Previous terminal run of same suite; real matched question evidence | Watchdog comparison output → `/watchdog` → UI | Connected; explanations are evidence-based signals, not claims about hidden causes. |
+| Previous/current score and score delta | Watchdog comparison | Saved scorer output for matched question IDs/test keys | Watchdog compare → API → comparison rows | Connected; delta is null if either score is absent. |
+| Previous/current response | Watchdog comparison and Failure Inspector | Actual responses saved in each matched run | Watchdog report → API → UI | Connected. |
+| Previous/current runtime, TTFT, token count, tool changes | Watchdog comparison | Saved response duration and shared trace-derived metrics/tool availability | `question_metrics()` and `_observed_tools()` → report/API → UI | Fixed; same metric aggregation is used for current and historical traces; ambiguous legacy tool measurements stay unavailable. |
+| Original prompt, expected behavior, actual behavior, validation checks, failed labels | Watchdog Failure Inspector | Saved case prompt/test rubric and actual response; deterministic rubric re-evaluation | Watchdog failure report → API → inspector | Connected; labels remain unavailable if not persisted or not defined. |
+| Watchdog runtime telemetry request ID, event list, available/missing metric names | Failure Inspector | Terminal request ID, saved request events, question metrics | Watchdog telemetry projection → API → UI | Fixed; terminal request ID now identifies final/failing turn. |
+| Watchdog personality trait values | Watchdog personality panel | Standard benchmark scorer has no trait-level output | Watchdog marks each dimension unavailable → API → UI | Unavailable by design; no traits are inferred from response text. |
+| Personality run ID, contract version, calibration status | Personality Diagnostics | Persisted report, versioned contract, human review status | Diagnostic sidecar/history API → UI | Connected. |
+| Personality eligible/evaluated/inconclusive scenario counts and dimension evaluation count | Personality Diagnostics summary | Suite target dimensions and persisted evaluator records/coverage | `run_context` + diagnostic report → history API → UI | Connected; missing evaluations are not zero scores. |
+| Personality finding counts (personality and technical) | Personality Diagnostics summary | Saved diagnostic classification/status | Diagnostic sidecar → history API → UI | Connected. |
+| Dimension names, descriptions, target counts, evaluation statuses and scores | Dimension cards | Versioned contract, suite target metadata, validated evaluator records | Contract + run context + report → history API → cards | Connected; untargeted and unavailable dimensions remain distinguishable. |
+| Dimension selection filters | Personality trend graph | User-selected dimension IDs | Frontend filter state → chart renderer | Connected control; not a measured datapoint. |
+| Historical dimension score/date/run points | Personality trend graph | Saved diagnostic sidecars with finite scores only | History API trend → graph | Connected; null evaluations create no points. |
+| Comparison threshold, baseline ID, prior/current dimension score, delta, candidate state | Version/regression comparison | Configured threshold and matched persisted reports | Personality history comparison → graph/list | Connected; only comparable real scores are compared. |
+| Scenario-category scores | Scenario performance | Saved scored diagnostic results grouped by scenario category | Report/history → chart | Connected; empty when no scenarios are scored. |
+| Severity counts by severity and run/date | Diagnostic severity history | Persisted finding severities | Diagnostic sidecars → history API → chart | Connected; counts share a consistent scale. |
+| Evaluator confidence and scenario coverage | Confidence and coverage | Persisted evaluator confidence and targeted/evaluated counts | Diagnostic report/history → graph | Connected; confidence is labeled uncalibrated and unavailable when absent. |
+| Finding status/class/dimension/scenario/severity, observed/expected text, explanation, score/confidence, evidence turn/request/quote, factors/recommendations | Personality evidence details | Saved deterministic findings and validated evaluator evidence references | Diagnostic sidecar/history API → expandable evidence panel | Connected; hidden reasoning and redacted sensitive values are not exposed. |
+| Selected question, all request IDs, timeline timestamps/stages/status/details, final response | Personality Trace | Question-scoped request traces and actual saved response | Run detail API → trace selector/timeline/copy action | Connected; multiple-turn requests remain individually identifiable. |
+| Failed/interrupted test ID/category/status/error/terminal request ID | Errors / Diagnostics | Persisted question status/error/request association | Run detail API → error list | Fixed; final request ID is preferred for multi-turn failures. |
+| Start, pause, resume, next, stop, run again, clear results | Benchmark controls | Existing benchmark manager APIs and actions | Existing endpoints → frontend controls | Connected controls; not data metrics. |
+
+### Datapoint audit findings and changes in this pass
+
+- **43 grouped data bindings** were audited in the matrix above, plus one
+  separate control-actions row. Each data row
+  is one binding family; where a row lists several values, each named value was
+  traced individually. Repeated displays of the same measurement are counted
+  once. This count excludes static labels, button actions, and the many
+  repeated per-question/per-run instances.
+- **Existing correctly connected:** 33 binding families.
+- **Existing mappings repaired:** 9 binding families: multi-turn terminal
+  request IDs, TTFT, token totals,
+  throughput, per-turn request-event association, terminal request ID,
+  request-scoped tool calls/availability, trace-derived metrics in
+  Watchdog/personality diagnostics, and the accessible processed-count label.
+- **Missing datapoints added:** 0. The needed generation fields already existed
+  in the actual request trace; they were not propagated to benchmark question
+  metrics.
+- **Unavailable:** 1 whole binding family (Watchdog personality trait scores;
+  the standard scorer does not emit them). Individual values also remain
+  unavailable when configured generation/context-window metrics are not
+  captured, the non-streaming path emits no TTFT event, model token telemetry
+  is absent, or legacy tool records cannot establish a real zero. Those cases
+  are described in their respective table rows and are not counted as missing
+  datapoints.
+- **Targeted regression cases added or updated:** 9 across manager, Watchdog,
+  personality diagnostics, API detail serialization, and frontend mapping. The
+  API TestClient case is present but could not execute in this environment.
+- **Unverified due to environment:** live HTTP API/browser rendering could not
+  be exercised because the environment lacks Jinja2 and pytest. Backend manager
+  behavior, serialization, and client source mappings were checked by targeted
+  tests and syntax checks instead.
 
 ## Screenshot-driven Personality Diagnostics audit
 

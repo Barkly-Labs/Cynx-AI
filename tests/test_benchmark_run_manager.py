@@ -14,23 +14,10 @@ def _manager(tmp_path, dispatch):
     suites = tmp_path / "suites"
     results = tmp_path / "results"
     suites.mkdir(exist_ok=True)
-    (suites / "small.json").write_text(
-        json.dumps(
-            [
-                {
-                    "test_id": "Q1",
-                    "category": "SOCIAL_STYLE",
-                    "question": "Question one",
-                },
-                {
-                    "test_id": "Q2",
-                    "category": "SOCIAL_STYLE",
-                    "question": "Question two",
-                },
-            ]
-        ),
-        encoding="utf-8",
-    )
+    (suites / "small.json").write_text(json.dumps([
+        {"test_id": "Q1", "category": "SOCIAL_STYLE", "question": "Question one"},
+        {"test_id": "Q2", "category": "SOCIAL_STYLE", "question": "Question two"},
+    ]), encoding="utf-8")
     return BenchmarkRunManager(suites, results, PipelineEventStore(), dispatch)
 
 
@@ -41,20 +28,14 @@ def _wait(manager, run_id, predicate, timeout=3):
         if predicate(run):
             return run
         time.sleep(0.01)
-    raise AssertionError(
-        f"Run did not reach the expected state: {manager.get(run_id)['status']}"
-    )
+    raise AssertionError(f"Run did not reach the expected state: {manager.get(run_id)['status']}")
 
 
 def test_manual_run_persists_real_dispatch_results_and_resumes_one_question(tmp_path):
     calls = []
-
     def dispatch(payload):
         calls.append(payload)
-        return {
-            "response": f"Actual answer to: {payload['message']}",
-            "response_time": 0.125,
-        }
+        return {"response": f"Actual answer to: {payload['message']}", "response_time": 0.125}
 
     manager = _manager(tmp_path, dispatch)
     first = manager.start("small.json", "manual", "manual-run-request-001")
@@ -64,14 +45,13 @@ def test_manual_run_persists_real_dispatch_results_and_resumes_one_question(tmp_
     assert paused["questions"][0]["response"] == "Actual answer to: Question one"
     assert paused["questions"][0]["status"] == "completed"
     assert paused["questions"][0]["metrics"]["response_time_seconds"] == 0.125
+    assert paused["questions"][0]["metrics"]["ttft_seconds"] is None
+    assert paused["questions"][0]["metrics"]["tokens_generated"] is None
+    assert paused["questions"][0]["metrics"]["tokens_per_second"] is None
     assert paused["questions"][1]["status"] == "pending"
 
     manager.resume(run_id, next_question=True)
-    finished = _wait(
-        manager,
-        run_id,
-        lambda run: run["counts"]["completed"] == 2 and run["status"] == "completed",
-    )
+    finished = _wait(manager, run_id, lambda run: run["counts"]["completed"] == 2 and run["status"] == "completed")
     assert [item["message"] for item in calls] == ["Question one", "Question two"]
     assert finished["questions"][1]["response"] == "Actual answer to: Question two"
     assert manager.latest()["run_id"] == run_id
@@ -80,7 +60,6 @@ def test_manual_run_persists_real_dispatch_results_and_resumes_one_question(tmp_
 def test_idempotency_pause_and_resume_are_backend_owned(tmp_path):
     entered = threading.Event()
     release = threading.Event()
-
     def dispatch(payload):
         entered.set()
         release.wait(2)
@@ -108,33 +87,20 @@ def test_idempotency_pause_and_resume_are_backend_owned(tmp_path):
 def test_server_restart_marks_running_question_interrupted_and_keeps_pending(tmp_path):
     suites = tmp_path / "suites"
     results = tmp_path / "results"
-    suites.mkdir()
-    results.mkdir()
+    suites.mkdir(); results.mkdir()
     run_id = str(uuid.uuid4())
     run = {
-        "schema": "cynx-dx-benchmark-run-v1",
-        "run_id": run_id,
-        "status": "running",
-        "created_at": "2026-11-11T12:00:00+00:00",
-        "started_at": "2026-11-11T12:00:00+00:00",
-        "elapsed_total_seconds": 0,
-        "current_question_id": "q1",
-        "current_request_id": "request-1",
+        "schema": "cynx-dx-benchmark-run-v1", "run_id": run_id,
+        "status": "running", "created_at": "2026-11-11T12:00:00+00:00",
+        "started_at": "2026-11-11T12:00:00+00:00", "elapsed_total_seconds": 0,
+        "current_question_id": "q1", "current_request_id": "request-1",
         "questions": [
-            {
-                "question_id": "q1",
-                "position": 1,
-                "status": "running",
-                "started_at": "2026-11-11T12:00:00+00:00",
-            },
+            {"question_id": "q1", "position": 1, "status": "running", "started_at": "2026-11-11T12:00:00+00:00"},
             {"question_id": "q2", "position": 2, "status": "pending"},
-        ],
-        "events": [],
+        ], "events": [],
     }
     (results / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
-    manager = BenchmarkRunManager(
-        suites, results, PipelineEventStore(), lambda payload: {}
-    )
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), lambda payload: {})
 
     restored = manager.latest()
     assert restored["status"] == "interrupted"
@@ -151,11 +117,7 @@ def test_failed_question_is_not_reported_as_a_successful_run(tmp_path):
 
     manager = _manager(tmp_path, dispatch)
     started = manager.start("small.json", "automatic", "failure-run-request-001")
-    run = _wait(
-        manager,
-        started["run_id"],
-        lambda value: value["status"] == "completed_with_failures",
-    )
+    run = _wait(manager, started["run_id"], lambda value: value["status"] == "completed_with_failures")
 
     assert run["questions"][0]["status"] == "failed"
     assert "private technical details" not in run["questions"][0]["error"]
@@ -166,42 +128,24 @@ def test_failed_question_is_not_reported_as_a_successful_run(tmp_path):
 def test_personality_trace_is_question_scoped_persisted_and_redacted(tmp_path):
     def dispatch(payload):
         callback = manager.trace_callback(payload["request_id"])
-        callback(
-            {
-                "stage": "instructions_assembled",
-                "status": "completed",
-                "system_prompt": "Be helpful. api_key=secret-value",
-                "policy_classification": "not instrumented",
-            }
-        )
-        callback(
-            {
-                "stage": "model_response_received",
-                "status": "completed",
-                "output": "<think>private hidden thought</think>Actual response",
-            }
-        )
+        callback({"stage": "instructions_assembled", "status": "completed",
+                  "system_prompt": "Be helpful. api_key=secret-value",
+                  "policy_classification": "not instrumented"})
+        callback({"stage": "model_response_received", "status": "completed",
+                  "output": "<think>private hidden thought</think>Actual response"})
         return {"response": "Actual response", "response_time": 0.01}
 
     manager = _manager(tmp_path, dispatch)
     started = manager.start("small.json", "automatic", "trace-run-request-0001")
-    run = _wait(
-        manager, started["run_id"], lambda value: value["status"] == "completed"
-    )
+    run = _wait(manager, started["run_id"], lambda value: value["status"] == "completed")
 
     first, second = run["questions"]
     assert first["personality_trace"]["available"] is True
     assert second["personality_trace"]["available"] is True
-    assert (
-        first["personality_trace"]["events"]
-        is not second["personality_trace"]["events"]
-    )
+    assert first["personality_trace"]["events"] is not second["personality_trace"]["events"]
     for question in (first, second):
         events = question["personality_trace"]["events"]
-        assert {event["stage"] for event in events} == {
-            "instructions_assembled",
-            "model_response_received",
-        }
+        assert {event["stage"] for event in events} == {"instructions_assembled", "model_response_received"}
         assert all(event["run_id"] == run["run_id"] for event in events)
         assert all(event["question_id"] == question["question_id"] for event in events)
         assert all(event["request_id"] == question["request_id"] for event in events)
@@ -217,26 +161,12 @@ def test_personality_trace_is_question_scoped_persisted_and_redacted(tmp_path):
 
 
 def test_stop_cancels_current_request_and_preserves_completed_question(tmp_path):
-    suites = tmp_path / "suites"
-    suites.mkdir()
+    suites = tmp_path / "suites"; suites.mkdir()
     results = tmp_path / "results"
-    (suites / "two.json").write_text(
-        json.dumps(
-            [
-                {
-                    "test_id": "Q1",
-                    "category": "SOCIAL_STYLE",
-                    "question": "Question one",
-                },
-                {
-                    "test_id": "Q2",
-                    "category": "SOCIAL_STYLE",
-                    "question": "Question two",
-                },
-            ]
-        ),
-        encoding="utf-8",
-    )
+    (suites / "two.json").write_text(json.dumps([
+        {"test_id": "Q1", "category": "SOCIAL_STYLE", "question": "Question one"},
+        {"test_id": "Q2", "category": "SOCIAL_STYLE", "question": "Question two"},
+    ]), encoding="utf-8")
     events = PipelineEventStore()
     entered_second = threading.Event()
 
@@ -266,27 +196,17 @@ def test_stop_cancels_current_request_and_preserves_completed_question(tmp_path)
     assert stopped["questions"][1]["status"] == "interrupted"
 
 
-def test_versioned_multiturn_personality_scenario_is_one_persisted_benchmark_case(
-    tmp_path,
-):
+def test_versioned_multiturn_personality_scenario_is_one_persisted_benchmark_case(tmp_path):
     suites = tmp_path / "suites"
     results = tmp_path / "results"
-    suites.mkdir()
-    results.mkdir()
+    suites.mkdir(); results.mkdir()
     suite = {
-        "schema": "cynx-personality-scenario-library-v1",
-        "version": "1.0.0",
-        "contract_version": "1.0.0",
-        "scenarios": [
-            {
-                "scenario_id": "tone-1",
-                "test_id": "TONE_1",
-                "category": "tone_adaptation",
-                "target_dimensions": ["tone_adaptation"],
-                "expected_behavior": "Adapt tone.",
-                "turns": ["I feel worried.", "Please explain the next step."],
-            }
-        ],
+        "schema": "cynx-personality-scenario-library-v1", "version": "1.0.0",
+        "contract_version": "1.0.0", "scenarios": [{
+            "scenario_id": "tone-1", "test_id": "TONE_1", "category": "tone_adaptation",
+            "target_dimensions": ["tone_adaptation"], "expected_behavior": "Adapt tone.",
+            "turns": ["I feel worried.", "Please explain the next step."],
+        }],
     }
     (suites / "personality.json").write_text(json.dumps(suite), encoding="utf-8")
     seen = []
@@ -294,94 +214,142 @@ def test_versioned_multiturn_personality_scenario_is_one_persisted_benchmark_cas
     def dispatch(payload):
         seen.append(payload)
         return {
-            "response": "Use the next step that fits.",
-            "response_time": 0.2,
+            "response": "Use the next step that fits.", "response_time": 0.2,
             "conversation_turns": [
-                {
-                    "turn_index": i + 1,
-                    "user_message": message,
-                    "response": f"CYN-X reply {i + 1}",
-                    "request_id": f"req-{i + 1}",
-                }
+                {"turn_index": i + 1, "user_message": message, "response": f"CYN-X reply {i + 1}", "request_id": f"req-{i + 1}"}
                 for i, message in enumerate(payload["turns"])
             ],
             "pipeline_events": [],
         }
 
     manager = BenchmarkRunManager(suites, results, PipelineEventStore(), dispatch)
-    started = manager.start(
-        "personality.json", "automatic", "versioned-personality-run-001"
-    )
-    finished = _wait(
-        manager, started["run_id"], lambda run: run["status"] == "completed"
-    )
+    started = manager.start("personality.json", "automatic", "versioned-personality-run-001")
+    finished = _wait(manager, started["run_id"], lambda run: run["status"] == "completed")
     question = finished["questions"][0]
 
     assert finished["personality_contract_version"] == "1.0.0"
     assert finished["scenario_library_version"] == "1.0.0"
     assert seen[0]["turns"] == suite["scenarios"][0]["turns"]
     assert question["scenario_id"] == "tone-1"
-    assert [turn["user_message"] for turn in question["conversation_turns"]] == suite[
-        "scenarios"
-    ][0]["turns"]
+    assert [turn["user_message"] for turn in question["conversation_turns"]] == suite["scenarios"][0]["turns"]
     assert question["response"] == "Use the next step that fits."
 
 
-def test_elapsed_time_uses_accumulated_execution_time_and_excludes_pauses():
-    assert (
-        _run_elapsed(
-            {"elapsed_total_seconds": 12.5, "started_at": None, "status": "paused"}
-        )
-        == 12.5
-    )
-    assert (
-        _run_elapsed(
-            {
-                "elapsed_total_seconds": 0,
-                "created_at": "2026-11-12T00:00:00+00:00",
-                "status": "completed",
-            }
-        )
-        == 0
-    )
-
-
-def test_legacy_saved_run_can_be_opened_read_only_with_missing_metrics_unavailable(
-    tmp_path,
-):
-    suites = tmp_path / "suites"
-    suites.mkdir()
+def test_generation_metrics_are_aggregated_persisted_and_request_scoped_for_multiturn_question(tmp_path):
+    suites = tmp_path / "suites"; suites.mkdir()
     results = tmp_path / "results"
-    results.mkdir()
+    (suites / "multi.json").write_text(json.dumps([{
+        "test_id": "MULTI_1", "category": "SOCIAL_STYLE", "question": "First turn?",
+        "turns": ["First turn?", "Second turn?"],
+    }]), encoding="utf-8")
+    manager = None
+
+    def dispatch(payload):
+        first_id = payload["request_id"]
+        callback = manager.trace_callback(first_id)
+        callback({"stage": "first_model_output", "status": "observed", "ttft_seconds": 0.12})
+        callback({"stage": "generation_response_received", "status": "completed",
+                  "tokens_generated": 11, "generation_duration_nanoseconds": 1_000_000_000})
+        second_id = str(uuid.uuid4())
+        manager.register_question_request(payload["_benchmark_run_id"], payload["_benchmark_question_id"], second_id)
+        manager.trace_callback(second_id)({"stage": "generation_response_received", "status": "completed",
+                                           "tokens_generated": 19, "generation_duration_nanoseconds": 2_000_000_000})
+        return {
+            "response": "Second response.", "response_time": 3.0, "terminal_request_id": second_id,
+            "tools": [],
+            "conversation_turns": [{"turn_index": 1, "request_id": first_id}, {"turn_index": 2, "request_id": second_id}],
+            "pipeline_events": [
+                {"type": "stage", "stage": "generating_response", "status": "completed", "request_id": first_id, "turn_index": 1},
+                {"type": "stage", "stage": "generating_response", "status": "completed", "request_id": second_id, "turn_index": 2},
+            ],
+        }
+
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), dispatch)
+    started = manager.start("multi.json", "automatic", "multi-metrics-run-0001")
+    finished = _wait(manager, started["run_id"], lambda run: run["status"] == "completed")
+    question = finished["questions"][0]
+    saved = json.loads((results / f"{started['run_id']}.json").read_text(encoding="utf-8"))["questions"][0]
+
+    assert question["metrics"] == {
+        "response_time_seconds": 3.0, "ttft_seconds": 0.12,
+        "tokens_generated": 30, "tokens_per_second": 10.0,
+    }
+    assert question["terminal_request_id"] == question["request_ids"][1]
+    assert [(event["request_id"], event["turn_index"]) for event in question["request_events"]] == [
+        (question["request_ids"][0], 1), (question["request_ids"][1], 2),
+    ]
+    assert question["tool_telemetry_available"] is True
+    assert saved["metrics"] == question["metrics"]
+
+
+def test_historical_trace_metrics_are_exposed_without_rewriting_saved_snapshot(tmp_path):
+    suites = tmp_path / "suites"; suites.mkdir()
+    results = tmp_path / "results"; results.mkdir()
     run_id = str(uuid.uuid4())
-    (results / f"{run_id}.json").write_text(
-        json.dumps(
-            {
-                "run_id": run_id,
-                "created_at": "2026-11-10T12:00:00+00:00",
-                "suite": "old.json",
-                "attempted": 1,
-                "successful": 1,
-                "failed": 0,
-                "average_score": None,
-                "average_response_time": None,
-                "results": [
-                    {
-                        "test_id": "OLD_1",
-                        "question": "Question?",
-                        "response": "Saved answer.",
-                        "response_time": None,
-                        "failed": False,
-                        "scores": None,
-                    }
-                ],
-            }
-        ),
-        encoding="utf-8",
-    )
-    manager = BenchmarkRunManager(
-        suites, results, PipelineEventStore(), lambda payload: {}
-    )
+    saved_run = {
+        "schema": "cynx-dx-benchmark-run-v1", "run_id": run_id,
+        "created_at": "2026-11-11T12:00:00+00:00", "suite": "multi.json",
+        "status": "completed", "questions": [{
+            "question_id": "q1", "position": 1, "test_id": "MULTI_1",
+            "category": "SOCIAL_STYLE", "question": "Question?", "response": "Answer.",
+            "status": "completed", "request_id": "turn-1", "request_ids": ["turn-1", "turn-2"],
+            "metrics": {"response_time_seconds": 2.0, "ttft_seconds": None,
+                        "tokens_generated": None, "tokens_per_second": None},
+            "personality_trace": {"events": [
+                {"stage": "first_model_output", "details": {"ttft_seconds": 0.2}},
+                {"stage": "generation_response_received", "request_id": "turn-1",
+                 "details": {"tokens_generated": 4, "generation_duration_nanoseconds": 1_000_000_000}},
+                {"stage": "generation_response_received", "request_id": "turn-2",
+                 "details": {"tokens_generated": 6, "generation_duration_nanoseconds": 2_000_000_000}},
+            ]},
+        }], "events": [],
+    }
+    snapshot = results / f"{run_id}.json"
+    snapshot.write_text(json.dumps(saved_run), encoding="utf-8")
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), lambda payload: {})
+
+    historical = manager.get(run_id)
+    assert historical["questions"][0]["metrics"] == {
+        "response_time_seconds": 2.0, "ttft_seconds": 0.2,
+        "tokens_generated": 10, "tokens_per_second": 10 / 3,
+    }
+    # Reading an older snapshot must not rewrite its original representation.
+    assert json.loads(snapshot.read_text(encoding="utf-8"))["questions"][0]["metrics"]["tokens_generated"] is None
+
+
+def test_tool_invocations_with_reused_ids_remain_scoped_to_their_request():
+    events = [
+        {"type": "tool", "name": "web_search", "invocation_id": "web_search", "request_id": "turn-1", "status": "started", "elapsed_seconds": 0.1},
+        {"type": "tool", "name": "web_search", "invocation_id": "web_search", "request_id": "turn-1", "status": "completed", "elapsed_seconds": 0.4},
+        {"type": "tool", "name": "web_search", "invocation_id": "web_search", "request_id": "turn-2", "status": "started", "elapsed_seconds": 0.2},
+        {"type": "tool", "name": "web_search", "invocation_id": "web_search", "request_id": "turn-2", "status": "failed", "elapsed_seconds": 0.7},
+    ]
+
+    calls = BenchmarkRunManager._tool_summary(events)
+
+    assert len(calls) == 2
+    assert [(call["request_id"], call["status"], call["duration_seconds"]) for call in calls] == [
+        ("turn-1", "completed", 0.3), ("turn-2", "failed", 0.5),
+    ]
+
+
+def test_elapsed_time_uses_accumulated_execution_time_and_excludes_pauses():
+    assert _run_elapsed({"elapsed_total_seconds": 12.5, "started_at": None, "status": "paused"}) == 12.5
+    assert _run_elapsed({"elapsed_total_seconds": 0, "created_at": "2026-11-12T00:00:00+00:00", "status": "completed"}) == 0
+
+
+def test_legacy_saved_run_can_be_opened_read_only_with_missing_metrics_unavailable(tmp_path):
+    suites = tmp_path / "suites"; suites.mkdir()
+    results = tmp_path / "results"; results.mkdir()
+    run_id = str(uuid.uuid4())
+    (results / f"{run_id}.json").write_text(json.dumps({
+        "run_id": run_id, "created_at": "2026-11-10T12:00:00+00:00", "suite": "old.json",
+        "attempted": 1, "successful": 1, "failed": 0, "average_score": None,
+        "average_response_time": None,
+        "results": [{"test_id": "OLD_1", "question": "Question?", "response": "Saved answer.",
+                     "response_time": None, "failed": False, "scores": None}],
+    }), encoding="utf-8")
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), lambda payload: {})
 
     restored = manager.get(run_id)
     assert restored["legacy_record"] is True
@@ -391,25 +359,13 @@ def test_legacy_saved_run_can_be_opened_read_only_with_missing_metrics_unavailab
 
 
 def test_invalid_suite_record_is_rejected_instead_of_silently_reducing_total(tmp_path):
-    suites = tmp_path / "suites"
-    suites.mkdir()
+    suites = tmp_path / "suites"; suites.mkdir()
     results = tmp_path / "results"
-    (suites / "invalid.json").write_text(
-        json.dumps(
-            [
-                {
-                    "test_id": "VALID",
-                    "category": "SOCIAL_STYLE",
-                    "question": "A real question?",
-                },
-                {"test_id": "EMPTY", "category": "SOCIAL_STYLE", "question": "   "},
-            ]
-        ),
-        encoding="utf-8",
-    )
-    manager = BenchmarkRunManager(
-        suites, results, PipelineEventStore(), lambda payload: {}
-    )
+    (suites / "invalid.json").write_text(json.dumps([
+        {"test_id": "VALID", "category": "SOCIAL_STYLE", "question": "A real question?"},
+        {"test_id": "EMPTY", "category": "SOCIAL_STYLE", "question": "   "},
+    ]), encoding="utf-8")
+    manager = BenchmarkRunManager(suites, results, PipelineEventStore(), lambda payload: {})
 
     with pytest.raises(ValueError, match="invalid question at position 2"):
         manager.start("invalid.json", "automatic", "invalid-suite-request-001")
