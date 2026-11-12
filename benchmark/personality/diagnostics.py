@@ -107,6 +107,54 @@ class PersonalityDiagnosticsService:
             raise KeyError("Benchmark run not found")
         return path
 
+    def _history_run_context(self, run_id: str) -> dict[str, Any]:
+        """Expose saved evaluation eligibility without leaking question text."""
+        if not re.fullmatch(r"[0-9a-fA-F-]{36}", str(run_id)):
+            raise KeyError("Benchmark run not found")
+        try:
+            canonical_id = str(uuid.UUID(str(run_id)))
+        except ValueError as exc:
+            raise KeyError("Benchmark run not found") from exc
+        path = self.runs_dir / f"{canonical_id}.json"
+        try:
+            saved = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as exc:
+            raise KeyError("Benchmark run not found") from exc
+        if not isinstance(saved, dict):
+            raise KeyError("Benchmark run not found")
+        if saved.get("schema") == "cynx-dx-benchmark-run-v1":
+            questions = saved.get("questions", [])
+        else:
+            questions = saved.get("results", [])
+        if not isinstance(questions, list):
+            raise KeyError("Benchmark run not found")
+
+        targets = {dimension: 0 for dimension in self.dimensions}
+        eligible = completed = 0
+        for question in questions:
+            if not isinstance(question, dict):
+                continue
+            declared = question.get("target_dimensions")
+            if not isinstance(declared, list):
+                test = question.get("test") if isinstance(question.get("test"), dict) else {}
+                declared = test.get("target_dimensions", [])
+            dimensions = {value for value in declared if value in self.dimensions} if isinstance(declared, list) else set()
+            if dimensions:
+                eligible += 1
+                if question.get("status") == "completed":
+                    completed += 1
+                for dimension in dimensions:
+                    targets[dimension] += 1
+        return {
+            "run_id": canonical_id,
+            "suite": saved.get("suite"),
+            "status": saved.get("status", "legacy_saved"),
+            "question_count": len(questions),
+            "targeted_scenarios": eligible,
+            "completed_targeted_scenarios": completed,
+            "dimension_targets": {key: value for key, value in targets.items() if value},
+        }
+
     def _read_report(self, run_id: str) -> dict[str, Any] | None:
         try:
             return json.loads((self.records_dir / f"{run_id}.json").read_text(encoding="utf-8"))
@@ -467,9 +515,11 @@ class PersonalityDiagnosticsService:
 
     def history(self, *, run_id: str | None = None, baseline_id: str | None = None, limit: int = 50) -> dict[str, Any]:
         if run_id:
-            self._run_path(run_id)
+            run_context = self._history_run_context(run_id)
+        else:
+            run_context = None
         if baseline_id:
-            self._run_path(baseline_id)
+            self._history_run_context(baseline_id)
         reports = []
         for path in self.records_dir.glob("*.json"):
             try:
@@ -481,6 +531,11 @@ class PersonalityDiagnosticsService:
         reports.sort(key=lambda item: item.get("created_at", ""), reverse=True)
         all_reports = reports
         current = next((item for item in all_reports if item.get("run_id") == run_id), None) if run_id else (all_reports[0] if all_reports else None)
+        if run_context is None and current:
+            try:
+                run_context = self._history_run_context(current.get("run_id"))
+            except KeyError:
+                run_context = None
         history_reports = all_reports[:max(1, min(limit, 200))]
         points = [self._summarize(report) for report in reversed(history_reports)]
         detail_reports = [current] if run_id and current else history_reports
@@ -489,6 +544,7 @@ class PersonalityDiagnosticsService:
             "schema": "cynx-personality-history-v1", "contract": self.contract,
             "reports": detail_reports, "trend": points, "comparisons": comparisons,
             "available": bool(reports),
+            "run_context": run_context,
             "message": None if reports else "No personality evaluations are stored yet. Run an eligible personality scenario suite and evaluate the completed run.",
         }
 

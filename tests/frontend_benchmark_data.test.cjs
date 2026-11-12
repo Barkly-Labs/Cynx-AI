@@ -23,3 +23,23 @@ test("terminal benchmark questions are labeled as historical rather than current
 test("Run Again repeats the selected run's suite and mode", () => {
   assert.match(source, /if\(action==='again'\)\{await startBenchmark\(run\.suite,run\.mode\);return\}/);
 });
+
+test("personality coverage distinguishes untargeted runs and offers the real versioned suite", () => {
+  assert.match(source, /runContext\?\.targeted_scenarios/);
+  assert.match(source, /dimensionTargets\[dim\.id\]/);
+  assert.match(source, /This run has no personality-targeted scenarios/);
+  assert.match(source, /data-personality-start-suite/);
+  assert.match(source, /startBenchmark\(suite,'automatic'\)/);
+  assert.match(source, /personality-diagnostics-v1\.json/);
+});
+
+test("personality trend does not draw empty axes when stored scores are all null", () => {
+  assert.match(source, /if\(!values\.some\(run=>dimensions\.some\(dimension=>Number\.isFinite\(run\.dimensions\?\.\[dimension\.id\]\)\)\)\)return ''/);
+  assert.match(source, /No stored scores match these filters yet/);
+});
+
+test("personality severity rows use a shared scale and report finding totals", () => {
+  assert.match(source, /maxTotal=Math\.max\(1,\.\.\.rows\.map/);
+  assert.match(source, /Inspect \$\{sum\} diagnostics/);
+  assert.match(source, /<strong>\$\{sum\}<\/strong>/);
+});

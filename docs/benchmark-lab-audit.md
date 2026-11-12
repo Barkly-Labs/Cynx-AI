@@ -114,3 +114,30 @@ chat request dispatcher; it does not call a second model engine.
   and coverage charts, all sourced from saved diagnostic records.
 - Legacy snapshots do not contain request identifiers, per-question trace
   events, tokens, or TTFT. Their missing values remain unavailable.
+
+## Screenshot-driven Personality Diagnostics audit
+
+The supplied screenshots show a selected run with no dimension scores, an empty
+trend plot that still drew axes and all selected legends, no same-suite score
+comparison, no scored scenario categories, and no evaluator confidence or
+coverage. The severity bars contain actual saved deterministic findings; those
+are separate from the missing model-judge scores.
+
+| Screenshot region | Source of truth | What was wrong | Repair / remaining constraint |
+|---|---|---|---|
+| Dimension cards | Saved run question `target_dimensions`, contract dimensions, diagnostic sidecar | Personality-flavored legacy suite questions did not declare target dimensions. Evaluation correctly generated no scores, while the cards all said “Not evaluated,” obscuring that they were ineligible. | History API now returns redacted eligibility counts from the saved run snapshot. Cards say “Not targeted” or “Not evaluated” according to actual target metadata, and show target counts when available. |
+| Evaluate control / empty report | Saved run status and target counts | An evaluation of a run with zero eligible scenarios could produce a `not_evaluated` report, but the UI offered Evaluate again and its generic non-completed warning implied evaluator failure. | Evaluation is disabled when there are no targets. The UI reports that fact and offers to launch the existing versioned personality suite through the existing benchmark start API and normal CYN-X request pathway. |
+| Personality trend graph | Persisted diagnostic sidecars summarized by `PersonalityDiagnosticsService.history()` | For historical runs with null values in every selected dimension, the frontend drew axes, every legend and dates without any data marks. | It now renders a true empty state unless at least one real finite score exists. Missing scores remain missing, never zero. Date ticks are limited to three positions. |
+| Version and dimension comparisons | Same-suite saved scored dimensions | The screenshot's no-comparison states are accurate when no matched scored baseline exists. | Kept honest empty states; comparisons are populated only from real comparable runs. |
+| Scenario performance | Saved scored scenario categories | No judge scores meant no categories could be calculated. | Kept empty state; it fills only from saved evaluator scores. |
+| Diagnostic severity history | Saved finding severity counts per report | Bars were individually normalized to 100%, making different finding totals look equally large. | Bars now share a run-to-run scale and show actual finding totals; severity segments remain count-proportional. |
+| Evaluator confidence and coverage | Saved evaluator self-reports and targeted/evaluated scenario counts | With no target cases, “Coverage not recorded” did not distinguish zero eligible scenarios from absent legacy telemetry. | Chart now distinguishes no targeted scenarios from coverage not recorded. Confidence remains unavailable unless actual scored evaluator records exist. |
+| Scenario coverage | `benchmark/suites/personality-diagnostics-v1.json` and personality contract | The versioned suite targeted 12 of 13 contract dimensions; voice identity had no scenario coverage. | Scenario library is versioned to 1.1.0 and its tone-transition scenario now explicitly evaluates voice identity. All 13 contract dimensions are targeted. Existing historical runs are not rewritten. |
+
+The workspace supplied for this audit has no saved `benchmark/results/dx_runs`
+records. Therefore the screenshot's exact run IDs and report payloads could not
+be matched to local persisted records. The screenshots plus source inspection
+establish the empty-data rendering path, but live API values and a rendered
+browser screenshot could not be verified in this environment. Launching the
+versioned suite creates real run data; scores still require the configured local
+Ollama evaluator and are not fabricated when it is unavailable.

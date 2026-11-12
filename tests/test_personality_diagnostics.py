@@ -43,11 +43,15 @@ def test_contract_has_thirteen_versioned_dimensions_and_scenarios_are_multiturn(
     suite = json.loads(open("benchmark/suites/personality-diagnostics-v1.json", encoding="utf-8").read())
 
     assert contract["version"] == suite["contract_version"] == "1.0.0"
+    assert suite["version"] == "1.1.0"
     assert len(contract["dimensions"]) == 13
     assert len({dimension["id"] for dimension in contract["dimensions"]}) == 13
     assert len(suite["scenarios"]) >= 10
     assert all(len(scenario["turns"]) >= 2 for scenario in suite["scenarios"])
     assert all(scenario["target_dimensions"] and scenario["expected_behavior"] for scenario in suite["scenarios"])
+    assert {dimension for scenario in suite["scenarios"] for dimension in scenario["target_dimensions"]} == {
+        dimension["id"] for dimension in contract["dimensions"]
+    }
 
 
 def test_local_evaluator_is_toolless_validates_quotes_and_redacts_pii(tmp_path):
@@ -194,6 +198,28 @@ def test_missing_evaluator_is_inconclusive_not_zero_and_history_keeps_nulls(tmp_
     assert evaluation["score"] is None
     assert history["trend"][0]["dimensions"]["tone_adaptation"] is None
     assert history["trend"][0]["dimensions"]["warmth"] is None
+
+
+def test_history_exposes_target_coverage_for_unscored_and_legacy_runs(tmp_path):
+    run_id = str(uuid.uuid4())
+    untagged = _saved_run(run_id, created="2026-11-01", response="A saved response.", score=2)
+    untagged["questions"][0].pop("target_dimensions")
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(untagged), encoding="utf-8")
+    legacy_id = str(uuid.uuid4())
+    legacy = {"run_id": legacy_id, "suite": "cyn-persoanlility-tests.json", "status": "completed",
+              "results": [{"status": "completed", "test": {"target_dimensions": ["warmth", "playfulness"]}},
+                          {"status": "failed", "test": {"target_dimensions": ["warmth"]}}]}
+    (tmp_path / f"{legacy_id}.json").write_text(json.dumps(legacy), encoding="utf-8")
+    service = PersonalityDiagnosticsService(tmp_path, ollama_client=None)
+
+    no_targets = service.history(run_id=run_id)
+    legacy_history = service.history(run_id=legacy_id)
+
+    assert no_targets["run_context"]["targeted_scenarios"] == 0
+    assert no_targets["run_context"]["dimension_targets"] == {}
+    assert legacy_history["run_context"]["targeted_scenarios"] == 2
+    assert legacy_history["run_context"]["completed_targeted_scenarios"] == 1
+    assert legacy_history["run_context"]["dimension_targets"] == {"warmth": 2, "playfulness": 1}
 
 
 def test_deterministic_findings_use_actual_tool_and_response_evidence(tmp_path):
