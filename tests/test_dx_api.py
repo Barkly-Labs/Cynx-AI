@@ -118,6 +118,15 @@ def test_dx_benchmark_watchdog_reads_persisted_runs_without_running_benchmark(tm
     }
     tmp_path.joinpath("watch-old.json").write_text(json.dumps(old))
     tmp_path.joinpath("watch-new.json").write_text(json.dumps(new))
+    diagnostic_dir = tmp_path / "personality_diagnostics"
+    diagnostic_dir.mkdir()
+    diagnostic_dir.joinpath("watch-new.json").write_text(json.dumps({
+        "run_id": "watch-new",
+        "diagnostics": [{
+            "evaluator_version": "cynx-local-judge-v1", "dimension": "warmth",
+            "score": 3.5, "status": "pass",
+        }],
+    }))
     monkeypatch.setattr(web_app.benchmark_runs, "results_dir", tmp_path)
 
     response = TestClient(web_app.app).get("/api/dx/benchmark/watchdog?run_id=watch-new")
@@ -127,6 +136,10 @@ def test_dx_benchmark_watchdog_reads_persisted_runs_without_running_benchmark(tm
     assert report["baseline_run_id"] == "watch-old"
     assert report["regression_feed"][0]["regression"] is True
     assert report["questions"][0]["failure"]["signals"][0]["kind"] == "possible_unexpected_refusal"
+    assert report["personality_dimensions"]["warmth"] == {
+        "available": True, "value": 3.5, "sample_count": 1,
+        "source": "saved_personality_diagnostics",
+    }
 
 
 def test_dx_benchmark_detail_exposes_persisted_generation_and_turn_telemetry(tmp_path, monkeypatch):
@@ -146,7 +159,9 @@ def test_dx_benchmark_detail_exposes_persisted_generation_and_turn_telemetry(tmp
                 {"request_id": "last-request", "turn_index": 2},
             ], "tools": [], "tool_telemetry_available": True,
             "metrics": {"response_time_seconds": 2.5, "ttft_seconds": 0.12,
-                        "tokens_generated": 30, "tokens_per_second": 10.0},
+                        "prompt_tokens": 40, "completion_tokens": 30, "tokens_generated": 30,
+                        "total_tokens": 70, "prompt_evaluation_duration_seconds": 0.4,
+                        "generation_duration_seconds": 3.0, "tokens_per_second": 10.0},
         }], "events": [], "elapsed_total_seconds": 2.5,
     }
     (tmp_path / f"{run_id}.json").write_text(json.dumps(saved), encoding="utf-8")
@@ -157,10 +172,49 @@ def test_dx_benchmark_detail_exposes_persisted_generation_and_turn_telemetry(tmp
     assert response.status_code == 200
     question = response.json()["questions"][0]
     assert question["metrics"]["ttft_seconds"] == 0.12
+    assert question["metrics"]["prompt_tokens"] == 40
+    assert question["metrics"]["completion_tokens"] == 30
+    assert question["metrics"]["total_tokens"] == 70
+    assert question["metrics"]["generation_duration_seconds"] == 3.0
     assert question["metrics"]["tokens_generated"] == 30
     assert question["metrics"]["tokens_per_second"] == 10.0
+    assert response.json()["metrics_summary"]["prompt_tokens"]["total"] == 40
+    assert response.json()["metrics_summary"]["completion_tokens"]["total"] == 30
+    assert response.json()["metrics_summary"]["total_tokens"]["total"] == 70
+    assert response.json()["metrics_summary"]["tokens_per_second"]["value"] == 10.0
     assert question["terminal_request_id"] == "last-request"
     assert [event["turn_index"] for event in question["request_events"]] == [1, 2]
+
+
+def test_chat_dispatch_exposes_captured_ollama_metrics_for_benchmark_turn(monkeypatch):
+    request_id = str(uuid.uuid4())
+    captured = []
+    monkeypatch.setattr(web_app.benchmark_runs, "trace_callback", lambda _rid: captured.append)
+
+    def fake_engine(**kwargs):
+        kwargs["trace_callback"]({"stage": "first_model_output", "status": "observed", "ttft_seconds": 0.2})
+        kwargs["trace_callback"]({
+            "stage": "generation_response_received", "status": "completed",
+            "prompt_tokens": 25, "completion_tokens": 7, "tokens_generated": 7,
+            "total_tokens": 32, "prompt_evaluation_duration_nanoseconds": 500_000_000,
+            "generation_duration_nanoseconds": 1_000_000_000,
+        })
+        return "Actual benchmark answer"
+
+    monkeypatch.setattr(web_app.chat_engine, "handle_user_message", fake_engine)
+    response = TestClient(web_app.app).post("/chat", json={
+        "request_id": request_id, "message": "Use the normal benchmark chat path.",
+    })
+
+    assert response.status_code == 200
+    assert response.json()["metrics"] == {
+        "ttft_seconds": 0.2, "prompt_tokens": 25, "completion_tokens": 7,
+        "tokens_generated": 7, "total_tokens": 32,
+        "prompt_evaluation_duration_seconds": 0.5,
+        "generation_duration_seconds": 1.0, "tokens_per_second": 7.0,
+        "response_time_seconds": response.json()["metrics"]["response_time_seconds"],
+    }
+    assert [event["stage"] for event in captured].count("generation_response_received") == 1
 
 
 def test_dx_watchdog_tab_is_inside_existing_benchmark_workspace():
@@ -383,10 +437,14 @@ def test_benchmark_detail_api_exposes_trace_aggregates_for_historical_questions(
             "personality_trace": {"events": [
                 {"stage": "first_model_output", "details": {"ttft_seconds": 0.1}},
                 {"stage": "generation_response_received", "details": {
-                    "tokens_generated": 10, "generation_duration_nanoseconds": 1_000_000_000,
+                    "prompt_tokens": 40, "completion_tokens": 10, "tokens_generated": 10,
+                    "total_tokens": 50, "prompt_evaluation_duration_nanoseconds": 200_000_000,
+                    "generation_duration_nanoseconds": 1_000_000_000,
                 }},
                 {"stage": "generation_response_received", "details": {
-                    "tokens_generated": 20, "generation_duration_nanoseconds": 2_000_000_000,
+                    "prompt_tokens": 50, "completion_tokens": 20, "tokens_generated": 20,
+                    "total_tokens": 70, "prompt_evaluation_duration_nanoseconds": 300_000_000,
+                    "generation_duration_nanoseconds": 2_000_000_000,
                 }},
             ]},
         }], "events": [],
@@ -400,5 +458,7 @@ def test_benchmark_detail_api_exposes_trace_aggregates_for_historical_questions(
     question = response.json()["questions"][0]
     assert question["metrics"] == {
         "response_time_seconds": 1.5, "ttft_seconds": 0.1,
-        "tokens_generated": 30, "tokens_per_second": 10.0,
+        "prompt_tokens": 90, "completion_tokens": 30, "tokens_generated": 30,
+        "total_tokens": 120, "prompt_evaluation_duration_seconds": 0.5,
+        "generation_duration_seconds": 3.0, "tokens_per_second": 10.0,
     }

@@ -191,33 +191,27 @@ def test_chat_engine_marks_failed_tool_execution_without_exposing_arguments():
 
 def test_chat_engine_reports_selected_tool_execution_and_final_generation():
     router = FakeToolRouter()
-    engine = _engine(
-        [
-            {
-                "message": {
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call-search-1",
-                            "function": {
-                                "name": "web_search",
-                                "arguments": {"query": "current weather"},
-                            },
-                        },
-                        {
-                            "id": "call-calculator-1",
-                            "function": {
-                                "name": "calculator",
-                                "arguments": {"expression": "2 + 2"},
-                            },
-                        },
-                    ],
-                }
-            },
-            {"message": {"content": "Here is the result."}},
-        ],
-        router=router,
-    )
+    engine = _engine([
+        {
+            "message": {
+                "content": "",
+                "tool_calls": [{
+                    "id": "call-search-1",
+                    "function": {
+                        "name": "web_search",
+                        "arguments": {"query": "current weather"},
+                    },
+                }, {
+                    "id": "call-calculator-1",
+                    "function": {
+                        "name": "calculator",
+                        "arguments": {"expression": "2 + 2"},
+                    },
+                }],
+            }
+        },
+        {"message": {"content": "Here is the result."}},
+    ], router=router)
     events = []
 
     response = engine.handle_user_message(
@@ -234,12 +228,10 @@ def test_chat_engine_reports_selected_tool_execution_and_final_generation():
         and event["tools"] == ["web_search", "calculator"]
         for event in events
     )
-    assert [event["status"] for event in events if event["type"] == "tool"] == [
-        "started",
-        "completed",
-        "started",
-        "completed",
-    ]
+    assert [
+        event["status"] for event in events
+        if event["type"] == "tool"
+    ] == ["started", "completed", "started", "completed"]
     tool_events = [event for event in events if event["type"] == "tool"]
     assert [event["name"] for event in tool_events] == [
         "web_search",
@@ -259,28 +251,18 @@ def test_chat_engine_reports_selected_tool_execution_and_final_generation():
 def test_ollama_stream_observer_reports_output_and_reassembles_tool_calls(monkeypatch):
     chunks = [
         {"message": {"content": "Answer"}},
-        {
-            "message": {
-                "tool_calls": [
-                    {
-                        "index": 0,
-                        "id": "call-1",
-                        "function": {"name": "web_search", "arguments": '{"query":'},
-                    }
-                ]
-            }
-        },
-        {
-            "message": {
-                "tool_calls": [
-                    {
-                        "index": 0,
-                        "function": {"arguments": '"weather"}'},
-                    }
-                ]
-            }
-        },
-        {"done": True},
+        {"message": {"tool_calls": [{
+            "index": 0,
+            "id": "call-1",
+            "function": {"name": "web_search", "arguments": "{\"query\":"},
+        }]}},
+        {"message": {"tool_calls": [{
+            "index": 0,
+            "function": {"arguments": "\"weather\"}"},
+        }]}},
+        {"done": True, "model": "cyn-x:latest", "prompt_eval_count": 17,
+         "prompt_eval_duration": 2_000_000_000, "eval_count": 3,
+         "eval_duration": 750_000_000, "total_duration": 3_000_000_000},
     ]
 
     class Response:
@@ -310,3 +292,7 @@ def test_ollama_stream_observer_reports_output_and_reassembles_tool_calls(monkey
     assert call["id"] == "call-1"
     assert call["function"]["name"] == "web_search"
     assert json.loads(call["function"]["arguments"]) == {"query": "weather"}
+    assert result["prompt_eval_count"] == 17
+    assert result["eval_count"] == 3
+    assert result["eval_duration"] == 750_000_000
+    assert result["prompt_eval_duration"] == 2_000_000_000

@@ -53,6 +53,7 @@ from tools.ChartTool import chart_tool
 from tools.filesystem import FilesystemTool
 from interfaces.web.pipeline import PipelineEventStore
 from interfaces.web.benchmark_runs import BenchmarkRunManager
+from benchmark.telemetry import generation_metrics
 from benchmark.watchdog import BenchmarkWatchdog
 from benchmark.personality.diagnostics import PersonalityDiagnosticsService
 
@@ -608,11 +609,18 @@ async def _dispatch_chat(data: dict):
         request_id = str(uuid.uuid4())
     stored_trace_callback = benchmark_runs.trace_callback(request_id)
     observed_trace_stages = set()
+    captured_trace_events = []
     if stored_trace_callback:
         def personality_trace_callback(details):
             try:
                 if details.get("stage"):
                     observed_trace_stages.add(details["stage"])
+                captured_trace_events.append({
+                    "stage": details.get("stage"),
+                    "status": details.get("status", "observed"),
+                    "details": {key: value for key, value in details.items()
+                                if key not in {"stage", "status"}},
+                })
                 stored_trace_callback(details)
             except Exception as exc:
                 web_logger.warning("[PERSONALITY TRACE STORE ERROR] request_id=%s error=%s", request_id, exc)
@@ -709,6 +717,10 @@ async def _dispatch_chat(data: dict):
                 return {
                     "response": response,
                     "response_time": elapsed,
+                    "metrics": {
+                        **generation_metrics({"personality_trace": {"events": captured_trace_events}}),
+                        "response_time_seconds": elapsed,
+                    },
                     "prompt_layers": prompt_builder.get_prompt_layers(),
                     "request_id": request_id,
                 }
@@ -782,6 +794,7 @@ async def _dispatch_benchmark_scenario(data: dict):
             "response": result.get("response", ""),
             "request_id": request_id,
             "response_time_seconds": result.get("response_time"),
+            "metrics": result.get("metrics") or {},
             "cancelled": bool(result.get("cancelled")),
             "tools": actual_tools,
             "expected_tools": expected_tools,

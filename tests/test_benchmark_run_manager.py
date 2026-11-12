@@ -249,15 +249,30 @@ def test_generation_metrics_are_aggregated_persisted_and_request_scoped_for_mult
         callback = manager.trace_callback(first_id)
         callback({"stage": "first_model_output", "status": "observed", "ttft_seconds": 0.12})
         callback({"stage": "generation_response_received", "status": "completed",
-                  "tokens_generated": 11, "generation_duration_nanoseconds": 1_000_000_000})
+                  "prompt_tokens": 20, "completion_tokens": 11, "tokens_generated": 11,
+                  "total_tokens": 31, "prompt_evaluation_duration_nanoseconds": 500_000_000,
+                  "generation_duration_nanoseconds": 1_000_000_000})
         second_id = str(uuid.uuid4())
         manager.register_question_request(payload["_benchmark_run_id"], payload["_benchmark_question_id"], second_id)
         manager.trace_callback(second_id)({"stage": "generation_response_received", "status": "completed",
-                                           "tokens_generated": 19, "generation_duration_nanoseconds": 2_000_000_000})
+                                           "prompt_tokens": 30, "completion_tokens": 19, "tokens_generated": 19,
+                                           "total_tokens": 49, "prompt_evaluation_duration_nanoseconds": 500_000_000,
+                                           "generation_duration_nanoseconds": 2_000_000_000})
         return {
             "response": "Second response.", "response_time": 3.0, "terminal_request_id": second_id,
             "tools": [],
-            "conversation_turns": [{"turn_index": 1, "request_id": first_id}, {"turn_index": 2, "request_id": second_id}],
+            "conversation_turns": [
+                {"turn_index": 1, "request_id": first_id,
+                 "metrics": {"response_time_seconds": 1.25, "ttft_seconds": 0.12,
+                             "prompt_tokens": 20, "completion_tokens": 11,
+                             "total_tokens": 31, "generation_duration_seconds": 1.0,
+                             "tokens_per_second": 11.0}},
+                {"turn_index": 2, "request_id": second_id,
+                 "metrics": {"response_time_seconds": 1.75, "ttft_seconds": None,
+                             "prompt_tokens": 30, "completion_tokens": 19,
+                             "total_tokens": 49, "generation_duration_seconds": 2.0,
+                             "tokens_per_second": 9.5}},
+            ],
             "pipeline_events": [
                 {"type": "stage", "stage": "generating_response", "status": "completed", "request_id": first_id, "turn_index": 1},
                 {"type": "stage", "stage": "generating_response", "status": "completed", "request_id": second_id, "turn_index": 2},
@@ -272,8 +287,16 @@ def test_generation_metrics_are_aggregated_persisted_and_request_scoped_for_mult
 
     assert question["metrics"] == {
         "response_time_seconds": 3.0, "ttft_seconds": 0.12,
-        "tokens_generated": 30, "tokens_per_second": 10.0,
+        "prompt_tokens": 50, "completion_tokens": 30, "tokens_generated": 30,
+        "total_tokens": 80, "prompt_evaluation_duration_seconds": 1.0,
+        "generation_duration_seconds": 3.0, "tokens_per_second": 10.0,
     }
+    assert [turn["metrics"]["completion_tokens"] for turn in question["conversation_turns"]] == [11, 19]
+    assert finished["metrics_summary"]["prompt_tokens"] == {
+        "total": 50, "measured_questions": 1, "eligible_questions": 1,
+    }
+    assert finished["metrics_summary"]["completion_tokens"]["total"] == 30
+    assert finished["metrics_summary"]["tokens_per_second"]["value"] == 10.0
     assert question["terminal_request_id"] == question["request_ids"][1]
     assert [(event["request_id"], event["turn_index"]) for event in question["request_events"]] == [
         (question["request_ids"][0], 1), (question["request_ids"][1], 2),
@@ -311,7 +334,9 @@ def test_historical_trace_metrics_are_exposed_without_rewriting_saved_snapshot(t
     historical = manager.get(run_id)
     assert historical["questions"][0]["metrics"] == {
         "response_time_seconds": 2.0, "ttft_seconds": 0.2,
-        "tokens_generated": 10, "tokens_per_second": 10 / 3,
+        "prompt_tokens": None, "completion_tokens": 10, "tokens_generated": 10,
+        "total_tokens": None, "prompt_evaluation_duration_seconds": None,
+        "generation_duration_seconds": 3.0, "tokens_per_second": 10 / 3,
     }
     # Reading an older snapshot must not rewrite its original representation.
     assert json.loads(snapshot.read_text(encoding="utf-8"))["questions"][0]["metrics"]["tokens_generated"] is None

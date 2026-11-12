@@ -7,6 +7,7 @@ responses, or affect request routing.
 from __future__ import annotations
 
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any
@@ -22,8 +23,9 @@ _JSON_LEAK = re.compile(r"(?:```\s*json\b|\{\s*\"(?:tool|function|arguments|name
 class BenchmarkWatchdog:
     """Compare immutable run snapshots and expose evidence-backed findings."""
 
-    def __init__(self, results_dir: str | Path):
+    def __init__(self, results_dir: str | Path, personality_results_dir: str | Path | None = None):
         self.results_dir = Path(results_dir)
+        self.personality_results_dir = Path(personality_results_dir) if personality_results_dir else self.results_dir / "personality_diagnostics"
 
     def _load(self, run_id: str) -> dict[str, Any] | None:
         if not run_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", run_id):
@@ -129,7 +131,7 @@ class BenchmarkWatchdog:
                        "regressions": regressions},
             "regression_feed": feed,
             "questions": results,
-            "personality_dimensions": self._personality_dimensions(current_questions),
+            "personality_dimensions": self._personality_dimensions(current.get("run_id")),
             "comparison_available": baseline is not None,
             "baseline_note": None if baseline else "No previous terminal run for this suite was found.",
         }
@@ -325,13 +327,52 @@ class BenchmarkWatchdog:
     def _feed_item(row: dict[str, Any]) -> dict[str, Any]:
         return {key: row[key] for key in ("question_id", "test_id", "category", "status", "failure_kind", "regression", "failure", "score_delta")}
 
-    @staticmethod
-    def _personality_dimensions(questions: list[dict[str, Any]]) -> dict[str, Any]:
-        # Current saved scorer does not emit these trait-level measurements.
-        return {name: {"available": False, "value": None} for name in (
-            "playfulness", "flirtiness", "warmth", "humor",
-            "conversational_naturalness", "tone_adaptation", "consistency",
-        )}
+    def _personality_dimensions(self, run_id: str | None) -> dict[str, Any]:
+        """Expose only saved, scored Personality Diagnostics for this run."""
+        names = {
+            "playfulness": "playfulness",
+            "flirtiness": None,  # No versioned contract dimension currently measures this.
+            "warmth": "warmth",
+            "humor": "humor",
+            "conversational_naturalness": "conversational_naturalness",
+            "tone_adaptation": "tone_adaptation",
+            "consistency": "personality_consistency",
+        }
+        unavailable = {name: {"available": False, "value": None, "sample_count": 0}
+                       for name in names}
+        if not run_id or not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", str(run_id)):
+            return unavailable
+        try:
+            report = json.loads((self.personality_results_dir / f"{run_id}.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return unavailable
+        if not isinstance(report, dict) or report.get("run_id") != run_id:
+            return unavailable
+        diagnostics = report.get("diagnostics")
+        if not isinstance(diagnostics, list):
+            return unavailable
+        output = dict(unavailable)
+        for display_name, dimension in names.items():
+            if dimension is None:
+                continue
+            values = [
+                item.get("score") for item in diagnostics
+                if isinstance(item, dict)
+                and item.get("evaluator_version") == "cynx-local-judge-v1"
+                and item.get("dimension") == dimension
+                and item.get("status") in {"pass", "warning", "fail"}
+                and _number(item.get("score"))
+                and math.isfinite(float(item["score"]))
+                and 0 <= float(item["score"]) <= 4
+            ]
+            if values:
+                output[display_name] = {
+                    "available": True,
+                    "value": round(sum(float(value) for value in values) / len(values), 2),
+                    "sample_count": len(values),
+                    "source": "saved_personality_diagnostics",
+                }
+        return output
 
 
 def _number(value: Any) -> bool:

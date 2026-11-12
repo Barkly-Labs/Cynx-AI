@@ -22,6 +22,7 @@ from typing import Optional
 from ai.memory_system import MemoryManager, MemoryExtractor
 from ai.terminal_ui import terminal
 
+
 logger = logging.getLogger("cynx.chat")
 
 
@@ -62,7 +63,7 @@ class ChatEngine:
         memory_manager: Optional[MemoryManager] = None,
         memory_extractor: Optional[MemoryExtractor] = None,
         context_manager=None,
-        logger_obj=None,
+        logger_obj=None
     ):
 
         self.ollama = ollama_client
@@ -134,15 +135,9 @@ class ChatEngine:
         )
         if trace_callback:
             try:
-                trace_callback(
-                    {
-                        "stage": "tool_execution",
-                        "status": "started",
-                        "tool_name": name,
-                        "invocation_id": invocation_id,
-                        "arguments": arguments,
-                    }
-                )
+                trace_callback({"stage": "tool_execution", "status": "started",
+                                "tool_name": name, "invocation_id": invocation_id,
+                                "arguments": arguments})
             except Exception:
                 pass
         tool_started = time.perf_counter()
@@ -151,19 +146,11 @@ class ChatEngine:
         except Exception as exc:
             if trace_callback:
                 try:
-                    trace_callback(
-                        {
-                            "stage": "tool_execution",
-                            "status": "failed",
-                            "tool_name": name,
-                            "invocation_id": invocation_id,
-                            "duration_seconds": round(
-                                time.perf_counter() - tool_started, 4
-                            ),
-                            "failure_explanation": "Tool execution failed; see developer logs.",
-                            "error_type": type(exc).__name__,
-                        }
-                    )
+                    trace_callback({"stage": "tool_execution", "status": "failed",
+                                    "tool_name": name, "invocation_id": invocation_id,
+                                    "duration_seconds": round(time.perf_counter() - tool_started, 4),
+                                    "failure_explanation": "Tool execution failed; see developer logs.",
+                                    "error_type": type(exc).__name__})
                 except Exception:
                     pass
             self._emit_pipeline_event(
@@ -184,26 +171,14 @@ class ChatEngine:
         )
         if trace_callback:
             try:
-                trace_callback(
-                    {
-                        "stage": "tool_execution",
-                        "status": "completed" if result.success else "failed",
-                        "tool_name": name,
-                        "invocation_id": invocation_id,
-                        "duration_seconds": round(
-                            time.perf_counter() - tool_started, 4
-                        ),
-                        "output_reference": invocation_id or name,
-                        "output_reference_scope": "pair this invocation ID with the trace request ID",
-                        "output_capture": "omitted from trace; inspect developer logs if available",
-                        "failure_explanation": (
-                            str(result.output)[:500]
-                            if not result.success and result.output
-                            else None
-                        ),
-                        "included_in_model_context": None,
-                    }
-                )
+                trace_callback({"stage": "tool_execution", "status": "completed" if result.success else "failed",
+                                "tool_name": name, "invocation_id": invocation_id,
+                                "duration_seconds": round(time.perf_counter() - tool_started, 4),
+                                "output_reference": invocation_id or name,
+                                "output_reference_scope": "pair this invocation ID with the trace request ID",
+                                "output_capture": "omitted from trace; inspect developer logs if available",
+                                "failure_explanation": str(result.output)[:500] if not result.success and result.output else None,
+                                "included_in_model_context": None})
             except Exception:
                 pass
         self._raise_if_cancelled(cancellation_check)
@@ -237,13 +212,13 @@ class ChatEngine:
         operands = re.findall(number, text)
         if len(operands) < 2:
             return False
-        operation = re.search(
-            r"\d\s*(?:[+*/×÷−]|-(?!>))\s*\d|\d\s*%\s+of\s+\d", text
-        ) or re.search(
-            r"\b(?:plus|minus|times|multiplied\s+by|divided\s+by|"
-            r"divide|multiply|add|subtract|sum|difference|product|"
-            r"average|mean|percent(?:age)?\s+of)\b",
-            text,
+        operation = (
+            re.search(r"\d\s*(?:[+*/×÷−]|-(?!>))\s*\d|\d\s*%\s+of\s+\d", text)
+            or re.search(
+                r"\b(?:plus|minus|times|multiplied\s+by|divided\s+by|"
+                r"divide|multiply|add|subtract|sum|difference|product|"
+                r"average|mean|percent(?:age)?\s+of)\b", text
+            )
         )
         if not operation:
             return False
@@ -259,14 +234,19 @@ class ChatEngine:
         if re.search(r"\b(?:average|mean)\b", text):
             grounded.add(str(len(operands)))
         return bool(expression_operands) and all(
-            operand.replace(",", "") in grounded for operand in expression_operands
+            operand.replace(",", "") in grounded
+            for operand in expression_operands
         )
 
     # ---------------------------------
     # Context Safety
     # ---------------------------------
 
-    def trim_context(self, text: str, limit: int) -> str:
+    def trim_context(
+        self,
+        text: str,
+        limit: int
+    ) -> str:
 
         if not text:
             return ""
@@ -274,9 +254,16 @@ class ChatEngine:
         if len(text) <= limit:
             return text
 
-        return text[:limit] + "\n\n[Context shortened]"
+        return (
+            text[:limit]
+            +
+            "\n\n[Context shortened]"
+        )
 
-    def _estimate_message_tokens(self, message) -> int:
+    def _estimate_message_tokens(
+        self,
+        message
+    ) -> int:
         """
         Roughly estimate tokens in an Ollama message.
 
@@ -284,18 +271,33 @@ class ChatEngine:
         model-dependent, so the final context budget keeps headroom.
         """
 
-        if not isinstance(message, dict):
+        if not isinstance(
+            message,
+            dict
+        ):
             return 1
 
-        content = str(message.get("content", ""))
+        content = str(
+            message.get(
+                "content",
+                ""
+            )
+        )
 
         if not content:
             return 1
 
         # Rough English-text estimate.
-        return max(1, (len(content) + 3) // 4)
+        return max(
+            1,
+            (len(content) + 3) // 4
+        )
 
-    def _trim_ollama_messages(self, messages, max_tokens: int = OLLAMA_PROMPT_BUDGET):
+    def _trim_ollama_messages(
+        self,
+        messages,
+        max_tokens: int = OLLAMA_PROMPT_BUDGET
+    ):
         """
         Prevent Ollama requests from exceeding the available context.
 
@@ -314,7 +316,10 @@ class ChatEngine:
             return messages
 
         estimated_tokens = sum(
-            self._estimate_message_tokens(message) for message in messages
+            self._estimate_message_tokens(
+                message
+            )
+            for message in messages
         )
 
         if estimated_tokens <= max_tokens:
@@ -344,9 +349,17 @@ class ChatEngine:
         # The newest user message is treated as the current request.
         current_user_index = None
 
-        for index in range(len(messages) - 1, 0, -1):
+        for index in range(
+            len(messages) - 1,
+            0,
+            -1
+        ):
 
-            if messages[index].get("role") == "user":
+            if (
+                messages[index].get(
+                    "role"
+                ) == "user"
+            ):
 
                 current_user_index = index
                 break
@@ -355,29 +368,50 @@ class ChatEngine:
         # directly on them.
         tool_indices = []
 
-        for index in range(1, len(messages)):
+        for index in range(
+            1,
+            len(messages)
+        ):
 
-            if messages[index].get("role") == "tool":
+            if (
+                messages[index].get(
+                    "role"
+                ) == "tool"
+            ):
 
-                tool_indices.append(index)
+                tool_indices.append(
+                    index
+                )
 
         # ---------------------------------
         # Calculate mandatory context
         # ---------------------------------
 
-        mandatory_indices = set(tool_indices)
+        mandatory_indices = set(
+            tool_indices
+        )
 
         if current_user_index is not None:
 
-            mandatory_indices.add(current_user_index)
+            mandatory_indices.add(
+                current_user_index
+            )
 
-        system_tokens = self._estimate_message_tokens(system_message)
+        system_tokens = (
+            self._estimate_message_tokens(
+                system_message
+            )
+        )
 
         mandatory_tokens = system_tokens
 
         for index in mandatory_indices:
 
-            mandatory_tokens += self._estimate_message_tokens(messages[index])
+            mandatory_tokens += (
+                self._estimate_message_tokens(
+                    messages[index]
+                )
+            )
 
         # ---------------------------------
         # If mandatory context is too large,
@@ -395,25 +429,42 @@ class ChatEngine:
             available_for_system = max(
                 100,
                 max_tokens
-                - sum(
-                    self._estimate_message_tokens(messages[index])
+                -
+                sum(
+                    self._estimate_message_tokens(
+                        messages[index]
+                    )
                     for index in mandatory_indices
-                ),
+                )
             )
 
-            system_content = str(system_message.get("content", ""))
+            system_content = str(
+                system_message.get(
+                    "content",
+                    ""
+                )
+            )
 
             # Convert token budget back into a conservative
             # character budget.
-            system_char_limit = available_for_system * 4
+            system_char_limit = (
+                available_for_system * 4
+            )
 
             if len(system_content) > system_char_limit:
 
-                system_message = dict(system_message)
+                system_message = dict(
+                    system_message
+                )
 
-                system_message["content"] = (
-                    system_content[:system_char_limit]
-                    + "\n\n[System context shortened]"
+                system_message[
+                    "content"
+                ] = (
+                    system_content[
+                        :system_char_limit
+                    ]
+                    +
+                    "\n\n[System context shortened]"
                 )
 
                 self.logger.warning(
@@ -421,32 +472,60 @@ class ChatEngine:
                     f"chars={len(system_message['content'])}"
                 )
 
-            system_tokens = self._estimate_message_tokens(system_message)
+            system_tokens = (
+                self._estimate_message_tokens(
+                    system_message
+                )
+            )
 
         # ---------------------------------
         # Build the trimmed message list
         # ---------------------------------
 
-        trimmed_messages = [system_message]
+        trimmed_messages = [
+            system_message
+        ]
 
-        used_indices = {0}
+        used_indices = {
+            0
+        }
 
         current_tokens = system_tokens
 
         # Preserve the current user message.
-        if current_user_index is not None and current_user_index != 0:
+        if (
+            current_user_index is not None
+            and current_user_index != 0
+        ):
 
-            current_message = messages[current_user_index]
+            current_message = messages[
+                current_user_index
+            ]
 
-            current_message_tokens = self._estimate_message_tokens(current_message)
+            current_message_tokens = (
+                self._estimate_message_tokens(
+                    current_message
+                )
+            )
 
-            if current_tokens + current_message_tokens <= max_tokens:
+            if (
+                current_tokens
+                +
+                current_message_tokens
+                <= max_tokens
+            ):
 
-                trimmed_messages.append(current_message)
+                trimmed_messages.append(
+                    current_message
+                )
 
-                used_indices.add(current_user_index)
+                used_indices.add(
+                    current_user_index
+                )
 
-                current_tokens += current_message_tokens
+                current_tokens += (
+                    current_message_tokens
+                )
 
         # Preserve tool results.
         for index in tool_indices:
@@ -456,39 +535,75 @@ class ChatEngine:
 
             tool_message = messages[index]
 
-            tool_message_tokens = self._estimate_message_tokens(tool_message)
+            tool_message_tokens = (
+                self._estimate_message_tokens(
+                    tool_message
+                )
+            )
 
-            if current_tokens + tool_message_tokens <= max_tokens:
+            if (
+                current_tokens
+                +
+                tool_message_tokens
+                <= max_tokens
+            ):
 
-                trimmed_messages.append(tool_message)
+                trimmed_messages.append(
+                    tool_message
+                )
 
-                used_indices.add(index)
+                used_indices.add(
+                    index
+                )
 
-                current_tokens += tool_message_tokens
+                current_tokens += (
+                    tool_message_tokens
+                )
 
         # ---------------------------------
         # Preserve newest conversation history
         # ---------------------------------
 
-        for index in range(len(messages) - 1, 0, -1):
+        for index in range(
+            len(messages) - 1,
+            0,
+            -1
+        ):
 
             if index in used_indices:
                 continue
 
             message = messages[index]
 
-            message_tokens = self._estimate_message_tokens(message)
+            message_tokens = (
+                self._estimate_message_tokens(
+                    message
+                )
+            )
 
-            if current_tokens + message_tokens > max_tokens:
+            if (
+                current_tokens
+                +
+                message_tokens
+                >
+                max_tokens
+            ):
                 continue
 
             # Insert history before the current user/tool messages
             # so the original conversational order remains intact.
-            trimmed_messages.insert(1, message)
+            trimmed_messages.insert(
+                1,
+                message
+            )
 
-            used_indices.add(index)
+            used_indices.add(
+                index
+            )
 
-            current_tokens += message_tokens
+            current_tokens += (
+                message_tokens
+            )
 
         self.logger.warning(
             f"[CONTEXT TRIMMED] "
@@ -561,6 +676,7 @@ class ChatEngine:
         trace_callback=None,
         conversation_key: Optional[str] = None,
     ) -> str:
+
         """
         Process a user message.
 
@@ -588,15 +704,46 @@ class ChatEngine:
             except Exception as exc:
                 self.logger.warning("[PERSONALITY TRACE ERROR] %s", exc)
 
+        def traced_ollama_chat(phase="generation", **kwargs):
+            """Capture Ollama's actual per-call counters before returning its response."""
+            call_started = time.perf_counter()
+            try:
+                result = self.ollama.chat(**kwargs)
+            except Exception as exc:
+                trace("generation_response_received", status="failed", phase=phase,
+                      model=getattr(self.ollama, "model", None),
+                      generation_wall_duration_seconds=round(time.perf_counter() - call_started, 4),
+                      error_type=type(exc).__name__)
+                raise
+            eval_duration = result.get("eval_duration")
+            trace("generation_response_received", status="completed", phase=phase,
+                  model=result.get("model") or getattr(self.ollama, "model", None),
+                  prompt_tokens=result.get("prompt_eval_count"),
+                  completion_tokens=result.get("eval_count"),
+                  tokens_generated=result.get("eval_count"),
+                  total_tokens=(result.get("prompt_eval_count", 0) + result.get("eval_count", 0)
+                                if isinstance(result.get("prompt_eval_count"), int)
+                                and not isinstance(result.get("prompt_eval_count"), bool)
+                                and result.get("prompt_eval_count") >= 0
+                                and isinstance(result.get("eval_count"), int)
+                                and not isinstance(result.get("eval_count"), bool)
+                                and result.get("eval_count") >= 0 else None),
+                  prompt_evaluation_duration_nanoseconds=result.get("prompt_eval_duration"),
+                  generation_duration_nanoseconds=eval_duration,
+                  generation_duration_seconds=(eval_duration / 1_000_000_000
+                                               if isinstance(eval_duration, (int, float))
+                                               and not isinstance(eval_duration, bool)
+                                               and eval_duration >= 0 else None),
+                  generation_wall_duration_seconds=round(time.perf_counter() - call_started, 4),
+                  done_reason=result.get("done_reason"))
+            return result
+
         trace("request_received", user_message=text)
         trace(
             "configuration_loaded",
             architecture=getattr(self.prompt_builder, "personality_arch", None),
-            prompt_layers=(
-                self.prompt_builder.get_prompt_layers()
-                if hasattr(self.prompt_builder, "get_prompt_layers")
-                else None
-            ),
+            prompt_layers=(self.prompt_builder.get_prompt_layers()
+                           if hasattr(self.prompt_builder, "get_prompt_layers") else None),
             preset="not exposed by the current request pipeline",
         )
 
@@ -606,11 +753,7 @@ class ChatEngine:
                 return
             generation_started = True
             generation_started_at = time.perf_counter()
-            trace(
-                "first_model_output",
-                status="observed",
-                ttft_seconds=round(generation_started_at - start, 4),
-            )
+            trace("first_model_output", status="observed", ttft_seconds=round(generation_started_at - start, 4))
             self._emit_pipeline_event(
                 pipeline_callback,
                 "stage",
@@ -643,14 +786,15 @@ class ChatEngine:
 
             try:
 
-                context = self.context_manager.build_context(user_id, text)
+                context = self.context_manager.build_context(
+                    user_id,
+                    text
+                )
 
                 trace(
                     "context_retrieved",
                     status="completed",
-                    sources=[
-                        name for name in ("memory", "knowledge") if context.get(name)
-                    ],
+                    sources=[name for name in ("memory", "knowledge") if context.get(name)],
                     memory_text=context.get("memory", ""),
                     knowledge_text=context.get("knowledge", ""),
                     source_identifiers="not exposed by ContextManager",
@@ -658,35 +802,35 @@ class ChatEngine:
                 )
 
                 mem_summary = self.trim_context(
-                    context.get("memory", ""), MAX_MEMORY_CONTEXT
+                    context.get(
+                        "memory",
+                        ""
+                    ),
+                    MAX_MEMORY_CONTEXT
                 )
 
                 terminal.memory("MEMORY FOUND")
                 terminal.dim(mem_summary)
 
                 knowledge_context = self.trim_context(
-                    context.get("knowledge", ""), MAX_KNOWLEDGE_CONTEXT
+                    context.get(
+                        "knowledge",
+                        ""
+                    ),
+                    MAX_KNOWLEDGE_CONTEXT
                 )
 
-                trace(
-                    "context_prepared",
-                    status="completed",
-                    memory_characters_retrieved=len(
-                        str(context.get("memory", "") or "")
-                    ),
-                    memory_characters_included=len(mem_summary),
-                    knowledge_characters_retrieved=len(
-                        str(context.get("knowledge", "") or "")
-                    ),
-                    knowledge_characters_included=len(knowledge_context),
-                    truncation_detected=(
-                        len(str(context.get("memory", "") or "")) > len(mem_summary)
-                        or len(str(context.get("knowledge", "") or ""))
-                        > len(knowledge_context)
-                    ),
-                )
+                trace("context_prepared", status="completed",
+                      memory_characters_retrieved=len(str(context.get("memory", "") or "")),
+                      memory_characters_included=len(mem_summary),
+                      knowledge_characters_retrieved=len(str(context.get("knowledge", "") or "")),
+                      knowledge_characters_included=len(knowledge_context),
+                      truncation_detected=(len(str(context.get("memory", "") or "")) > len(mem_summary)
+                                           or len(str(context.get("knowledge", "") or "")) > len(knowledge_context)))
 
-                self.logger.info("[CONTEXT] Loaded dynamic context")
+                self.logger.info(
+                    "[CONTEXT] Loaded dynamic context"
+                )
 
                 self.logger.info(
                     f"[CONTEXT SIZE] memory={len(mem_summary)} "
@@ -695,15 +839,14 @@ class ChatEngine:
 
             except Exception as e:
 
-                trace(
-                    "context_retrieved",
-                    status="failed",
-                    error="Context retrieval failed; see developer logs.",
-                    error_type=type(e).__name__,
-                    duration_seconds=round(time.perf_counter() - context_started, 4),
-                )
+                trace("context_retrieved", status="failed",
+                      error="Context retrieval failed; see developer logs.",
+                      error_type=type(e).__name__,
+                      duration_seconds=round(time.perf_counter() - context_started, 4))
 
-                self.logger.error(f"[CONTEXT ERROR] {e}")
+                self.logger.error(
+                    f"[CONTEXT ERROR] {e}"
+                )
 
         else:
 
@@ -711,23 +854,26 @@ class ChatEngine:
 
             if self.memory_manager:
 
-                memories = self.memory_manager.recall(user_id, limit=5)
+                memories = self.memory_manager.recall(
+                    user_id,
+                    limit=5
+                )
 
                 if memories:
 
-                    trace(
-                        "context_retrieved",
-                        sources=["legacy_memory"],
-                        memory_count=len(memories),
-                        memory_text=self.memory_manager.format_for_prompt(memories),
-                        source_identifiers="not exposed by MemoryManager",
+                    trace("context_retrieved", sources=["legacy_memory"], memory_count=len(memories),
+                          memory_text=self.memory_manager.format_for_prompt(memories),
+                          source_identifiers="not exposed by MemoryManager")
+
+                    self.logger.info(
+                        f"[MEMORY] Loaded {len(memories)} memories"
                     )
 
-                    self.logger.info(f"[MEMORY] Loaded {len(memories)} memories")
-
                     mem_summary = self.trim_context(
-                        self.memory_manager.format_for_prompt(memories),
-                        MAX_MEMORY_CONTEXT,
+                        self.memory_manager.format_for_prompt(
+                            memories
+                        ),
+                        MAX_MEMORY_CONTEXT
                     )
 
         # -----------------------------
@@ -738,7 +884,9 @@ class ChatEngine:
 
         if mode:
 
-            mode_content.append(mode)
+            mode_content.append(
+                mode
+            )
 
         # Prepare tools specification for the model so it knows available tools and
         # the concise rule: call tools when appropriate (direct action first).
@@ -748,9 +896,15 @@ class ChatEngine:
 
             for t in self.tool_router.describe_tools():
 
-                tools_list.append(f"{t['name']}: {t['description']}")
+                tools_list.append(
+                    f"{t['name']}: {t['description']}"
+                )
 
-        tools_spec_str = "Available tools:\n" + "\n".join(tools_list)
+        tools_spec_str = (
+            "Available tools:\n"
+            +
+            "\n".join(tools_list)
+        )
 
         tools_spec_str += (
             "\n\n## TOOL USE — IMPORTANT\n"
@@ -806,10 +960,16 @@ class ChatEngine:
         instruction_build_started = time.perf_counter()
         prompt = self.prompt_builder.build_prompt(
             user_input=text,
-            mode_fragment="\n".join(mode_content),
+
+            mode_fragment="\n".join(
+                mode_content
+            ),
+
             memory_summary=mem_summary,
+
             knowledge_context=knowledge_context,
-            tools_spec=tools_spec_str,
+
+            tools_spec=tools_spec_str
         )
 
         trace(
@@ -817,49 +977,19 @@ class ChatEngine:
             architecture=getattr(self.prompt_builder, "personality_arch", None),
             sources=getattr(self.prompt_builder, "last_prompt_components", None),
             system_prompt=prompt,
-            instruction_version="sha256:"
-            + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-            personality_configuration_version="sha256:"
-            + hashlib.sha256(
-                json.dumps(
-                    {
-                        "architecture": getattr(
-                            self.prompt_builder, "personality_arch", None
-                        ),
-                        "layers": (
-                            self.prompt_builder.get_prompt_layers()
-                            if hasattr(self.prompt_builder, "get_prompt_layers")
-                            else None
-                        ),
-                        "sources": [
-                            item
-                            for item in (
-                                getattr(
-                                    self.prompt_builder, "last_prompt_components", None
-                                )
-                                or []
-                            )
-                            if item.get("source")
-                            in {
-                                "identity",
-                                "personality",
-                                "expression",
-                                "mode",
-                                "safety",
-                                "assembled_system_prompt",
-                            }
-                        ],
-                    },
-                    sort_keys=True,
-                    ensure_ascii=False,
-                    default=str,
-                ).encode("utf-8")
-            ).hexdigest(),
+            instruction_version="sha256:" + hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
+            personality_configuration_version="sha256:" + hashlib.sha256(json.dumps({
+                "architecture": getattr(self.prompt_builder, "personality_arch", None),
+                "layers": self.prompt_builder.get_prompt_layers() if hasattr(self.prompt_builder, "get_prompt_layers") else None,
+                "sources": [item for item in (getattr(self.prompt_builder, "last_prompt_components", None) or [])
+                            if item.get("source") in {"identity", "personality", "expression", "mode", "safety", "assembled_system_prompt"}],
+            }, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest(),
             duration_seconds=round(time.perf_counter() - instruction_build_started, 4),
         )
 
         self.logger.info(
-            f"[PROMPT SIZE] chars={len(prompt)} " f"words={len(prompt.split())}"
+            f"[PROMPT SIZE] chars={len(prompt)} "
+            f"words={len(prompt.split())}"
         )
 
         self._emit_pipeline_event(
@@ -889,7 +1019,9 @@ class ChatEngine:
                 detected_tool = self.tool_router.detect(text)
             except Exception as e:
 
-                self.logger.warning(f"[TOOL DETECTION ERROR] {e}")
+                self.logger.warning(
+                    f"[TOOL DETECTION ERROR] {e}"
+                )
 
                 detected_tool = None
 
@@ -898,50 +1030,78 @@ class ChatEngine:
         # web_search detection is advisory: exposing the tool is enough.
         # Ollama decides whether to call it. Deterministic/stateful tools
         # remain Python-authoritative below.
-        if detected_tool and detected_tool.get("tool") == "web_search":
+        if (
+            detected_tool
+            and detected_tool.get("tool") == "web_search"
+        ):
             detected_tool = None
 
         if tool_specs:
 
             terminal.available_tools(
-                [t.get("function", {}).get("name") for t in tool_specs]
+                [
+                    t.get(
+                        "function",
+                        {}
+                    ).get(
+                        "name"
+                    )
+                    for t in tool_specs
+                ]
             )
 
         smoke_intent = detected_tool
 
-        if smoke_intent and smoke_intent.get("tool") == "smoke_counter":
+        if (
+            smoke_intent
+            and smoke_intent.get("tool") == "smoke_counter"
+        ):
 
             read_only = bool(
                 self.tool_router
-                and hasattr(self.tool_router, "is_read_only_smoke_query")
+                and hasattr(
+                    self.tool_router,
+                    "is_read_only_smoke_query"
+                )
                 and self.tool_router.is_read_only_smoke_query(text)
             )
 
-            terminal.info(f"[SMOKE INTENT] " f"{'read_only' if read_only else 'log'}")
+            terminal.info(
+                f"[SMOKE INTENT] "
+                f"{'read_only' if read_only else 'log'}"
+            )
 
-            terminal.info(f"[SMOKE ACTION] " f"{smoke_intent.get('action')}")
+            terminal.info(
+                f"[SMOKE ACTION] "
+                f"{smoke_intent.get('action')}"
+            )
 
-            terminal.info(f"[SMOKE TYPE] " f"{smoke_intent.get('smoke_type', 'n/a')}")
+            terminal.info(
+                f"[SMOKE TYPE] "
+                f"{smoke_intent.get('smoke_type', 'n/a')}"
+            )
 
-            terminal.info(f"[SMOKE SCOPE] " f"{smoke_intent.get('scope', 'all')}")
+            terminal.info(
+                f"[SMOKE SCOPE] "
+                f"{smoke_intent.get('scope', 'all')}"
+            )
 
         # Build messages from the system prompt, recent conversation,
         # and the current user turn. This preserves short-term continuity
         # while leaving long-term memory in the existing memory system.
-        history = self.conversation_history.setdefault(conversation_key or user_id, [])
+        history = self.conversation_history.setdefault(
+            conversation_key or user_id,
+            []
+        )
 
         messages = [
             {"role": "system", "content": prompt},
             *history,
-            {"role": "user", "content": text},
+            {"role": "user", "content": text}
         ]
-        trace(
-            "conversation_context_assembled",
-            messages=messages,
-            message_count=len(messages),
-            token_count=None,
-            token_count_status="not instrumented",
-        )
+        trace("conversation_context_assembled", messages=messages,
+              message_count=len(messages), token_count=None,
+              token_count_status="not instrumented")
 
         terminal.user(text)
 
@@ -974,9 +1134,14 @@ class ChatEngine:
             and "web_search" in self.tool_router.tools
         ):
 
-            search_query = detected_tool.get("query") or text
+            search_query = (
+                detected_tool.get("query")
+                or text
+            )
 
-            search_arguments = {"query": search_query}
+            search_arguments = {
+                "query": search_query
+            }
 
             self._emit_pipeline_event(
                 pipeline_callback,
@@ -993,22 +1158,34 @@ class ChatEngine:
 
             if request_id:
 
-                terminal.tool("TOOL CALL", f"id={request_id} tool=web_search")
+                terminal.tool(
+                    "TOOL CALL",
+                    f"id={request_id} tool=web_search"
+                )
 
             else:
 
-                terminal.tool("TOOL CALL", "name=web_search")
+                terminal.tool(
+                    "TOOL CALL",
+                    "name=web_search"
+                )
 
             terminal.tool_args("TOOL ARGUMENTS")
             terminal.json(search_arguments)
 
             if request_id:
 
-                terminal.execute("EXECUTING TOOL", f"id={request_id} tool=web_search")
+                terminal.execute(
+                    "EXECUTING TOOL",
+                    f"id={request_id} tool=web_search"
+                )
 
             else:
 
-                terminal.execute("EXECUTING TOOL", "tool=web_search")
+                terminal.execute(
+                    "EXECUTING TOOL",
+                    "tool=web_search"
+                )
 
             tool_result = self._call_tool_with_pipeline(
                 "web_search",
@@ -1028,7 +1205,10 @@ class ChatEngine:
                 }
             )
 
-            if not isinstance(tool_result_payload, dict):
+            if not isinstance(
+                tool_result_payload,
+                dict
+            ):
 
                 tool_result_payload = {
                     "success": tool_result.success,
@@ -1037,29 +1217,51 @@ class ChatEngine:
 
             else:
 
-                tool_result_payload = dict(tool_result_payload)
+                tool_result_payload = dict(
+                    tool_result_payload
+                )
 
-            tool_result_payload.setdefault("success", tool_result.success)
+            tool_result_payload.setdefault(
+                "success",
+                tool_result.success
+            )
 
-            tool_result_payload.setdefault("output", tool_result.output)
+            tool_result_payload.setdefault(
+                "output",
+                tool_result.output
+            )
 
-            tool_result_payload["authoritative_source"] = "web_search"
+            tool_result_payload[
+                "authoritative_source"
+            ] = "web_search"
 
             if request_id:
 
-                terminal.result("TOOL RESULT", f"id={request_id}")
+                terminal.result(
+                    "TOOL RESULT",
+                    f"id={request_id}"
+                )
 
             else:
 
-                terminal.result("TOOL RESULT")
+                terminal.result(
+                    "TOOL RESULT"
+                )
 
-            terminal.json(tool_result_payload)
+            terminal.json(
+                tool_result_payload
+            )
 
             # Pass the actual search results to Ollama.
             #
             # The model does not need to decide whether to search;
             # Python has already executed the search.
-            messages.append({"role": "assistant", "content": ""})
+            messages.append(
+                {
+                    "role": "assistant",
+                    "content": ""
+                }
+            )
 
             messages.append(
                 {
@@ -1081,28 +1283,30 @@ class ChatEngine:
                                 "search results. "
                                 "If the search results do not "
                                 "establish something, say so."
-                            ),
+                            )
                         },
-                        ensure_ascii=False,
-                    ),
+                        ensure_ascii=False
+                    )
                 }
             )
-            trace(
-                "tool_context_included",
-                tool_name="web_search",
-                invocation_id="web_search",
-                included_in_model_context=True,
-                output_contents="redacted/omitted from this event",
-            )
+            trace("tool_context_included", tool_name="web_search", invocation_id="web_search", included_in_model_context=True,
+                  output_contents="redacted/omitted from this event")
 
             # Protect the final research request from context overflow.
-            messages = self._trim_ollama_messages(messages)
+            messages = self._trim_ollama_messages(
+                messages
+            )
 
             if request_id:
 
-                terminal.ollama("OLLAMA CALL", f"id={request_id} phase=final")
+                terminal.ollama(
+                    "OLLAMA CALL",
+                    f"id={request_id} phase=final"
+                )
 
-            terminal.info("[RETURNING TOOL RESULT TO MODEL]")
+            terminal.info(
+                "[RETURNING TOOL RESULT TO MODEL]"
+            )
 
             self._emit_pipeline_event(
                 pipeline_callback,
@@ -1112,43 +1316,36 @@ class ChatEngine:
             )
             self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
-            trace(
-                "model_request_constructed",
-                phase="post_tool",
-                messages=messages,
-                model=getattr(self.ollama, "model", None),
-                streaming=False,
-                context_window_tokens=OLLAMA_CONTEXT_LIMIT,
-                token_count=None,
-            )
+            trace("model_request_constructed", phase="post_tool", messages=messages,
+                  model=getattr(self.ollama, "model", None), streaming=False,
+                  context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
             trace("generation_started", phase="post_tool")
 
-            final_response = self.ollama.chat(messages=messages, tools=None)
-            self._raise_if_cancelled(cancellation_check)
-            trace(
-                "model_response_received",
-                output=(final_response.get("message") or {}).get("content", ""),
-                generation_duration_seconds=round(time.perf_counter() - final_start, 4),
-                done_reason=final_response.get("done_reason"),
-                tool_calls=[],
+            final_response = traced_ollama_chat(
+                phase="post_tool",
+                messages=messages,
+                tools=None
             )
+            self._raise_if_cancelled(cancellation_check)
+            trace("model_response_received", output=(final_response.get("message") or {}).get("content", ""),
+                  generation_duration_seconds=round(time.perf_counter() - final_start, 4),
+                  done_reason=final_response.get("done_reason"), tool_calls=[])
 
             terminal.timing(
-                f"[FINAL OLLAMA TIME] " f"{time.perf_counter() - final_start:.2f}s"
+                f"[FINAL OLLAMA TIME] "
+                f"{time.perf_counter() - final_start:.2f}s"
             )
 
             assistant_text = (
-                (final_response.get("message") or {}).get("content")
+                (final_response.get("message") or {}).get(
+                    "content"
+                )
                 or final_response.get("response")
                 or final_response.get("text")
                 or str(final_response)
             )
-            trace(
-                "response_transformation",
-                original_model_output=assistant_text,
-                final_user_facing_response=assistant_text,
-                modifications=[],
-            )
+            trace("response_transformation", original_model_output=assistant_text,
+                  final_user_facing_response=assistant_text, modifications=[])
             self._emit_pipeline_event(
                 pipeline_callback,
                 "stage",
@@ -1163,9 +1360,19 @@ class ChatEngine:
             terminal.dim(assistant_text)
 
             # Save the completed turn for short-term conversational continuity.
-            history.append({"role": "user", "content": text})
+            history.append(
+                {
+                    "role": "user",
+                    "content": text
+                }
+            )
 
-            history.append({"role": "assistant", "content": assistant_text})
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": assistant_text
+                }
+            )
 
             # Keep history bounded so it does not consume the entire context window.
             max_messages = self.max_conversation_turns * 2
@@ -1180,14 +1387,19 @@ class ChatEngine:
 
             if self.memory_extractor:
 
-                saved_ids = self.memory_extractor.extract_and_save(
-                    user_id, text, assistant_text
+                saved_ids = (
+                    self.memory_extractor.extract_and_save(
+                        user_id,
+                        text,
+                        assistant_text
+                    )
                 )
 
                 if saved_ids:
 
                     self.logger.info(
-                        f"[MEMORY_SAVE] " f"Saved {len(saved_ids)} memories"
+                        f"[MEMORY_SAVE] "
+                        f"Saved {len(saved_ids)} memories"
                     )
 
             return assistant_text
@@ -1243,9 +1455,12 @@ class ChatEngine:
                 smoke_arguments["action"] = "stats"
 
             # Normalize the smoke type before execution when supported.
-            if smoke_arguments.get("smoke_type") and hasattr(
-                self.tool_router,
-                "normalize_smoke_type",
+            if (
+                smoke_arguments.get("smoke_type")
+                and hasattr(
+                    self.tool_router,
+                    "normalize_smoke_type",
+                )
             ):
                 try:
                     smoke_arguments["smoke_type"] = (
@@ -1338,7 +1553,9 @@ class ChatEngine:
 
             # This flag is deliberately explicit so the final model knows
             # these numbers came from the current authoritative execution.
-            smoke_payload["authoritative_source"] = "current_tool_result"
+            smoke_payload["authoritative_source"] = (
+                "current_tool_result"
+            )
 
             if request_id:
                 terminal.result(
@@ -1409,7 +1626,8 @@ class ChatEngine:
             if request_id:
                 terminal.ollama(
                     "OLLAMA CALL",
-                    f"id={request_id} phase=final " f"(authoritative smoke)",
+                    f"id={request_id} phase=final "
+                    f"(authoritative smoke)",
                 )
             else:
                 terminal.ollama(
@@ -1425,32 +1643,23 @@ class ChatEngine:
             )
             self._raise_if_cancelled(cancellation_check)
             final_start = time.perf_counter()
-            trace(
-                "tool_context_included",
-                tool_name="smoke_counter",
-                invocation_id="smoke_counter",
-                included_in_model_context=True,
-                output_contents="redacted/omitted from this event",
-            )
-            trace(
-                "model_request_constructed",
-                phase="post_tool",
-                messages=smoke_final_messages,
-                model=getattr(self.ollama, "model", None),
-                streaming=False,
-                context_window_tokens=OLLAMA_CONTEXT_LIMIT,
-                token_count=None,
-            )
+            trace("tool_context_included", tool_name="smoke_counter", invocation_id="smoke_counter", included_in_model_context=True,
+                  output_contents="redacted/omitted from this event")
+            trace("model_request_constructed", phase="post_tool", messages=smoke_final_messages,
+                  model=getattr(self.ollama, "model", None), streaming=False,
+                  context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
             trace("generation_started", phase="post_tool")
 
-            final_response = self.ollama.chat(
+            final_response = traced_ollama_chat(
+                phase="post_tool",
                 messages=smoke_final_messages,
                 tools=None,
             )
             self._raise_if_cancelled(cancellation_check)
 
             terminal.timing(
-                f"[FINAL OLLAMA TIME] " f"{time.perf_counter() - final_start:.2f}s"
+                f"[FINAL OLLAMA TIME] "
+                f"{time.perf_counter() - final_start:.2f}s"
             )
 
             assistant_text = (
@@ -1498,15 +1707,18 @@ class ChatEngine:
 
             if self.memory_extractor:
 
-                saved_ids = self.memory_extractor.extract_and_save(
-                    user_id,
-                    text,
-                    assistant_text,
+                saved_ids = (
+                    self.memory_extractor.extract_and_save(
+                        user_id,
+                        text,
+                        assistant_text,
+                    )
                 )
 
                 if saved_ids:
                     self.logger.info(
-                        f"[MEMORY_SAVE] " f"Saved {len(saved_ids)} memories"
+                        f"[MEMORY_SAVE] "
+                        f"Saved {len(saved_ids)} memories"
                     )
 
             return assistant_text
@@ -1521,93 +1733,74 @@ class ChatEngine:
 
         if request_id:
 
-            terminal.ollama("OLLAMA CALL", f"id={request_id} phase=first")
+            terminal.ollama(
+                "OLLAMA CALL",
+                f"id={request_id} phase=first"
+            )
 
-        if os.environ.get("CYN_DEBUG_PROMPT") == "1":
+        if os.environ.get(
+            "CYN_DEBUG_PROMPT"
+        ) == "1":
 
-            terminal.section("ACTUAL SYSTEM PROMPT")
+            terminal.section(
+                "ACTUAL SYSTEM PROMPT"
+            )
 
-            terminal.dim(messages[0]["content"])
+            terminal.dim(
+                messages[0]["content"]
+            )
 
         # Protect the first Ollama request from context overflow.
-        messages = self._trim_ollama_messages(messages)
-        trace(
-            "model_request_constructed",
-            messages=messages,
-            message_count=len(messages),
-            context_window_tokens=OLLAMA_CONTEXT_LIMIT,
-            token_count=None,
-            truncation="Inspect included messages; token-level truncation metadata is not exposed.",
-            excluded_conversation_message_count=max(
-                0,
-                len(history)
-                + 2
-                - len([m for m in messages if m.get("role") in {"user", "assistant"}]),
-            ),
-            model=getattr(self.ollama, "model", None),
-            streaming=bool(
-                pipeline_callback is not None
-                and getattr(self.ollama, "supports_streaming_observer", False)
-            ),
+        messages = self._trim_ollama_messages(
+            messages
         )
+        trace("model_request_constructed", messages=messages, message_count=len(messages),
+              context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None,
+              truncation="Inspect included messages; token-level truncation metadata is not exposed.",
+              excluded_conversation_message_count=max(0, len(history) + 2 - len([m for m in messages if m.get("role") in {"user", "assistant"}])),
+              model=getattr(self.ollama, "model", None), streaming=bool(
+                  pipeline_callback is not None and getattr(self.ollama, "supports_streaming_observer", False)))
 
         # Call Ollama with a real chat tool schema. If the model issues a tool call,
         # execute it in Python and then send the tool result back to Ollama.
         self._raise_if_cancelled(cancellation_check)
         start = time.perf_counter()
         generation_started_at = None
-        trace(
-            "generation_started",
-            streaming=bool(
-                pipeline_callback is not None
-                and getattr(self.ollama, "supports_streaming_observer", False)
-            ),
-        )
+        trace("generation_started", streaming=bool(
+            pipeline_callback is not None and getattr(self.ollama, "supports_streaming_observer", False)))
 
-        if pipeline_callback is not None and getattr(
-            self.ollama, "supports_streaming_observer", False
+        if (
+            pipeline_callback is not None
+            and getattr(self.ollama, "supports_streaming_observer", False)
         ):
-            response = self.ollama.chat(
+            response = traced_ollama_chat(
+                phase="initial",
                 messages=messages,
                 tools=tool_specs or None,
                 stream=True,
                 on_content=on_model_output,
             )
         else:
-            response = self.ollama.chat(messages=messages, tools=tool_specs or None)
+            response = traced_ollama_chat(
+                phase="initial",
+                messages=messages,
+                tools=tool_specs or None
+            )
         self._raise_if_cancelled(cancellation_check)
 
-        terminal.timing(f"[FIRST OLLAMA TIME] " f"{time.perf_counter() - start:.2f}s")
-        trace(
-            "generation_response_received",
-            status="completed",
-            model=getattr(self.ollama, "model", None),
-            generation_duration_seconds=round(time.perf_counter() - start, 4),
-            ttft_seconds=(
-                round(generation_started_at - start, 4)
-                if generation_started_at
-                else None
-            ),
-            tokens_generated=response.get("eval_count"),
-            generation_duration_nanoseconds=response.get("eval_duration"),
-            done_reason=response.get("done_reason"),
-            tool_calls=[
-                {
-                    "name": ((tc.get("function") or {}).get("name") or tc.get("name")),
-                    "arguments": (tc.get("function") or {}).get("arguments"),
-                }
-                for tc in (response.get("message") or {}).get("tool_calls", [])
-            ],
-            output=(
-                (response.get("message") or {}).get("content", "")
-                if not (response.get("message") or {}).get("tool_calls")
-                else "Model returned tool-call metadata; internal reasoning text is not captured."
-            ),
+        terminal.timing(
+            f"[FIRST OLLAMA TIME] "
+            f"{time.perf_counter() - start:.2f}s"
+        )
+        message = response.get(
+            "message",
+            {}
         )
 
-        message = response.get("message", {})
-
-        tool_calls = message.get("tool_calls") or []
+        tool_calls = (
+            message.get("tool_calls")
+            or []
+        )
 
         # Validate tool_calls before proceeding. If the model returned any tool name
         # that is not registered in the tool router, log and treat as if no tool was requested
@@ -1620,24 +1813,35 @@ class ChatEngine:
 
         for tc in tool_calls:
 
-            name = (tc.get("function") or {}).get("name") or tc.get("name")
+            name = (
+                tc.get("function") or {}
+            ).get("name") or tc.get("name")
 
-            if name and self.tool_router and hasattr(self.tool_router, "tools"):
+            if name and self.tool_router and hasattr(
+                self.tool_router,
+                "tools"
+            ):
 
                 if name in self.tool_router.tools:
 
-                    validated_tool_calls.append(tc)
+                    validated_tool_calls.append(
+                        tc
+                    )
 
                 else:
 
-                    invalid_tool_names.append(name)
+                    invalid_tool_names.append(
+                        name
+                    )
 
             else:
 
                 # If tool router missing or name absent, treat as invalid to be safe
                 if name:
 
-                    invalid_tool_names.append(name)
+                    invalid_tool_names.append(
+                        name
+                    )
 
         retrieval_cue = re.compile(
             r"\b(?:search|find|look\s+up|lookup|browse|verify|check|online|"
@@ -1656,9 +1860,7 @@ class ChatEngine:
                 filtered_calculator_calls.append(tc)
         validated_tool_calls = filtered_calculator_calls
         if blocked_optional_calculator:
-            terminal.warning(
-                "Skipping optional calculator: no grounded arithmetic in current user request."
-            )
+            terminal.warning("Skipping optional calculator: no grounded arithmetic in current user request.")
 
         if not retrieval_cue.search(text):
 
@@ -1666,7 +1868,9 @@ class ChatEngine:
 
             for tc in validated_tool_calls:
 
-                tc_name = (tc.get("function") or {}).get("name") or tc.get("name")
+                tc_name = (
+                    tc.get("function") or {}
+                ).get("name") or tc.get("name")
 
                 if tc_name == "web_search":
 
@@ -1690,7 +1894,8 @@ class ChatEngine:
 
             terminal.model(
                 "MODEL RESPONSE",
-                f"Invalid tool names detected from model: " f"{invalid_tool_names}",
+                f"Invalid tool names detected from model: "
+                f"{invalid_tool_names}"
             )
 
             terminal.warning(
@@ -1701,21 +1906,32 @@ class ChatEngine:
             # Proceed as if there were no tool calls
             tool_calls = []
 
-            message = {"role": "assistant", "content": message.get("content", "")}
+            message = {
+                "role": "assistant",
+                "content": message.get(
+                    "content",
+                    ""
+                )
+            }
 
         else:
 
             # Use the validated tool_calls (could be empty)
             tool_calls = validated_tool_calls
 
-        if (
-            blocked_optional_web_search or blocked_optional_calculator
-        ) and not tool_calls:
+        if (blocked_optional_web_search or blocked_optional_calculator) and not tool_calls:
 
-            response = self.ollama.chat(messages=messages, tools=None)
+            response = traced_ollama_chat(
+                phase="retry_without_tools",
+                messages=messages,
+                tools=None
+            )
             self._raise_if_cancelled(cancellation_check)
 
-            message = response.get("message", {})
+            message = response.get(
+                "message",
+                {}
+            )
 
         self._emit_pipeline_event(
             pipeline_callback,
@@ -1723,25 +1939,15 @@ class ChatEngine:
             stage="evaluating_capabilities",
             status="completed",
         )
-        trace(
-            "routing_decision",
-            action="use_tools" if tool_calls else "answer_directly",
-            tools=[
-                (call.get("function") or {}).get("name") or call.get("name")
-                for call in tool_calls
-            ],
-            tool_selection_source=(
-                "python_authoritative" if detected_tool else "model_selected"
-            ),
-            invocation_reason="not returned as structured metadata by the current tool selection path",
-            potentially_unnecessary=(
-                "review recommended" if tool_calls and not detected_tool else False
-            ),
-            rejected_tool_names=invalid_tool_names,
-            blocked_optional_web_search=blocked_optional_web_search,
-            blocked_optional_calculator=blocked_optional_calculator,
-            policy_classification="not instrumented in this request path",
-        )
+        trace("routing_decision", action="use_tools" if tool_calls else "answer_directly",
+              tools=[(call.get("function") or {}).get("name") or call.get("name") for call in tool_calls],
+              tool_selection_source="python_authoritative" if detected_tool else "model_selected",
+              invocation_reason="not returned as structured metadata by the current tool selection path",
+              potentially_unnecessary="review recommended" if tool_calls and not detected_tool else False,
+              rejected_tool_names=invalid_tool_names,
+              blocked_optional_web_search=blocked_optional_web_search,
+              blocked_optional_calculator=blocked_optional_calculator,
+              policy_classification="not instrumented in this request path")
         self._emit_pipeline_event(
             pipeline_callback,
             "decision",
@@ -1764,14 +1970,26 @@ class ChatEngine:
 
         if tool_calls:
 
-            terminal.model("MODEL RESPONSE")
+            terminal.model(
+                "MODEL RESPONSE"
+            )
 
-            terminal.json(dict(message) if isinstance(message, dict) else message)
+            terminal.json(
+                dict(message)
+                if isinstance(
+                    message,
+                    dict
+                )
+                else message
+            )
 
             messages.append(
                 {
                     "role": "assistant",
-                    "content": message.get("content", ""),
+                    "content": message.get(
+                        "content",
+                        ""
+                    ),
                     "tool_calls": tool_calls,
                 }
             )
@@ -1779,21 +1997,26 @@ class ChatEngine:
             for tool_call in tool_calls:
                 self._raise_if_cancelled(cancellation_check)
 
-                name = (tool_call.get("function") or {}).get("name") or tool_call.get(
-                    "name"
-                )
+                name = (
+                    tool_call.get("function") or {}
+                ).get("name") or tool_call.get("name")
 
                 arguments = (
-                    (tool_call.get("function") or {}).get("arguments")
-                    or tool_call.get("arguments")
-                    or {}
-                )
+                    tool_call.get("function") or {}
+                ).get("arguments") or tool_call.get(
+                    "arguments"
+                ) or {}
 
-                if isinstance(arguments, str):
+                if isinstance(
+                    arguments,
+                    str
+                ):
 
                     try:
 
-                        arguments = json.loads(arguments)
+                        arguments = json.loads(
+                            arguments
+                        )
 
                     except Exception:
 
@@ -1801,61 +2024,118 @@ class ChatEngine:
 
                 if request_id:
 
-                    terminal.tool("TOOL CALL", f"id={request_id} tool={name}")
+                    terminal.tool(
+                        "TOOL CALL",
+                        f"id={request_id} tool={name}"
+                    )
 
                 else:
 
-                    terminal.tool("TOOL CALL", f"name={name}")
+                    terminal.tool(
+                        "TOOL CALL",
+                        f"name={name}"
+                    )
 
-                terminal.tool_args("TOOL ARGUMENTS")
+                terminal.tool_args(
+                    "TOOL ARGUMENTS"
+                )
 
-                terminal.json(arguments)
+                terminal.json(
+                    arguments
+                )
 
                 # Additional smoke-query tracing and augmentation to ensure the tool call contains
                 # explicit smoke_type when the user requested a type (e.g., 'vape', 'pen').
-                if name == "smoke_counter" and isinstance(arguments, dict):
+                if (
+                    name == "smoke_counter"
+                    and isinstance(
+                        arguments,
+                        dict
+                    )
+                ):
 
                     parsed_from_text = None
 
                     try:
 
-                        if self.tool_router and hasattr(self.tool_router, "detect"):
+                        if (
+                            self.tool_router
+                            and hasattr(
+                                self.tool_router,
+                                "detect"
+                            )
+                        ):
 
-                            parsed_from_text = self.tool_router.detect(text)
+                            parsed_from_text = (
+                                self.tool_router.detect(
+                                    text
+                                )
+                            )
 
                     except Exception:
 
                         parsed_from_text = None
 
-                    parsed_action = arguments.get("action") or (
-                        parsed_from_text or {}
-                    ).get("action")
+                    parsed_action = (
+                        arguments.get("action")
+                        or
+                        (
+                            parsed_from_text or {}
+                        ).get("action")
+                    )
 
-                    parsed_smoke_type = arguments.get("smoke_type") or (
-                        parsed_from_text or {}
-                    ).get("smoke_type")
+                    parsed_smoke_type = (
+                        arguments.get("smoke_type")
+                        or
+                        (
+                            parsed_from_text or {}
+                        ).get("smoke_type")
+                    )
 
-                    parsed_scope = arguments.get("scope") or (
-                        parsed_from_text or {}
-                    ).get("scope")
+                    parsed_scope = (
+                        arguments.get("scope")
+                        or
+                        (
+                            parsed_from_text or {}
+                        ).get("scope")
+                    )
 
                     if (
                         self.tool_router
-                        and hasattr(self.tool_router, "is_read_only_smoke_query")
-                        and self.tool_router.is_read_only_smoke_query(text)
+                        and hasattr(
+                            self.tool_router,
+                            "is_read_only_smoke_query"
+                        )
+                        and self.tool_router.is_read_only_smoke_query(
+                            text
+                        )
                     ):
 
-                        if str(arguments.get("action", "")).lower() == "log":
+                        if str(
+                            arguments.get(
+                                "action",
+                                ""
+                            )
+                        ).lower() == "log":
 
                             arguments["action"] = "stats"
 
-                            if "today" in text.lower() and not arguments.get("scope"):
+                            if (
+                                "today" in text.lower()
+                                and not arguments.get(
+                                    "scope"
+                                )
+                            ):
 
                                 arguments["scope"] = "today"
 
-                            terminal.info("[SMOKE INTENT] read_only")
+                            terminal.info(
+                                "[SMOKE INTENT] read_only"
+                            )
 
-                            terminal.info("[SMOKE ACTION] stats")
+                            terminal.info(
+                                "[SMOKE ACTION] stats"
+                            )
 
                             terminal.info(
                                 f"[SMOKE TYPE] "
@@ -1867,21 +2147,41 @@ class ChatEngine:
                                 f"{arguments.get('scope') or parsed_scope or ('today' if 'today' in text.lower() else 'all')}"
                             )
 
-                    terminal.info("[SMOKE QUERY]")
+                    terminal.info(
+                        "[SMOKE QUERY]"
+                    )
 
-                    terminal.dim(text)
+                    terminal.dim(
+                        text
+                    )
 
-                    terminal.info(f"[PARSED ACTION] " f"{parsed_action}")
+                    terminal.info(
+                        f"[PARSED ACTION] "
+                        f"{parsed_action}"
+                    )
 
-                    terminal.info(f"[PARSED SMOKE TYPE] " f"{parsed_smoke_type}")
+                    terminal.info(
+                        f"[PARSED SMOKE TYPE] "
+                        f"{parsed_smoke_type}"
+                    )
 
-                    terminal.info(f"[PARSED DATE/SCOPE] " f"{parsed_scope}")
+                    terminal.info(
+                        f"[PARSED DATE/SCOPE] "
+                        f"{parsed_scope}"
+                    )
 
-                    if not arguments.get("smoke_type") and parsed_smoke_type:
+                    if (
+                        not arguments.get(
+                            "smoke_type"
+                        )
+                        and parsed_smoke_type
+                    ):
 
                         try:
 
-                            arguments["smoke_type"] = parsed_smoke_type
+                            arguments[
+                                "smoke_type"
+                            ] = parsed_smoke_type
 
                             terminal.info(
                                 "Augmented tool arguments "
@@ -1893,39 +2193,63 @@ class ChatEngine:
 
                             pass
 
-                    st = arguments.get("smoke_type")
+                    st = arguments.get(
+                        "smoke_type"
+                    )
 
-                    if st and hasattr(self.tool_router, "normalize_smoke_type"):
+                    if (
+                        st
+                        and hasattr(
+                            self.tool_router,
+                            "normalize_smoke_type"
+                        )
+                    ):
 
                         try:
 
-                            arguments["smoke_type"] = (
-                                self.tool_router.normalize_smoke_type(st)
+                            arguments[
+                                "smoke_type"
+                            ] = (
+                                self.tool_router
+                                .normalize_smoke_type(
+                                    st
+                                )
                             )
 
                         except Exception:
 
                             pass
 
-                    amt = arguments.get("amount")
+                    amt = arguments.get(
+                        "amount"
+                    )
 
-                    if isinstance(amt, str):
+                    if isinstance(
+                        amt,
+                        str
+                    ):
 
                         try:
 
                             if "." in amt:
 
-                                arguments["amount"] = float(amt)
+                                arguments[
+                                    "amount"
+                                ] = float(amt)
 
                             else:
 
-                                arguments["amount"] = int(amt)
+                                arguments[
+                                    "amount"
+                                ] = int(amt)
 
                         except Exception:
 
                             try:
 
-                                arguments["amount"] = float(amt)
+                                arguments[
+                                    "amount"
+                                ] = float(amt)
 
                             except Exception:
 
@@ -1933,14 +2257,26 @@ class ChatEngine:
 
                 if request_id:
 
-                    terminal.execute("EXECUTING TOOL", f"id={request_id} tool={name}")
+                    terminal.execute(
+                        "EXECUTING TOOL",
+                        f"id={request_id} tool={name}"
+                    )
 
                 else:
 
-                    terminal.execute("EXECUTING TOOL", f"tool={name}")
+                    terminal.execute(
+                        "EXECUTING TOOL",
+                        f"tool={name}"
+                    )
 
-                if not self.tool_router or name not in self.tool_router.tools:
-                    invocation_id = tool_call.get("id") or f"{name}-{len(messages)}"
+                if (
+                    not self.tool_router
+                    or name not in self.tool_router.tools
+                ):
+                    invocation_id = (
+                        tool_call.get("id")
+                        or f"{name}-{len(messages)}"
+                    )
                     self._emit_pipeline_event(
                         pipeline_callback,
                         "stage",
@@ -1956,7 +2292,9 @@ class ChatEngine:
                     )
                     tool_result_payload = {
                         "success": False,
-                        "error": (f"Tool '{name}' not found."),
+                        "error": (
+                            f"Tool '{name}' not found."
+                        )
                     }
                     self._emit_pipeline_event(
                         pipeline_callback,
@@ -1973,7 +2311,8 @@ class ChatEngine:
                         arguments,
                         pipeline_callback,
                         invocation_id=(
-                            tool_call.get("id") or f"{name}-{len(messages)}"
+                            tool_call.get("id")
+                            or f"{name}-{len(messages)}"
                         ),
                         cancellation_check=cancellation_check,
                         trace_callback=trace_callback,
@@ -1988,67 +2327,138 @@ class ChatEngine:
                         }
                     )
 
-                    tool_result_payload = dict(tool_result_payload)
+                    tool_result_payload = dict(
+                        tool_result_payload
+                    )
 
-                    tool_result_payload.setdefault("success", tool_result.success)
+                    tool_result_payload.setdefault(
+                        "success",
+                        tool_result.success
+                    )
 
-                    tool_result_payload.setdefault("output", tool_result.output)
+                    tool_result_payload.setdefault(
+                        "output",
+                        tool_result.output
+                    )
 
                     if name == "smoke_counter":
 
                         raw_result = (
                             {}
-                            if not isinstance(tool_result_payload, dict)
-                            else dict(tool_result_payload)
+                            if not isinstance(
+                                tool_result_payload,
+                                dict
+                            )
+                            else dict(
+                                tool_result_payload
+                            )
                         )
 
-                        merged = dict(raw_result)
-
-                        merged.setdefault(
-                            "success", raw_result.get("success", tool_result.success)
-                        )
-
-                        merged.setdefault("total_units", raw_result.get("total_units"))
-
-                        merged.setdefault(
-                            "total_cigarettes", raw_result.get("total_cigarettes")
+                        merged = dict(
+                            raw_result
                         )
 
                         merged.setdefault(
-                            "total_sessions", raw_result.get("total_sessions")
+                            "success",
+                            raw_result.get(
+                                "success",
+                                tool_result.success
+                            )
                         )
 
                         merged.setdefault(
-                            "today_sessions", raw_result.get("today_sessions")
+                            "total_units",
+                            raw_result.get(
+                                "total_units"
+                            )
                         )
-
-                        merged.setdefault("today_units", raw_result.get("today_units"))
 
                         merged.setdefault(
-                            "last_session", raw_result.get("last_session")
+                            "total_cigarettes",
+                            raw_result.get(
+                                "total_cigarettes"
+                            )
                         )
 
-                        merged.setdefault("units", raw_result.get("units"))
+                        merged.setdefault(
+                            "total_sessions",
+                            raw_result.get(
+                                "total_sessions"
+                            )
+                        )
 
-                        merged.setdefault("sessions", raw_result.get("sessions"))
+                        merged.setdefault(
+                            "today_sessions",
+                            raw_result.get(
+                                "today_sessions"
+                            )
+                        )
 
-                        merged.setdefault("smoke_type", raw_result.get("smoke_type"))
+                        merged.setdefault(
+                            "today_units",
+                            raw_result.get(
+                                "today_units"
+                            )
+                        )
 
-                        merged.setdefault("scope", raw_result.get("scope", "all"))
+                        merged.setdefault(
+                            "last_session",
+                            raw_result.get(
+                                "last_session"
+                            )
+                        )
 
-                        merged["authoritative_source"] = "current_tool_result"
+                        merged.setdefault(
+                            "units",
+                            raw_result.get(
+                                "units"
+                            )
+                        )
+
+                        merged.setdefault(
+                            "sessions",
+                            raw_result.get(
+                                "sessions"
+                            )
+                        )
+
+                        merged.setdefault(
+                            "smoke_type",
+                            raw_result.get(
+                                "smoke_type"
+                            )
+                        )
+
+                        merged.setdefault(
+                            "scope",
+                            raw_result.get(
+                                "scope",
+                                "all"
+                            )
+                        )
+
+                        merged[
+                            "authoritative_source"
+                        ] = "current_tool_result"
 
                         tool_result_payload = merged
 
                     if request_id:
 
-                        terminal.result("TOOL RESULT", f"id={request_id}")
+                        terminal.result(
+                            "TOOL RESULT",
+                            f"id={request_id}"
+                        )
 
                     else:
 
-                        terminal.result("TOOL RESULT")
+                        terminal.result(
+                            "TOOL RESULT"
+                        )
 
-                    terminal.json(tool_result_payload)
+                    terminal.json(
+                        tool_result_payload
+                    )
 
                 # Structured chart results are transported separately so the web UI
                 # can render them without asking the model to reproduce chart data.
@@ -2067,53 +2477,107 @@ class ChatEngine:
                         parsed_from_text = (
                             self.tool_router.detect(text)
                             if (
-                                self.tool_router and hasattr(self.tool_router, "detect")
+                                self.tool_router
+                                and hasattr(
+                                    self.tool_router,
+                                    "detect"
+                                )
                             )
                             else None
                         )
 
                         user_specified_type = (
-                            (parsed_from_text or {}).get("smoke_type")
-                            or arguments.get("smoke_type")
-                            or tool_result_payload.get("smoke_type")
+                            (
+                                parsed_from_text or {}
+                            ).get(
+                                "smoke_type"
+                            )
+                            or
+                            arguments.get(
+                                "smoke_type"
+                            )
+                            or
+                            tool_result_payload.get(
+                                "smoke_type"
+                            )
                         )
 
                     except Exception:
 
-                        user_specified_type = arguments.get(
-                            "smoke_type"
-                        ) or tool_result_payload.get("smoke_type")
+                        user_specified_type = (
+                            arguments.get(
+                                "smoke_type"
+                            )
+                            or
+                            tool_result_payload.get(
+                                "smoke_type"
+                            )
+                        )
 
                     if not user_specified_type:
 
                         scope_val = (
-                            arguments.get("scope")
-                            or tool_result_payload.get("scope")
-                            or "all"
+                            arguments.get(
+                                "scope"
+                            )
+                            or
+                            tool_result_payload.get(
+                                "scope"
+                            )
+                            or
+                            "all"
                         )
 
-                        if str(scope_val).lower() == "today":
+                        if str(
+                            scope_val
+                        ).lower() == "today":
 
                             display_units = (
-                                tool_result_payload.get("today_units")
-                                if (tool_result_payload.get("today_units") is not None)
-                                else tool_result_payload.get("units")
-                                or tool_result_payload.get("total_units")
+                                tool_result_payload.get(
+                                    "today_units"
+                                )
+                                if (
+                                    tool_result_payload.get(
+                                        "today_units"
+                                    ) is not None
+                                )
+                                else
+                                tool_result_payload.get(
+                                    "units"
+                                )
+                                or
+                                tool_result_payload.get(
+                                    "total_units"
+                                )
                             )
 
                         else:
 
                             display_units = (
-                                tool_result_payload.get("total_units")
-                                if (tool_result_payload.get("total_units") is not None)
-                                else tool_result_payload.get("units")
-                                or tool_result_payload.get("today_units")
+                                tool_result_payload.get(
+                                    "total_units"
+                                )
+                                if (
+                                    tool_result_payload.get(
+                                        "total_units"
+                                    ) is not None
+                                )
+                                else
+                                tool_result_payload.get(
+                                    "units"
+                                )
+                                or
+                                tool_result_payload.get(
+                                    "today_units"
+                                )
                             )
 
                         try:
 
                             display_units = (
-                                0 if display_units is None else display_units
+                                0
+                                if display_units is None
+                                else display_units
                             )
 
                         except Exception:
@@ -2121,10 +2585,14 @@ class ChatEngine:
                             display_units = display_units
 
                         display_override = (
-                            f"You've smoked " f"{display_units} " f"smoking units."
+                            f"You've smoked "
+                            f"{display_units} "
+                            f"smoking units."
                         )
 
-                        tool_result_payload["display"] = display_override
+                        tool_result_payload[
+                            "display"
+                        ] = display_override
 
                 tool_result_instruction = (
                     "Use the current tool result as the authoritative source "
@@ -2147,26 +2615,38 @@ class ChatEngine:
                     )
 
                 tool_message_content = {
+
                     "tool_name": name,
+
                     "result": tool_result_payload,
-                    "instruction": tool_result_instruction,
+
+                    "instruction": tool_result_instruction
                 }
 
                 tool_message = {
+
                     "role": "tool",
-                    "tool_call_id": tool_call.get("id", "call_1"),
+
+                    "tool_call_id": tool_call.get(
+                        "id",
+                        "call_1"
+                    ),
+
                     "name": name,
-                    "content": json.dumps(tool_message_content, ensure_ascii=False),
+
+                    "content": json.dumps(
+                        tool_message_content,
+                        ensure_ascii=False
+                    )
                 }
 
-                messages.append(tool_message)
-                trace(
-                    "tool_context_included",
-                    tool_name=name,
-                    invocation_id=tool_call.get("id") or f"{name}-{len(messages)}",
-                    included_in_model_context=True,
-                    output_contents="redacted/omitted from this event",
+                messages.append(
+                    tool_message
                 )
+                trace("tool_context_included", tool_name=name,
+                      invocation_id=tool_call.get("id") or f"{name}-{len(messages)}",
+                      included_in_model_context=True,
+                      output_contents="redacted/omitted from this event")
 
             self._emit_pipeline_event(
                 pipeline_callback,
@@ -2177,9 +2657,14 @@ class ChatEngine:
 
             if request_id:
 
-                terminal.ollama("OLLAMA CALL", f"id={request_id} phase=final")
+                terminal.ollama(
+                    "OLLAMA CALL",
+                    f"id={request_id} phase=final"
+                )
 
-            terminal.info("[RETURNING TOOL RESULT TO MODEL]")
+            terminal.info(
+                "[RETURNING TOOL RESULT TO MODEL]"
+            )
 
             self._emit_pipeline_event(
                 pipeline_callback,
@@ -2190,15 +2675,32 @@ class ChatEngine:
 
             # Optimize final Ollama call for deterministic tools (small prompt)
             # Deterministic tools should not require re-sending the full system prompt.
-            deterministic_tools = {"smoke_counter", "chart"}
+            deterministic_tools = {
+                "smoke_counter",
+                "chart"
+            }
 
-            tool_messages = [m for m in messages if m.get("role") == "tool"]
+            tool_messages = [
+                m
+                for m in messages
+                if m.get("role") == "tool"
+            ]
 
-            tool_names = [m.get("name") for m in tool_messages]
+            tool_names = [
+                m.get("name")
+                for m in tool_messages
+            ]
 
             use_minimal = False
 
-            if tool_messages and all(n in deterministic_tools for n in tool_names):
+            if (
+                tool_messages
+                and
+                all(
+                    n in deterministic_tools
+                    for n in tool_names
+                )
+            ):
 
                 use_minimal = True
 
@@ -2220,71 +2722,77 @@ class ChatEngine:
                 )
 
                 final_messages = [
-                    {"role": "system", "content": small_identity},
-                    {"role": "user", "content": text},
+
+                    {
+                        "role": "system",
+                        "content": small_identity
+                    },
+
+                    {
+                        "role": "user",
+                        "content": text
+                    },
+
                 ]
 
                 # include the tool messages (they contain result + instruction)
-                final_messages.extend(tool_messages)
-                trace(
-                    "model_request_constructed",
-                    phase="post_tool",
-                    messages=final_messages,
-                    model=getattr(self.ollama, "model", None),
-                    streaming=False,
-                    context_window_tokens=OLLAMA_CONTEXT_LIMIT,
-                    token_count=None,
+                final_messages.extend(
+                    tool_messages
                 )
+                trace("model_request_constructed", phase="post_tool", messages=final_messages,
+                      model=getattr(self.ollama, "model", None), streaming=False,
+                      context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None)
 
                 if request_id:
 
                     terminal.ollama(
                         "OLLAMA CALL",
-                        f"id={request_id} " f"phase=final (minimal prompt)",
+                        f"id={request_id} "
+                        f"phase=final (minimal prompt)"
                     )
 
-                final_response = self.ollama.chat(messages=final_messages, tools=None)
+                final_response = traced_ollama_chat(
+                    phase="post_tool",
+                    messages=final_messages,
+                    tools=None
+                )
                 self._raise_if_cancelled(cancellation_check)
 
             else:
 
                 # Protect the final tool response from context overflow.
-                messages = self._trim_ollama_messages(messages)
-                trace(
-                    "model_request_constructed",
+                messages = self._trim_ollama_messages(
+                    messages
+                )
+                trace("model_request_constructed", phase="post_tool", messages=messages,
+                      model=getattr(self.ollama, "model", None), streaming=False,
+                      context_window_tokens=OLLAMA_CONTEXT_LIMIT, token_count=None,
+                      truncation="Token-level truncation metadata is not exposed.")
+
+                final_response = traced_ollama_chat(
                     phase="post_tool",
                     messages=messages,
-                    model=getattr(self.ollama, "model", None),
-                    streaming=False,
-                    context_window_tokens=OLLAMA_CONTEXT_LIMIT,
-                    token_count=None,
-                    truncation="Token-level truncation metadata is not exposed.",
+                    tools=None
                 )
-
-                final_response = self.ollama.chat(messages=messages, tools=None)
                 self._raise_if_cancelled(cancellation_check)
 
             terminal.timing(
-                f"[FINAL OLLAMA TIME] " f"{time.perf_counter() - final_start:.2f}s"
+                f"[FINAL OLLAMA TIME] "
+                f"{time.perf_counter() - final_start:.2f}s"
             )
 
-            assistant_text = (final_response.get("message") or {}).get(
-                "content"
-            ) or str(final_response)
-            trace(
-                "model_response_received",
-                output=assistant_text,
-                generation_duration_seconds=round(time.perf_counter() - final_start, 4),
-                model=getattr(self.ollama, "model", None),
-                done_reason=final_response.get("done_reason"),
-                tool_calls=[],
+            assistant_text = (
+                (final_response.get("message") or {}).get(
+                    "content"
+                )
+                or
+                str(final_response)
             )
-            trace(
-                "response_transformation",
-                original_model_output=assistant_text,
-                final_user_facing_response=assistant_text,
-                modifications=[],
-            )
+            trace("model_response_received", output=assistant_text,
+                  generation_duration_seconds=round(time.perf_counter() - final_start, 4),
+                  model=getattr(self.ollama, "model", None), done_reason=final_response.get("done_reason"), tool_calls=[])
+            trace("response_transformation", original_model_output=assistant_text,
+                  final_user_facing_response=assistant_text, modifications=[])
             self._emit_pipeline_event(
                 pipeline_callback,
                 "stage",
@@ -2292,34 +2800,59 @@ class ChatEngine:
                 status="completed",
             )
 
-            terminal.model("FINAL MESSAGES")
+            terminal.model(
+                "FINAL MESSAGES"
+            )
 
             if use_minimal:
 
-                terminal.json(final_messages)
+                terminal.json(
+                    final_messages
+                )
 
             else:
 
-                terminal.json(messages)
+                terminal.json(
+                    messages
+                )
 
-            terminal.model("FINAL MODEL RESPONSE")
+            terminal.model(
+                "FINAL MODEL RESPONSE"
+            )
 
-            terminal.dim(assistant_text)
+            terminal.dim(
+                assistant_text
+            )
 
             # Save the completed turn for short-term conversational continuity.
-            history.append({"role": "user", "content": text})
+            history.append(
+                {
+                    "role": "user",
+                    "content": text
+                }
+            )
 
-            history.append({"role": "assistant", "content": assistant_text})
+            history.append(
+                {
+                    "role": "assistant",
+                    "content": assistant_text
+                }
+            )
 
             # Keep history bounded so it does not consume the entire context window.
-            max_messages = self.max_conversation_turns * 2
+            max_messages = (
+                self.max_conversation_turns * 2
+            )
 
             if len(history) > max_messages:
 
                 del history[:-max_messages]
 
             if chart_payload is not None:
-                return {"text": assistant_text, "chart": chart_payload}
+                return {
+                    "text": assistant_text,
+                    "chart": chart_payload
+                }
 
             return assistant_text
 
@@ -2332,25 +2865,18 @@ class ChatEngine:
                 status="active",
             )
         assistant_text = (
-            (response.get("message") or {}).get("content")
+            (response.get("message") or {}).get(
+                "content"
+            )
             or response.get("response")
             or response.get("text")
             or str(response)
         )
-        trace(
-            "model_response_received",
-            output=assistant_text,
-            generation_duration_seconds=round(time.perf_counter() - start, 4),
-            model=getattr(self.ollama, "model", None),
-            done_reason=response.get("done_reason"),
-            tool_calls=[],
-        )
-        trace(
-            "response_transformation",
-            original_model_output=assistant_text,
-            final_user_facing_response=assistant_text,
-            modifications=[],
-        )
+        trace("model_response_received", output=assistant_text,
+              generation_duration_seconds=round(time.perf_counter() - start, 4),
+              model=getattr(self.ollama, "model", None), done_reason=response.get("done_reason"), tool_calls=[])
+        trace("response_transformation", original_model_output=assistant_text,
+              final_user_facing_response=assistant_text, modifications=[])
         self._emit_pipeline_event(
             pipeline_callback,
             "stage",
@@ -2358,17 +2884,33 @@ class ChatEngine:
             status="completed",
         )
 
-        terminal.model("FINAL MODEL RESPONSE")
+        terminal.model(
+            "FINAL MODEL RESPONSE"
+        )
 
-        terminal.dim(assistant_text)
+        terminal.dim(
+            assistant_text
+        )
 
         # Save the completed turn for short-term conversational continuity.
-        history.append({"role": "user", "content": text})
+        history.append(
+            {
+                "role": "user",
+                "content": text
+            }
+        )
 
-        history.append({"role": "assistant", "content": assistant_text})
+        history.append(
+            {
+                "role": "assistant",
+                "content": assistant_text
+            }
+        )
 
         # Keep history bounded so it does not consume the entire context window.
-        max_messages = self.max_conversation_turns * 2
+        max_messages = (
+            self.max_conversation_turns * 2
+        )
 
         if len(history) > max_messages:
 
@@ -2380,12 +2922,19 @@ class ChatEngine:
 
         if self.memory_extractor:
 
-            saved_ids = self.memory_extractor.extract_and_save(
-                user_id, text, assistant_text
+            saved_ids = (
+                self.memory_extractor.extract_and_save(
+                    user_id,
+                    text,
+                    assistant_text
+                )
             )
 
             if saved_ids:
 
-                self.logger.info(f"[MEMORY_SAVE] " f"Saved {len(saved_ids)} memories")
+                self.logger.info(
+                    f"[MEMORY_SAVE] "
+                    f"Saved {len(saved_ids)} memories"
+                )
 
         return assistant_text

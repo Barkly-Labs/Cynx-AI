@@ -173,7 +173,9 @@ class BenchmarkRunManager:
                 "started_at": None, "finished_at": None,
                 "duration_seconds": response_time,
                 "metrics": {"response_time_seconds": response_time, "ttft_seconds": None,
-                            "tokens_generated": None, "tokens_per_second": None},
+                            "prompt_tokens": None, "completion_tokens": None, "tokens_generated": None,
+                            "total_tokens": None, "prompt_evaluation_duration_seconds": None,
+                            "generation_duration_seconds": None, "tokens_per_second": None},
             })
         failures = sum(q["status"] == "failed" for q in questions)
         run_status = "incomplete" if not questions else "completed_with_failures" if failures else "completed"
@@ -330,6 +332,7 @@ class BenchmarkRunManager:
             for question in run.get("questions", [])
         ]
         value["counts"] = self._counts(run)
+        value["metrics_summary"] = self._aggregate_metrics(value["questions"])
         value["elapsed_seconds"] = _run_elapsed(run)
         value["events"] = [event for event in run.get("events", []) if event.get("id", 0) > after_event]
         current_id = run.get("current_request_id")
@@ -341,6 +344,48 @@ class BenchmarkRunManager:
             value["live_request_events"] = []
             value["live_request_done"] = False
         return value
+
+    @staticmethod
+    def _aggregate_metrics(questions: list[dict]) -> dict:
+        """Summarize actual measured question metrics, retaining coverage counts."""
+        rows = [question_metrics(question) for question in questions
+                if question.get("status") != "pending"]
+
+        def valid(value):
+            return (isinstance(value, (int, float)) and not isinstance(value, bool)
+                    and math.isfinite(value) and value >= 0)
+
+        def total(key):
+            values = [row[key] for row in rows if valid(row.get(key))]
+            return {"total": sum(values) if values else None,
+                    "measured_questions": len(values), "eligible_questions": len(rows)}
+
+        ttfts = [row["ttft_seconds"] for row in rows if valid(row.get("ttft_seconds"))]
+        durations = [row["response_time_seconds"] for row in rows if valid(row.get("response_time_seconds"))]
+        tps_rows = [row for row in rows if valid(row.get("completion_tokens"))
+                    and valid(row.get("generation_duration_seconds"))
+                    and row["generation_duration_seconds"] > 0]
+        tps_tokens = sum(row["completion_tokens"] for row in tps_rows)
+        tps_duration = sum(row["generation_duration_seconds"] for row in tps_rows)
+        return {
+            "prompt_tokens": total("prompt_tokens"),
+            "completion_tokens": total("completion_tokens"),
+            "total_tokens": total("total_tokens"),
+            "generation_duration_seconds": total("generation_duration_seconds"),
+            "request_duration_seconds": {
+                "total": sum(durations) if durations else None,
+                "average": sum(durations) / len(durations) if durations else None,
+                "measured_questions": len(durations), "eligible_questions": len(rows),
+            },
+            "ttft_seconds": {
+                "average": sum(ttfts) / len(ttfts) if ttfts else None,
+                "measured_questions": len(ttfts), "eligible_questions": len(rows),
+            },
+            "tokens_per_second": {
+                "value": tps_tokens / tps_duration if tps_duration > 0 else None,
+                "measured_questions": len(tps_rows), "eligible_questions": len(rows),
+            },
+        }
 
     def _recover_interrupted_runs(self) -> None:
         for path in self.results_dir.glob("*.json"):
@@ -438,7 +483,10 @@ class BenchmarkRunManager:
                     "tool_telemetry_available": None,
                     "personality_trace": {"schema": "cynx-personality-trace-v1", "available": False, "events": []},
                     "tools": [],
-                    "metrics": {"response_time_seconds": None, "ttft_seconds": None, "tokens_generated": None, "tokens_per_second": None},
+                    "metrics": {"response_time_seconds": None, "ttft_seconds": None,
+                                "prompt_tokens": None, "completion_tokens": None, "tokens_generated": None,
+                                "total_tokens": None, "prompt_evaluation_duration_seconds": None,
+                                "generation_duration_seconds": None, "tokens_per_second": None},
                     "started_at": None,
                     "finished_at": None,
                     "duration_seconds": None,

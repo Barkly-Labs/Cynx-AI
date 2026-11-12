@@ -60,6 +60,49 @@ test("request diagnostics prefer the failing turn ID and preserve event turn map
 });
 
 test("legacy unavailable tool telemetry is not rendered as zero calls", () => {
-  assert.match(source, /toolsObserved\?selected\.tools\.length:'Unavailable'/);
+  assert.match(source, /metricCell\('Tool calls',toolsObserved\?\(selected\.tools\|\|\[\]\)\.length:null\)/);
   assert.match(source, /selected\?\.tool_telemetry_available===true/);
+});
+
+test("question results show every actual multi-turn user prompt and response", () => {
+  assert.match(source, /function renderQuestionConversation\(question\)/);
+  assert.match(source, /question\?\.conversation_turns\)\?question\.conversation_turns:\[\]/);
+  assert.match(source, /turn\.user_message\|\|'No user message saved\.'/);
+  assert.match(source, /turn\.response\|\|'No response saved\.'/);
+});
+
+test("question results distinguish recorded zero tool calls from unavailable telemetry", () => {
+  assert.match(source, /function renderQuestionTools\(question\)/);
+  assert.match(source, /tool_telemetry_available===true/);
+  assert.match(source, /list\|\|'None recorded'/);
+  assert.match(source, /Tool calls: unavailable \(not captured\)/);
+});
+
+test("watchdog trait values come only from saved personality evaluations", () => {
+  assert.match(source, /Scores are aggregated from saved, versioned Personality Diagnostics/);
+  assert.match(source, /\$\{esc\(value\.value\)\} \/ 4 · \$\{esc\(value\.sample_count\)\} sample/);
+  assert.match(source, /Traits are not inferred from response text/);
+});
+
+test("benchmark question and turn views render input, output, total, and timing metrics", () => {
+  assert.match(source, /metricCell\('Input tokens',metrics\.prompt_tokens\)/);
+  assert.match(source, /metricCell\('Output tokens',metrics\.completion_tokens\?\?metrics\.tokens_generated\)/);
+  assert.match(source, /metricCell\('Total tokens',metrics\.total_tokens\)/);
+  assert.match(source, /metricCell\('Generation duration',metrics\.generation_duration_seconds,'s'\)/);
+  assert.match(source, /metricCell\('Request duration',metrics\.response_time_seconds,'s'\)/);
+  assert.match(source, /Turn performance/);
+});
+
+test("benchmark overview shows real aggregate metrics with measurement coverage", () => {
+  assert.match(source, /run\.metrics_summary\|\|\{\}/);
+  assert.match(source, /aggregateMetricCell\('Input tokens',summary\.prompt_tokens\)/);
+  assert.match(source, /aggregateMetricCell\('Output tokens',summary\.completion_tokens\)/);
+  assert.match(source, /aggregateMetricCell\('Total tokens',summary\.total_tokens\)/);
+  assert.match(source, /Aggregate tokens\/sec/);
+  assert.match(source, /measured_questions\?\?0/);
+});
+
+test("valid zero-valued telemetry is rendered as zero instead of unavailable", () => {
+  assert.match(source, /value===null\|\|value===undefined\?'Unavailable'/);
+  assert.match(source, /metrics\.prompt_tokens/);
 });
