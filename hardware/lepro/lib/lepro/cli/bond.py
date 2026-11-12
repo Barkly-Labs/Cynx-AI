@@ -19,16 +19,25 @@ from hardware.lepro.lib.lepro.bond import (
 from hardware.lepro.lib.lepro.cli._common import connect_transport
 from hardware.lepro.lib.lepro.crypto import encrypt_search_hello
 from hardware.lepro.lib.lepro.protocol import OP_SEARCH, build_packet_opcode
-from hardware.lepro.lib.lepro.session import DryRunTransport, LeproSession, SessionConfig, bond_device
+from hardware.lepro.lib.lepro.session import (
+    DryRunTransport,
+    LeproSession,
+    SessionConfig,
+    bond_device,
+)
 
 
 async def _cmd_bond(args: argparse.Namespace) -> None:
     mac = normalize_mac(args.mac)
     if args.probe:
         transport = DryRunTransport()
-        session = LeproSession(mac, transport, config=SessionConfig(dry_run=True, send_delay=0))
+        session = LeproSession(
+            mac, transport, config=SessionConfig(dry_run=True, send_delay=0)
+        )
         hello = encrypt_search_hello(mac)
-        await transport.send(build_packet_opcode(0, OP_SEARCH, hello), "searchDeviceInfo")
+        await transport.send(
+            build_packet_opcode(0, OP_SEARCH, hello), "searchDeviceInfo"
+        )
         print("Probe dry-run: discovery TX only")
         for label, pkt in transport.sent:
             print(f"  {label}: {pkt.hex()}")
@@ -87,8 +96,12 @@ def main() -> None:
         description="Bond a Lepro ZB1 string light (saves tokens to ~/.lepro/)"
     )
     p.add_argument("--mac", required=True, help="Target light MAC address")
-    p.add_argument("--force-bond", action="store_true", help="Re-bond even if creds exist")
-    p.add_argument("--debug-rx", action="store_true", help="Log all light notifications")
+    p.add_argument(
+        "--force-bond", action="store_true", help="Re-bond even if creds exist"
+    )
+    p.add_argument(
+        "--debug-rx", action="store_true", help="Log all light notifications"
+    )
     p.add_argument("--probe", action="store_true", help="Discovery only, no bond TX")
     p.add_argument("--scan-timeout", type=float, default=15.0)
     p.add_argument(

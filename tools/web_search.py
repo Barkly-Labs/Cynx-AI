@@ -9,10 +9,10 @@ from urllib.parse import urlparse
 from ddgs import DDGS
 from tools.base import BaseTool, ToolResult
 
-
 # ============================================================
 # Output Types
 # ============================================================
+
 
 class OutputMode(str, Enum):
     NORMAL = "normal"
@@ -27,6 +27,7 @@ class OutputMode(str, Enum):
 # ============================================================
 # Ranking Configuration
 # ============================================================
+
 
 @dataclass
 class RankingProfile:
@@ -51,14 +52,13 @@ class RankingProfile:
 # Search Intent
 # ============================================================
 
+
 @dataclass
 class SearchIntent:
 
     subject: str
 
-    modifiers: list[str] = field(
-        default_factory=list
-    )
+    modifiers: list[str] = field(default_factory=list)
 
     output_type: OutputMode = OutputMode.NORMAL
 
@@ -78,9 +78,7 @@ class SearchIntent:
 
     is_research_search: bool = False
 
-    ranking_profile: RankingProfile = field(
-        default_factory=RankingProfile
-    )
+    ranking_profile: RankingProfile = field(default_factory=RankingProfile)
 
 
 # ============================================================
@@ -88,7 +86,6 @@ class SearchIntent:
 # ============================================================
 
 QUERY_STOPWORDS = {
-
     "the",
     "a",
     "an",
@@ -106,7 +103,6 @@ QUERY_STOPWORDS = {
     "at",
     "by",
     "from",
-
     "best",
     "top",
     "review",
@@ -114,12 +110,10 @@ QUERY_STOPWORDS = {
     "buy",
     "find",
     "list",
-
     "guide",
     "product",
     "products",
     "listing",
-
     "why",
     "what",
     "how",
@@ -129,23 +123,17 @@ QUERY_STOPWORDS = {
     "is",
     "people",
     "some",
-
 }
 
 
 INTENT_PATTERNS = {
-
     OutputMode.POSITIONS: {
-
         "position",
         "positions",
         "sex position",
         "sex positions",
-
     },
-
     OutputMode.LIST: {
-
         "best",
         "top",
         "recommend",
@@ -153,23 +141,17 @@ INTENT_PATTERNS = {
         "list",
         "five",
         "1-5",
-
     },
-
     OutputMode.PRODUCT: {
-
         "buy",
         "purchase",
         "price",
         "review",
-
-    }
-
+    },
 }
 
 
 RESEARCH_INDICATORS = {
-
     "research",
     "study",
     "studies",
@@ -196,12 +178,10 @@ RESEARCH_INDICATORS = {
     "statistics",
     "how common",
     "how often",
-
 }
 
 
 RESEARCH_PATTERNS = {
-
     "why do people",
     "why does",
     "why are people",
@@ -215,87 +195,55 @@ RESEARCH_PATTERNS = {
     "what do studies",
     "how common",
     "how often",
-
 }
 
 
 TOPIC_RULES = {
-
     "positions": {
-
         "positive": (
-
             "position",
             "positions",
             "comfort",
             "intimacy",
-
         ),
-
         "priority": (
-
             "guide",
             "health",
             "relationship",
-
         ),
-
         "negative": (
-
             "community",
             "wiki",
             "fandom",
             "maker",
             "review",
-
         ),
-
     },
-
-
     "fursuit": {
-
         "positive": (
-
             "fursuit",
             "fursuited",
             "furry",
-
         ),
-
         "context": (
-
             "fursuit",
             "furry",
-
         ),
-
     },
-
-
     "vibrator": {
-
         "positive": (
-
             "vibrator",
             "product",
-
         ),
-
         "context": (
-
             "review",
             "product",
-
         ),
-
     },
-
 }
 
 
 PRODUCT_KEYWORDS = {
-
     "vibrator",
     "headset",
     "keyboard",
@@ -303,18 +251,13 @@ PRODUCT_KEYWORDS = {
     "laptop",
     "mouse",
     "controller",
-
 }
 
 
 STORE_DOMAINS = {
-
     "target": "target.com",
-
     "amazon": "amazon.com",
-
     "walmart": "walmart.com",
-
 }
 
 
@@ -323,75 +266,58 @@ STORE_DOMAINS = {
 # ============================================================
 
 TRUSTED_DOMAINS = {
-
     "github.com": 3,
     "python.org": 5,
     "docs.python.org": 6,
     "wikipedia.org": 2,
-
     "nih.gov": 10,
     "pubmed.ncbi.nlm.nih.gov": 12,
     "ncbi.nlm.nih.gov": 10,
-
     "cdc.gov": 10,
     "who.int": 10,
     "apa.org": 9,
-
     "nature.com": 10,
     "sciencedirect.com": 9,
     "springer.com": 9,
     "wiley.com": 9,
     "tandfonline.com": 8,
-
     "jamanetwork.com": 10,
     "nejm.org": 10,
     "bmj.com": 10,
-
 }
 
 
 RESEARCH_DOMAIN_SCORES = {
-
     "pubmed.ncbi.nlm.nih.gov": 20,
     "nih.gov": 18,
     "ncbi.nlm.nih.gov": 18,
-
     "jamanetwork.com": 18,
     "nejm.org": 18,
     "bmj.com": 17,
-
     "nature.com": 17,
     "sciencedirect.com": 16,
     "springer.com": 16,
     "wiley.com": 16,
-
     "cdc.gov": 17,
     "who.int": 17,
     "apa.org": 16,
-
     "edu": 12,
     "gov": 12,
-
     "wikipedia.org": 4,
-
     "reddit.com": -8,
     "quora.com": -10,
-
 }
 
 
 LOW_QUALITY_DOMAINS = {
-
     "reddit.com",
     "quora.com",
     "answers.com",
     "yahoo.com",
-
 }
 
 
 ADULT_INDICATORS = {
-
     "sex",
     "porn",
     "nsfw",
@@ -399,12 +325,10 @@ ADULT_INDICATORS = {
     "position",
     "positions",
     "knot",
-
 }
 
 
 BLOCKED_PHRASES = {
-
     "massage gun",
     "deep tissue",
     "school supplies",
@@ -413,7 +337,6 @@ BLOCKED_PHRASES = {
     "video chat",
     "vinyl",
     "makeup",
-
 }
 
 
@@ -421,20 +344,13 @@ BLOCKED_PHRASES = {
 # Utility Functions
 # ============================================================
 
-def contains_any(
-    text: str,
-    words: Iterable[str]
-) -> bool:
 
-    return any(
-        word in text
-        for word in words
-    )
+def contains_any(text: str, words: Iterable[str]) -> bool:
+
+    return any(word in text for word in words)
 
 
-def dedupe_terms(
-    *groups: Iterable[str]
-) -> list[str]:
+def dedupe_terms(*groups: Iterable[str]) -> list[str]:
 
     seen = set()
     output = []
@@ -453,32 +369,20 @@ def dedupe_terms(
     return output
 
 
-def extract_query_tokens(
-    query: str
-) -> tuple[str, ...]:
+def extract_query_tokens(query: str) -> tuple[str, ...]:
 
-    tokens = re.findall(
-        r"[a-z0-9-]+",
-        query.lower()
-    )
+    tokens = re.findall(r"[a-z0-9-]+", query.lower())
 
     return tuple(
-        token
-        for token in tokens
-        if token not in QUERY_STOPWORDS
-        and len(token) > 1
+        token for token in tokens if token not in QUERY_STOPWORDS and len(token) > 1
     )
 
 
-def normalize_domain(
-    href: str
-) -> str:
+def normalize_domain(href: str) -> str:
 
     try:
 
-        hostname = urlparse(
-            href
-        ).hostname
+        hostname = urlparse(href).hostname
 
         if not hostname:
 
@@ -501,23 +405,16 @@ def normalize_domain(
 # Research Detection
 # ============================================================
 
-def detect_research_intent(
-    query: str
-) -> bool:
+
+def detect_research_intent(query: str) -> bool:
 
     query_lower = query.lower()
 
-    if contains_any(
-        query_lower,
-        RESEARCH_INDICATORS
-    ):
+    if contains_any(query_lower, RESEARCH_INDICATORS):
 
         return True
 
-    if contains_any(
-        query_lower,
-        RESEARCH_PATTERNS
-    ):
+    if contains_any(query_lower, RESEARCH_PATTERNS):
 
         return True
 
@@ -528,18 +425,14 @@ def detect_research_intent(
 # Output Detection
 # ============================================================
 
-def detect_output_type(
-    query: str
-) -> OutputMode:
+
+def detect_output_type(query: str) -> OutputMode:
 
     query = query.lower()
 
     for mode, keywords in INTENT_PATTERNS.items():
 
-        if contains_any(
-            query,
-            keywords
-        ):
+        if contains_any(query, keywords):
 
             return mode
 
@@ -550,19 +443,14 @@ def detect_output_type(
 # Intent Builder
 # ============================================================
 
-def build_intent(
-    query: str
-) -> SearchIntent:
+
+def build_intent(query: str) -> SearchIntent:
 
     query_lower = query.lower().strip()
 
-    output_type = detect_output_type(
-        query_lower
-    )
+    output_type = detect_output_type(query_lower)
 
-    is_research = detect_research_intent(
-        query_lower
-    )
+    is_research = detect_research_intent(query_lower)
 
     positive = []
     priority = []
@@ -570,10 +458,7 @@ def build_intent(
     negative = []
     modifiers = []
 
-    adult_search = contains_any(
-        query_lower,
-        ADULT_INDICATORS
-    )
+    adult_search = contains_any(query_lower, ADULT_INDICATORS)
 
     # -------------------------
     # Research intent
@@ -616,17 +501,11 @@ def build_intent(
 
         rules = TOPIC_RULES["positions"]
 
-        positive.extend(
-            rules["positive"]
-        )
+        positive.extend(rules["positive"])
 
-        priority.extend(
-            rules["priority"]
-        )
+        priority.extend(rules["priority"])
 
-        negative.extend(
-            rules["negative"]
-        )
+        negative.extend(rules["negative"])
 
         modifiers.extend(
             [
@@ -639,25 +518,15 @@ def build_intent(
     # Fursuit modifier
     # -------------------------
 
-    has_fursuit = contains_any(
-        query_lower,
-        {
-            "fursuit",
-            "furry"
-        }
-    )
+    has_fursuit = contains_any(query_lower, {"fursuit", "furry"})
 
     if has_fursuit:
 
         rules = TOPIC_RULES["fursuit"]
 
-        positive.extend(
-            rules["positive"]
-        )
+        positive.extend(rules["positive"])
 
-        context.extend(
-            rules["context"]
-        )
+        context.extend(rules["context"])
 
         if adult_search:
 
@@ -670,32 +539,21 @@ def build_intent(
 
         else:
 
-            modifiers.append(
-                "fursuit"
-            )
+            modifiers.append("fursuit")
 
     # -------------------------
     # Product intent
     # -------------------------
 
-    if contains_any(
-        query_lower,
-        PRODUCT_KEYWORDS
-    ):
+    if contains_any(query_lower, PRODUCT_KEYWORDS):
 
         rules = TOPIC_RULES["vibrator"]
 
-        positive.extend(
-            rules["positive"]
-        )
+        positive.extend(rules["positive"])
 
-        context.extend(
-            rules["context"]
-        )
+        context.extend(rules["context"])
 
-        modifiers.append(
-            "product review"
-        )
+        modifiers.append("product review")
 
     # -------------------------
     # Store targeting
@@ -709,9 +567,7 @@ def build_intent(
 
             requested_store = domain
 
-            modifiers.append(
-                f"site:{domain}"
-            )
+            modifiers.append(f"site:{domain}")
 
             break
 
@@ -729,25 +585,18 @@ def build_intent(
             "buy",
             "find",
             "show me",
-        }
+        },
     ):
 
-        modifiers.append(
-            "reviews"
-        )
+        modifiers.append("reviews")
 
     # -------------------------
     # Product boosting
     # -------------------------
 
-    if contains_any(
-        query_lower,
-        PRODUCT_KEYWORDS
-    ):
+    if contains_any(query_lower, PRODUCT_KEYWORDS):
 
-        modifiers.append(
-            "product listing"
-        )
+        modifiers.append("product listing")
 
     # -------------------------
     # Special bullet vibrator
@@ -764,49 +613,17 @@ def build_intent(
         )
 
     return SearchIntent(
-
         subject=query,
-
-        modifiers=dedupe_terms(
-            modifiers
-        ),
-
+        modifiers=dedupe_terms(modifiers),
         output_type=output_type,
-
-        positive_keywords=tuple(
-            dedupe_terms(
-                positive
-            )
-        ),
-
-        priority_keywords=tuple(
-            dedupe_terms(
-                priority
-            )
-        ),
-
-        context_keywords=tuple(
-            dedupe_terms(
-                context
-            )
-        ),
-
-        negative_keywords=tuple(
-            dedupe_terms(
-                negative
-            )
-        ),
-
-        query_terms=extract_query_tokens(
-            query_lower
-        ),
-
+        positive_keywords=tuple(dedupe_terms(positive)),
+        priority_keywords=tuple(dedupe_terms(priority)),
+        context_keywords=tuple(dedupe_terms(context)),
+        negative_keywords=tuple(dedupe_terms(negative)),
+        query_terms=extract_query_tokens(query_lower),
         requested_store=requested_store,
-
         is_adult_search=adult_search,
-
         is_research_search=is_research,
-
     )
 
 
@@ -814,23 +631,16 @@ def build_intent(
 # Search Query Builder
 # ============================================================
 
-def build_search_query(
-    intent: SearchIntent
-) -> str:
 
-    return " ".join(
-        dedupe_terms(
-            [
-                intent.subject
-            ],
-            intent.modifiers
-        )
-    )
+def build_search_query(intent: SearchIntent) -> str:
+
+    return " ".join(dedupe_terms([intent.subject], intent.modifiers))
 
 
 # ============================================================
 # Result Filtering
 # ============================================================
+
 
 class ResultFilter:
 
@@ -838,12 +648,7 @@ class ResultFilter:
 
         self.seen_urls = set()
 
-    def is_bad_result(
-        self,
-        title: str,
-        body: str,
-        href: str
-    ) -> bool:
+    def is_bad_result(self, title: str, body: str, href: str) -> bool:
 
         if not title or not href:
 
@@ -855,33 +660,15 @@ class ResultFilter:
 
             return True
 
-        self.seen_urls.add(
-            href_lower
-        )
+        self.seen_urls.add(href_lower)
 
-        combined = (
-            title.lower()
-            + " "
-            + body.lower()
-            + " "
-            + href_lower
-        )
+        combined = title.lower() + " " + body.lower() + " " + href_lower
 
-        if contains_any(
-            combined,
-            {
-                "javascript:",
-                "about:blank",
-                "data:"
-            }
-        ):
+        if contains_any(combined, {"javascript:", "about:blank", "data:"}):
 
             return True
 
-        if contains_any(
-            combined,
-            BLOCKED_PHRASES
-        ):
+        if contains_any(combined, BLOCKED_PHRASES):
 
             return True
 
@@ -892,30 +679,19 @@ class ResultFilter:
 # Ranking Engine
 # ============================================================
 
+
 class ResultRanker:
 
-    def __init__(
-        self,
-        intent: SearchIntent
-    ):
+    def __init__(self, intent: SearchIntent):
 
         self.intent = intent
         self.profile = intent.ranking_profile
 
-    def rank(
-        self,
-        title: str,
-        body: str,
-        href: str
-    ) -> int:
+    def rank(self, title: str, body: str, href: str) -> int:
 
         title_lower = title.lower()
 
-        combined = (
-            title_lower
-            + " "
-            + body.lower()
-        )
+        combined = title_lower + " " + body.lower()
 
         score = 0
 
@@ -924,7 +700,7 @@ class ResultRanker:
             combined,
             self.intent.positive_keywords,
             self.profile.topic_title,
-            self.profile.topic_body
+            self.profile.topic_body,
         )
 
         score += self.score_keywords(
@@ -932,7 +708,7 @@ class ResultRanker:
             combined,
             self.intent.priority_keywords,
             self.profile.priority_title,
-            self.profile.priority_body
+            self.profile.priority_body,
         )
 
         score += self.score_keywords(
@@ -940,7 +716,7 @@ class ResultRanker:
             combined,
             self.intent.context_keywords,
             self.profile.context_title,
-            self.profile.context_body
+            self.profile.context_body,
         )
 
         score += self.score_keywords(
@@ -948,31 +724,20 @@ class ResultRanker:
             combined,
             self.intent.query_terms,
             self.profile.query_title,
-            self.profile.query_body
+            self.profile.query_body,
         )
 
-        score += self.score_negative(
-            title_lower,
-            combined
-        )
+        score += self.score_negative(title_lower, combined)
 
-        score += self.output_bonus(
-            title_lower
-        )
+        score += self.output_bonus(title_lower)
 
-        score += self.store_bonus(
-            href
-        )
+        score += self.store_bonus(href)
 
-        score += self.domain_bonus(
-            href
-        )
+        score += self.domain_bonus(href)
 
         if self.intent.is_research_search:
 
-            score += self.research_source_bonus(
-                href
-            )
+            score += self.research_source_bonus(href)
 
         return score
 
@@ -982,7 +747,7 @@ class ResultRanker:
         combined: str,
         keywords: tuple[str, ...],
         title_weight: int,
-        body_weight: int
+        body_weight: int,
     ) -> int:
 
         score = 0
@@ -999,11 +764,7 @@ class ResultRanker:
 
         return score
 
-    def score_negative(
-        self,
-        title: str,
-        combined: str
-    ) -> int:
+    def score_negative(self, title: str, combined: str) -> int:
 
         score = 0
 
@@ -1019,10 +780,7 @@ class ResultRanker:
 
         return score
 
-    def output_bonus(
-        self,
-        title: str
-    ) -> int:
+    def output_bonus(self, title: str) -> int:
 
         score = 0
 
@@ -1062,41 +820,26 @@ class ResultRanker:
 
         return score
 
-    def store_bonus(
-        self,
-        href: str
-    ) -> int:
+    def store_bonus(self, href: str) -> int:
 
-        if (
-            self.intent.requested_store
-            and self.intent.requested_store in href
-        ):
+        if self.intent.requested_store and self.intent.requested_store in href:
 
             return 5
 
         return 0
 
     @staticmethod
-    def domain_bonus(
-        href: str
-    ) -> int:
+    def domain_bonus(href: str) -> int:
 
         score = 0
 
         href_lower = href.lower()
 
-        domain = normalize_domain(
-            href
-        )
+        domain = normalize_domain(href)
 
         for trusted_domain, bonus in TRUSTED_DOMAINS.items():
 
-            if (
-                domain == trusted_domain
-                or domain.endswith(
-                    "." + trusted_domain
-                )
-            ):
+            if domain == trusted_domain or domain.endswith("." + trusted_domain):
 
                 score += bonus
 
@@ -1107,34 +850,22 @@ class ResultRanker:
         return score
 
     @staticmethod
-    def research_source_bonus(
-        href: str
-    ) -> int:
+    def research_source_bonus(href: str) -> int:
 
-        domain = normalize_domain(
-            href
-        )
+        domain = normalize_domain(href)
 
         score = 0
 
         for trusted_domain, bonus in RESEARCH_DOMAIN_SCORES.items():
 
-            if (
-                domain == trusted_domain
-                or domain.endswith(
-                    "." + trusted_domain
-                )
-            ):
+            if domain == trusted_domain or domain.endswith("." + trusted_domain):
 
                 score += bonus
 
         for low_quality_domain in LOW_QUALITY_DOMAINS:
 
-            if (
-                domain == low_quality_domain
-                or domain.endswith(
-                    "." + low_quality_domain
-                )
+            if domain == low_quality_domain or domain.endswith(
+                "." + low_quality_domain
             ):
 
                 score -= 12
@@ -1146,13 +877,10 @@ class ResultRanker:
 # Source Classification
 # ============================================================
 
-def classify_source(
-    href: str
-) -> str:
 
-    domain = normalize_domain(
-        href
-    )
+def classify_source(href: str) -> str:
+
+    domain = normalize_domain(href)
 
     if not domain:
 
@@ -1181,10 +909,8 @@ def classify_source(
 # Page Fetching
 # ============================================================
 
-def fetch_page_text(
-    href: str,
-    max_chars: int = 8000
-) -> str:
+
+def fetch_page_text(href: str, max_chars: int = 8000) -> str:
     """
     Fetch the actual webpage and extract readable text.
 
@@ -1197,31 +923,14 @@ def fetch_page_text(
         import requests
 
         response = requests.get(
-            href,
-            timeout=8,
-            headers={
-                "User-Agent":
-                "CYN-X Research Bot/1.0"
-            }
+            href, timeout=8, headers={"User-Agent": "CYN-X Research Bot/1.0"}
         )
 
         response.raise_for_status()
 
-        content_type = (
-            response.headers
-            .get(
-                "content-type",
-                ""
-            )
-            .lower()
-        )
+        content_type = response.headers.get("content-type", "").lower()
 
-        if (
-            "text/html"
-            not in content_type
-            and "text/plain"
-            not in content_type
-        ):
+        if "text/html" not in content_type and "text/plain" not in content_type:
 
             return ""
 
@@ -1230,65 +939,35 @@ def fetch_page_text(
         # Remove scripts/styles/navigation noise.
 
         html = re.sub(
-            r"<script\b[^>]*>.*?</script>",
-            " ",
-            html,
-            flags=re.IGNORECASE | re.DOTALL
+            r"<script\b[^>]*>.*?</script>", " ", html, flags=re.IGNORECASE | re.DOTALL
         )
 
         html = re.sub(
-            r"<style\b[^>]*>.*?</style>",
-            " ",
-            html,
-            flags=re.IGNORECASE | re.DOTALL
+            r"<style\b[^>]*>.*?</style>", " ", html, flags=re.IGNORECASE | re.DOTALL
         )
 
         html = re.sub(
             r"<noscript\b[^>]*>.*?</noscript>",
             " ",
             html,
-            flags=re.IGNORECASE | re.DOTALL
+            flags=re.IGNORECASE | re.DOTALL,
         )
 
         html = re.sub(
-            r"<nav\b[^>]*>.*?</nav>",
-            " ",
-            html,
-            flags=re.IGNORECASE | re.DOTALL
+            r"<nav\b[^>]*>.*?</nav>", " ", html, flags=re.IGNORECASE | re.DOTALL
         )
 
         html = re.sub(
-            r"<footer\b[^>]*>.*?</footer>",
-            " ",
-            html,
-            flags=re.IGNORECASE | re.DOTALL
+            r"<footer\b[^>]*>.*?</footer>", " ", html, flags=re.IGNORECASE | re.DOTALL
         )
 
-        text = re.sub(
-            r"<[^>]+>",
-            " ",
-            html
-        )
+        text = re.sub(r"<[^>]+>", " ", html)
 
-        text = re.sub(
-            r"&nbsp;",
-            " ",
-            text,
-            flags=re.IGNORECASE
-        )
+        text = re.sub(r"&nbsp;", " ", text, flags=re.IGNORECASE)
 
-        text = re.sub(
-            r"&amp;",
-            "&",
-            text,
-            flags=re.IGNORECASE
-        )
+        text = re.sub(r"&amp;", "&", text, flags=re.IGNORECASE)
 
-        text = re.sub(
-            r"\s+",
-            " ",
-            text
-        ).strip()
+        text = re.sub(r"\s+", " ", text).strip()
 
         if not text:
 
@@ -1298,11 +977,7 @@ def fetch_page_text(
 
     except Exception as e:
 
-        print(
-            "[SOURCE FETCH FAILED]",
-            href,
-            str(e)
-        )
+        print("[SOURCE FETCH FAILED]", href, str(e))
 
         return ""
 
@@ -1311,11 +986,8 @@ def fetch_page_text(
 # Evidence Extraction
 # ============================================================
 
-def extract_relevant_evidence(
-    text: str,
-    query: str,
-    max_chars: int = 3500
-) -> str:
+
+def extract_relevant_evidence(text: str, query: str, max_chars: int = 3500) -> str:
     """
     Pulls passages that appear relevant to the query.
 
@@ -1328,18 +1000,13 @@ def extract_relevant_evidence(
 
         return ""
 
-    query_terms = extract_query_tokens(
-        query
-    )
+    query_terms = extract_query_tokens(query)
 
     if not query_terms:
 
         return text[:max_chars]
 
-    sentences = re.split(
-        r"(?<=[.!?])\s+",
-        text
-    )
+    sentences = re.split(r"(?<=[.!?])\s+", text)
 
     scored = []
 
@@ -1347,11 +1014,7 @@ def extract_relevant_evidence(
 
         sentence_lower = sentence.lower()
 
-        matches = sum(
-            1
-            for term in query_terms
-            if term in sentence_lower
-        )
+        matches = sum(1 for term in query_terms if term in sentence_lower)
 
         if matches <= 0:
 
@@ -1359,31 +1022,15 @@ def extract_relevant_evidence(
 
         # Include neighboring sentence context.
 
-        start = max(
-            0,
-            index - 1
-        )
+        start = max(0, index - 1)
 
-        end = min(
-            len(sentences),
-            index + 2
-        )
+        end = min(len(sentences), index + 2)
 
-        passage = " ".join(
-            sentences[start:end]
-        ).strip()
+        passage = " ".join(sentences[start:end]).strip()
 
-        scored.append(
-            (
-                matches,
-                passage
-            )
-        )
+        scored.append((matches, passage))
 
-    scored.sort(
-        key=lambda item: item[0],
-        reverse=True
-    )
+    scored.sort(key=lambda item: item[0], reverse=True)
 
     if not scored:
 
@@ -1399,25 +1046,15 @@ def extract_relevant_evidence(
 
             continue
 
-        if (
-            current_length
-            + len(passage)
-            > max_chars
-        ):
+        if current_length + len(passage) > max_chars:
 
             break
 
-        output.append(
-            passage
-        )
+        output.append(passage)
 
-        current_length += len(
-            passage
-        )
+        current_length += len(passage)
 
-    return "\n\n".join(
-        output
-    )
+    return "\n\n".join(output)
 
 
 # ============================================================
@@ -1425,7 +1062,6 @@ def extract_relevant_evidence(
 # ============================================================
 
 OUTPUT_INSTRUCTIONS = {
-
     OutputMode.POSITIONS: """
 
 [SEARCH TASK]
@@ -1445,7 +1081,6 @@ Rules:
 Return the answer naturally as CYN.
 
 """,
-
     OutputMode.LIST: """
 
 [SEARCH TASK]
@@ -1462,7 +1097,6 @@ Rules:
 Return the list directly.
 
 """,
-
     OutputMode.PRODUCT: """
 
 [SEARCH TASK]
@@ -1478,7 +1112,6 @@ Rules:
 Answer naturally.
 
 """,
-
     OutputMode.NORMAL: """
 
 [SEARCH TASK]
@@ -1494,7 +1127,6 @@ Rules:
 - Do not mention the search process unless useful.
 
 """,
-
 }
 
 
@@ -1535,6 +1167,7 @@ The final answer should sound like CYN-X.
 # Main Search Tool
 # ============================================================
 
+
 class WebSearchTool(BaseTool):
 
     name = "web_search"
@@ -1544,47 +1177,28 @@ class WebSearchTool(BaseTool):
         "rank sources, and retrieve relevant evidence."
     )
 
-    def call(
-        self,
-        args
-    ):
+    def call(self, args):
 
-        query = args.get(
-            "query"
-        )
+        query = args.get("query")
 
         if not query:
 
-            return ToolResult(
-                False,
-                "Missing query"
-            )
+            return ToolResult(False, "Missing query")
 
         # -------------------------
         # Understand request
         # -------------------------
 
-        intent = build_intent(
-            query
-        )
+        intent = build_intent(query)
 
-        search_query = build_search_query(
-            intent
-        )
+        search_query = build_search_query(intent)
 
-        print(
-            "[SEARCH QUERY]",
-            search_query
-        )
+        print("[SEARCH QUERY]", search_query)
 
         print(
             "[SEARCH INTENT]",
-            "research="
-            + str(
-                intent.is_research_search
-            ),
-            "output="
-            + intent.output_type.value
+            "research=" + str(intent.is_research_search),
+            "output=" + intent.output_type.value,
         )
 
         # -------------------------
@@ -1595,69 +1209,39 @@ class WebSearchTool(BaseTool):
 
         filter_engine = ResultFilter()
 
-        ranker = ResultRanker(
-            intent
-        )
+        ranker = ResultRanker(intent)
 
         try:
 
             with DDGS() as ddgs:
 
-                for item in ddgs.text(
-                    search_query,
-                    max_results=30
-                ):
+                for item in ddgs.text(search_query, max_results=30):
 
-                    title = item.get(
-                        "title",
-                        ""
-                    )
+                    title = item.get("title", "")
 
-                    body = item.get(
-                        "body",
-                        ""
-                    )
+                    body = item.get("body", "")
 
-                    href = item.get(
-                        "href",
-                        ""
-                    )
+                    href = item.get("href", "")
 
-                    if filter_engine.is_bad_result(
-                        title,
-                        body,
-                        href
-                    ):
+                    if filter_engine.is_bad_result(title, body, href):
 
                         continue
 
-                    score = ranker.rank(
-                        title,
-                        body,
-                        href
-                    )
+                    score = ranker.rank(title, body, href)
 
-                    minimum_score = (
-                        1
-                        if not intent.is_research_search
-                        else 4
-                    )
+                    minimum_score = 1 if not intent.is_research_search else 4
 
                     if score < minimum_score:
 
                         continue
 
-                    source_type = classify_source(
-                        href
-                    )
+                    source_type = classify_source(href)
 
                     results.append(
                         {
                             "score": score,
                             "source_type": source_type,
-                            "domain": normalize_domain(
-                                href
-                            ),
+                            "domain": normalize_domain(href),
                             "title": title,
                             "body": body,
                             "href": href,
@@ -1666,26 +1250,17 @@ class WebSearchTool(BaseTool):
 
         except Exception as e:
 
-            return ToolResult(
-                False,
-                f"Search error: {e}"
-            )
+            return ToolResult(False, f"Search error: {e}")
 
         # -------------------------
         # Sort results
         # -------------------------
 
-        results.sort(
-            key=lambda item: item["score"],
-            reverse=True
-        )
+        results.sort(key=lambda item: item["score"], reverse=True)
 
         if not results:
 
-            return ToolResult(
-                False,
-                "No search results found."
-            )
+            return ToolResult(False, "No search results found.")
 
         # ====================================================
         # Fetch Evidence
@@ -1694,43 +1269,21 @@ class WebSearchTool(BaseTool):
         # Research gets the strongest sources first.
         # Normal searches fetch fewer pages to stay fast.
 
-        fetch_limit = (
-            5
-            if intent.is_research_search
-            else 3
-        )
+        fetch_limit = 5 if intent.is_research_search else 3
 
-        print(
-            "[SOURCE FETCH]",
-            "attempting=",
-            min(
-                fetch_limit,
-                len(results)
-            )
-        )
+        print("[SOURCE FETCH]", "attempting=", min(fetch_limit, len(results)))
 
         fetched_results = 0
 
-        for index, result in enumerate(
-            results[:fetch_limit]
-        ):
+        for index, result in enumerate(results[:fetch_limit]):
 
-            print(
-                "[FETCHING SOURCE]",
-                index + 1,
-                result["href"]
-            )
+            print("[FETCHING SOURCE]", index + 1, result["href"])
 
-            page_text = fetch_page_text(
-                result["href"]
-            )
+            page_text = fetch_page_text(result["href"])
 
             if page_text:
 
-                evidence = extract_relevant_evidence(
-                    page_text,
-                    query
-                )
+                evidence = extract_relevant_evidence(page_text, query)
 
                 if evidence:
 
@@ -1738,18 +1291,11 @@ class WebSearchTool(BaseTool):
 
                     result["evidence"] = evidence
 
-                    result["evidence_source"] = (
-                        "page"
-                    )
+                    result["evidence_source"] = "page"
 
                     fetched_results += 1
 
-                    print(
-                        "[SOURCE FETCHED]",
-                        result["domain"],
-                        "chars=",
-                        len(evidence)
-                    )
+                    print("[SOURCE FETCHED]", result["domain"], "chars=", len(evidence))
 
                     continue
 
@@ -1759,14 +1305,9 @@ class WebSearchTool(BaseTool):
 
             result["evidence"] = result["body"]
 
-            result["evidence_source"] = (
-                "search_snippet"
-            )
+            result["evidence_source"] = "search_snippet"
 
-            print(
-                "[SOURCE SNIPPET FALLBACK]",
-                result["domain"]
-            )
+            print("[SOURCE SNIPPET FALLBACK]", result["domain"])
 
         # ====================================================
         # Build Evidence Packet
@@ -1776,17 +1317,11 @@ class WebSearchTool(BaseTool):
 
         selected_results = results[:10]
 
-        for index, result in enumerate(
-            selected_results
-        ):
+        for index, result in enumerate(selected_results):
 
-            evidence = result.get(
-                "evidence",
-                result["body"]
-            )
+            evidence = result.get("evidence", result["body"])
 
-            source_blocks.append(
-                f"""
+            source_blocks.append(f"""
 [SOURCE {index + 1}]
 
 SOURCE TYPE:
@@ -1809,8 +1344,7 @@ EVIDENCE:
 
 LINK:
 {result["href"]}
-"""
-            )
+""")
 
         # -------------------------
         # Research source summary
@@ -1821,22 +1355,15 @@ LINK:
             authoritative_count = sum(
                 1
                 for item in results
-                if item["source_type"]
-                == "academic_or_authoritative"
+                if item["source_type"] == "academic_or_authoritative"
             )
 
             trusted_count = sum(
-                1
-                for item in results
-                if item["source_type"]
-                == "trusted"
+                1 for item in results if item["source_type"] == "trusted"
             )
 
             user_generated_count = sum(
-                1
-                for item in results
-                if item["source_type"]
-                == "user_generated"
+                1 for item in results if item["source_type"] == "user_generated"
             )
 
             source_summary = f"""
@@ -1872,50 +1399,33 @@ preferentially.
         # ====================================================
 
         output = (
-
             "[SEARCH QUERY USED]\n"
             + search_query
             + "\n"
             + source_summary
             + "\n"
-            + "\n".join(
-                source_blocks
-            )
+            + "\n".join(source_blocks)
         )
 
         if intent.is_research_search:
 
-            output += (
-                "\n\n"
-                + RESEARCH_OUTPUT_INSTRUCTIONS
-            )
+            output += "\n\n" + RESEARCH_OUTPUT_INSTRUCTIONS
 
         else:
 
             output += OUTPUT_INSTRUCTIONS.get(
-                intent.output_type,
-                OUTPUT_INSTRUCTIONS[
-                    OutputMode.NORMAL
-                ]
+                intent.output_type, OUTPUT_INSTRUCTIONS[OutputMode.NORMAL]
             )
 
-        return ToolResult(
-            True,
-            output
-        )
+        return ToolResult(True, output)
 
-
-# ============================================================
-# Result Formatter
-# ============================================================
+    # ============================================================
+    # Result Formatter
+    # ============================================================
 
     @staticmethod
     def format_result(
-        title: str,
-        body: str,
-        href: str,
-        score: int = 0,
-        source_type: str = "unknown"
+        title: str, body: str, href: str, score: int = 0, source_type: str = "unknown"
     ) -> str:
 
         return f"""

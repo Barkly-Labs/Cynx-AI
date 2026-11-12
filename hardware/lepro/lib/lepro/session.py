@@ -156,7 +156,9 @@ class BleakTransport:
             if remaining <= 0:
                 break
             try:
-                item = await asyncio.wait_for(self._queue.get(), timeout=min(0.3, remaining))
+                item = await asyncio.wait_for(
+                    self._queue.get(), timeout=min(0.3, remaining)
+                )
                 out.append(item)
             except asyncio.TimeoutError:
                 break
@@ -182,7 +184,9 @@ class LeproSession:
 
     def _require_session_rand(self) -> int:
         if self.session_rand is None:
-            raise RuntimeError("session_rand not set — call run_phase_discovery() first")
+            raise RuntimeError(
+                "session_rand not set — call run_phase_discovery() first"
+            )
         return self.session_rand
 
     async def _send(self, pkt: bytes, label: str = "") -> None:
@@ -200,7 +204,9 @@ class LeproSession:
         self._rx_frames.extend(frames)
         return frames
 
-    async def _wait_opcode(self, opcode: int, timeout: float | None = None) -> DecryptedFrame:
+    async def _wait_opcode(
+        self, opcode: int, timeout: float | None = None
+    ) -> DecryptedFrame:
         if self.config.dry_run:
             return DecryptedFrame(seq=0, opcode=opcode, payload=b"", raw=b"")
         timeout = timeout or self.config.notify_timeout
@@ -266,7 +272,9 @@ class LeproSession:
         dev_info.cert_payload = cert
         return dev_info
 
-    async def _wait_new_auth_resp(self, after_count: int, timeout: float) -> DecryptedFrame:
+    async def _wait_new_auth_resp(
+        self, after_count: int, timeout: float
+    ) -> DecryptedFrame:
         if self.config.dry_run:
             return DecryptedFrame(seq=0, opcode=OP_BOND_RESP, payload=b"", raw=b"")
         deadline = time.monotonic() + timeout
@@ -284,7 +292,9 @@ class LeproSession:
 
     async def _request_bond(self, payload: bytes, label: str) -> DecryptedFrame:
         before = len(self._rx_frames)
-        await self._send(build_packet_opcode(await self._next_seq(), OP_BOND, payload), label)
+        await self._send(
+            build_packet_opcode(await self._next_seq(), OP_BOND, payload), label
+        )
         return await self._wait_new_auth_resp(before, timeout=5.0)
 
     async def run_phase_bond(self, *, fallback_hs: bytes | None = None) -> BondTokens:
@@ -319,7 +329,9 @@ class LeproSession:
         return tokens_from_bond_frames(self._rx_frames, after_index=bond_resp_idx)
 
     async def _wait_auth_resp(self, timeout: float | None = None) -> DecryptedFrame:
-        return await self._wait_any(_AUTH_RESP_OPCODES, timeout or self.config.notify_timeout)
+        return await self._wait_any(
+            _AUTH_RESP_OPCODES, timeout or self.config.notify_timeout
+        )
 
     async def run_phase_auth(self, creds: BondCredentials) -> None:
         t = creds.tokens
@@ -329,7 +341,9 @@ class LeproSession:
         await self._wait_new_auth_resp(before_hs, auth_timeout)
 
         before_auth32 = len(self._rx_frames)
-        await self._send(build_raw_cmd_packet(await self._next_seq(), t.auth_32), "CMD_AUTH_32")
+        await self._send(
+            build_raw_cmd_packet(await self._next_seq(), t.auth_32), "CMD_AUTH_32"
+        )
         try:
             await self._wait_new_auth_resp(before_auth32, auth_timeout)
         except TimeoutError:
@@ -352,25 +366,36 @@ class LeproSession:
 
     async def send_get_dp_state(self, payload: DpPayload) -> DecryptedFrame:
         pkt = build_get_dp_state_packet(
-            self.mac, await self._next_seq(), payload, session_rand=self._require_session_rand()
+            self.mac,
+            await self._next_seq(),
+            payload,
+            session_rand=self._require_session_rand(),
         )
         await self._send(pkt, "getDpState")
         return await self._wait_opcode(OP_DP_RESP)
 
     async def commit_control(self, creds: BondCredentials) -> None:
         t = creds.tokens
-        await self._send(build_raw_cmd_packet(await self._next_seq(), t.auth_16), "CMD_AUTH_16")
+        await self._send(
+            build_raw_cmd_packet(await self._next_seq(), t.auth_16), "CMD_AUTH_16"
+        )
         await self._wait_auth_resp(timeout=1.0)
-        await self._send(build_raw_cmd_packet(await self._next_seq(), t.auth_32), "CMD_AUTH_32")
+        await self._send(
+            build_raw_cmd_packet(await self._next_seq(), t.auth_32), "CMD_AUTH_32"
+        )
         await self._wait_auth_resp(timeout=1.0)
 
         for r in range(self.config.ctrl_rounds):
-            await self._send(build_raw_cmd_packet(await self._next_seq(), t.ctrl_c), "CMD_CTRL_C")
+            await self._send(
+                build_raw_cmd_packet(await self._next_seq(), t.ctrl_c), "CMD_CTRL_C"
+            )
             try:
                 await self._wait_auth_resp(timeout=1.0)
             except TimeoutError:
                 pass
-            await self._send(build_raw_cmd_packet(await self._next_seq(), t.ctrl_d), "CMD_CTRL_D")
+            await self._send(
+                build_raw_cmd_packet(await self._next_seq(), t.ctrl_d), "CMD_CTRL_D"
+            )
             try:
                 await self._wait_auth_resp(timeout=1.0)
             except TimeoutError:
@@ -398,7 +423,9 @@ class LeproSession:
         await self.commit_control(creds)
 
 
-async def bond_device(session: LeproSession, mac: str, *, force: bool = False) -> BondCredentials:
+async def bond_device(
+    session: LeproSession, mac: str, *, force: bool = False
+) -> BondCredentials:
     existing = load_creds(mac)
     if existing and not force:
         return existing

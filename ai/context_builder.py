@@ -4,6 +4,7 @@ This module owns the boundary between stable identity/personality/expression and
 runtime context. It does not perform inference, retrieve memory, or select tools.
 Those systems provide already-selected inputs; this builder only assembles them.
 """
+
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List
@@ -91,43 +92,64 @@ class ContextBuilder:
             components.append(ContextComponent("identity", self._read_identity()))
 
         if layers.get("personality"):
-            components.append(ContextComponent(
-                "personality",
-                self._trim(build_personality_prompt(), self.MAX_PERSONALITY_CHARS),
-            ))
+            components.append(
+                ContextComponent(
+                    "personality",
+                    self._trim(build_personality_prompt(), self.MAX_PERSONALITY_CHARS),
+                )
+            )
 
         if layers.get("voice"):
-            components.append(ContextComponent(
-                "expression",
-                self._trim(self.prompt_manager.load_optional("voice"), self.MAX_EXPRESSION_CHARS),
-            ))
+            components.append(
+                ContextComponent(
+                    "expression",
+                    self._trim(
+                        self.prompt_manager.load_optional("voice"),
+                        self.MAX_EXPRESSION_CHARS,
+                    ),
+                )
+            )
 
         if layers.get("modes"):
-            components.append(ContextComponent("mode", self._mode_expression(mode_name)))
+            components.append(
+                ContextComponent("mode", self._mode_expression(mode_name))
+            )
 
         if layers.get("safety"):
-            components.append(ContextComponent(
-                "safety",
-                self._trim(self.prompt_manager.load_optional("safety"), self.MAX_SAFETY_CHARS),
-            ))
+            components.append(
+                ContextComponent(
+                    "safety",
+                    self._trim(
+                        self.prompt_manager.load_optional("safety"),
+                        self.MAX_SAFETY_CHARS,
+                    ),
+                )
+            )
 
         if layers.get("conversation") and memory:
-            components.append(ContextComponent(
-                "memory",
-                "[RELEVANT MEMORY]\n" + self._trim(memory, self.MAX_MEMORY_CHARS),
-            ))
+            components.append(
+                ContextComponent(
+                    "memory",
+                    "[RELEVANT MEMORY]\n" + self._trim(memory, self.MAX_MEMORY_CHARS),
+                )
+            )
 
         if layers.get("conversation") and knowledge:
-            components.append(ContextComponent(
-                "knowledge",
-                "[RELEVANT KNOWLEDGE]\n" + self._trim(knowledge, self.MAX_KNOWLEDGE_CHARS),
-            ))
+            components.append(
+                ContextComponent(
+                    "knowledge",
+                    "[RELEVANT KNOWLEDGE]\n"
+                    + self._trim(knowledge, self.MAX_KNOWLEDGE_CHARS),
+                )
+            )
 
         if layers.get("conversation") and tools:
-            components.append(ContextComponent(
-                "tools",
-                self._trim(tools, self.MAX_TOOL_CHARS),
-            ))
+            components.append(
+                ContextComponent(
+                    "tools",
+                    self._trim(tools, self.MAX_TOOL_CHARS),
+                )
+            )
 
         rendered = ContextBundle(components).render()
         if len(rendered) > self.MAX_FINAL_CHARS:

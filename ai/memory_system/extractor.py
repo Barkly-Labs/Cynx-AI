@@ -1,4 +1,3 @@
-
 """
 MemoryExtractor
 
@@ -12,55 +11,32 @@ Extracts important information from conversations:
 Saves through MemoryStore.
 """
 
-
 import logging
 import re
 from typing import List
 
-
 logger = logging.getLogger("cynx.memory")
-
-
-
 
 
 class MemoryExtractor:
 
-
-    def __init__(
-        self,
-        memory_store
-    ):
+    def __init__(self, memory_store):
 
         self.memory_store = memory_store
-
-
-
-
-
-
-
 
     # ---------------------------------
     # Extraction
     # ---------------------------------
 
-
     def extract_and_save(
-        self,
-        user_id: str,
-        user_message: str,
-        assistant_response: str = ""
+        self, user_id: str, user_message: str, assistant_response: str = ""
     ) -> List[int]:
 
-
         saved_ids = []
-
 
         if not user_message or not user_message.strip():
 
             return saved_ids
-
 
         # IMPORTANT:
         # Extract memories only from user-authored text.
@@ -69,545 +45,114 @@ class MemoryExtractor:
 
         text = user_message
 
-
-
         extracted = []
 
-
-
-
-
         extracted += [
-
-
-            (
-
-
-                "preference",
-
-
-                item,
-
-
-                6
-
-
-            )
-
-
-            for item in self.extract_preferences(text)
-
-
+            ("preference", item, 6) for item in self.extract_preferences(text)
         ]
 
+        extracted += [("goal", item, 8) for item in self.extract_goals(text)]
 
+        extracted += [("project", item, 9) for item in self.extract_projects(text)]
 
+        extracted += [("name", item, 10) for item in self.extract_names(text)]
 
-
-        extracted += [
-
-
-            (
-
-
-                "goal",
-
-
-                item,
-
-
-                8
-
-
-            )
-
-
-            for item in self.extract_goals(text)
-
-
-        ]
-
-
-
-
-
-        extracted += [
-
-
-            (
-
-
-                "project",
-
-
-                item,
-
-
-                9
-
-
-            )
-
-
-            for item in self.extract_projects(text)
-
-
-        ]
-
-
-
-
-
-        extracted += [
-
-
-            (
-
-
-                "name",
-
-
-                item,
-
-
-                10
-
-
-            )
-
-
-            for item in self.extract_names(text)
-
-
-        ]
-
-
-
-
-
-        extracted += [
-
-
-            (
-
-
-                "style",
-
-
-                item,
-
-
-                5
-
-
-            )
-
-
-            for item in self.extract_style(text)
-
-
-        ]
-
-
-
-
-
-
-
+        extracted += [("style", item, 5) for item in self.extract_style(text)]
 
         for category, content, importance in extracted:
-
-
 
             if not self.should_save(content):
 
                 continue
 
-
-
-
-
             memory_id = self.memory_store.remember(
-
-
-                user_id,
-
-
-                content,
-
-
-                category,
-
-
-                importance
-
+                user_id, content, category, importance
             )
 
-
-
-            saved_ids.append(
-
-
-                memory_id
-
-            )
-
-
-
-
-
-
-
+            saved_ids.append(memory_id)
 
         if saved_ids:
 
-
-            logger.info(
-
-
-                f"[MEMORY] Saved {len(saved_ids)} memories"
-
-
-            )
-
-
+            logger.info(f"[MEMORY] Saved {len(saved_ids)} memories")
 
         return saved_ids
-
-
-
-
-
-
-
-
-
-
 
     # ---------------------------------
     # Extractors
     # ---------------------------------
 
+    def extract_preferences(self, text):
 
-    def extract_preferences(
-        self,
-        text
-    ):
+        patterns = [r"i (?:like|love|prefer|enjoy|hate|dislike) ([^.!?]+)"]
 
+        return self.match_patterns(patterns, text, "Prefers")
 
-        patterns = [
+    def extract_goals(self, text):
 
+        patterns = [r"(?:i want to|my goal is|i am trying to) ([^.!?]+)"]
 
-            r"i (?:like|love|prefer|enjoy|hate|dislike) ([^.!?]+)"
+        return self.match_patterns(patterns, text, "Goal")
 
+    def extract_projects(self, text):
 
-        ]
+        patterns = [r"(?:building|creating|working on|developing) ([^.!?]+)"]
 
+        return self.match_patterns(patterns, text, "Project")
 
-        return self.match_patterns(
-
-
-            patterns,
-
-
-            text,
-
-
-            "Prefers"
-
-
-        )
-
-
-
-
-
-
-
-
-    def extract_goals(
-        self,
-        text
-    ):
-
-
-        patterns = [
-
-
-            r"(?:i want to|my goal is|i am trying to) ([^.!?]+)"
-
-
-        ]
-
-
-        return self.match_patterns(
-
-
-            patterns,
-
-
-            text,
-
-
-            "Goal"
-
-
-        )
-
-
-
-
-
-
-
-
-
-    def extract_projects(
-        self,
-        text
-    ):
-
-
-        patterns = [
-
-
-            r"(?:building|creating|working on|developing) ([^.!?]+)"
-
-
-        ]
-
-
-        return self.match_patterns(
-
-
-            patterns,
-
-
-            text,
-
-
-            "Project"
-
-
-        )
-
-
-
-
-
-
-
-
-
-    def extract_names(
-        self,
-        text
-    ):
-
+    def extract_names(self, text):
 
         matches = re.findall(
-
-
-            r"(?:my name is|call me) ([A-Za-z ]+)",
-
-
-            text,
-
-
-            re.IGNORECASE
-
-
+            r"(?:my name is|call me) ([A-Za-z ]+)", text, re.IGNORECASE
         )
 
+        return [f"Name: {x.strip()}" for x in matches]
 
-        return [
+    def extract_style(self, text):
 
+        patterns = [r"i prefer (.+?) explanations", r"i like (.+?) answers"]
 
-            f"Name: {x.strip()}"
-
-
-            for x in matches
-
-
-        ]
-
-
-
-
-
-
-
-
-
-    def extract_style(
-        self,
-        text
-    ):
-
-
-        patterns = [
-
-
-            r"i prefer (.+?) explanations",
-
-
-            r"i like (.+?) answers"
-
-
-        ]
-
-
-        return self.match_patterns(
-
-
-            patterns,
-
-
-            text,
-
-
-            "Style"
-
-
-        )
-
-
-
-
-
-
-
-
-
+        return self.match_patterns(patterns, text, "Style")
 
     # ---------------------------------
     # Helpers
     # ---------------------------------
 
-
-    def match_patterns(
-        self,
-        patterns,
-        text,
-        prefix
-    ):
-
+    def match_patterns(self, patterns, text, prefix):
 
         results = []
 
-
         for pattern in patterns:
 
-
-            matches = re.findall(
-
-
-                pattern,
-
-
-                text,
-
-
-                re.IGNORECASE
-
-
-            )
-
-
+            matches = re.findall(pattern, text, re.IGNORECASE)
 
             for match in matches:
 
-
                 value = match.strip()
-
-
 
                 if self.meaningful(value):
 
-
-                    results.append(
-
-
-                        f"{prefix}: {value}"
-
-
-                    )
-
-
+                    results.append(f"{prefix}: {value}")
 
         return results[:3]
 
+    def meaningful(self, text):
 
-
-
-
-
-
-
-
-    def meaningful(
-        self,
-        text
-    ):
-
-
-        cleaned = re.sub(
-
-
-            r"[^a-zA-Z0-9 ]",
-
-
-            "",
-
-
-            text
-
-
-        )
-
+        cleaned = re.sub(r"[^a-zA-Z0-9 ]", "", text)
 
         return len(cleaned.strip()) >= 3
 
-
-
-
-
-
-
-    def should_save(
-        self,
-        content
-    ):
-
+    def should_save(self, content):
 
         if not content:
 
-
             return False
-
-
 
         if len(content) < 5:
 
-
             return False
 
-
-
-        if not re.search(
-
-
-            r"[a-zA-Z0-9]",
-
-
-            content
-
-
-        ):
-
+        if not re.search(r"[a-zA-Z0-9]", content):
 
             return False
-
-
 
         return True

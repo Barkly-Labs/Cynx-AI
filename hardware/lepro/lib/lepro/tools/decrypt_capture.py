@@ -27,15 +27,33 @@ import re
 import struct
 from pathlib import Path
 
-from hardware.lepro.lib.lepro.crypto import decrypt_cbc, decrypt_search_hello, derive_session_key
+from hardware.lepro.lib.lepro.crypto import (
+    decrypt_cbc,
+    decrypt_search_hello,
+    derive_session_key,
+)
 from hardware.lepro.lib.lepro.protocol import OP_SEARCH, parse_packet, verify_packet
 
 LOG_RE = re.compile(r"\[(\d+:\d+:\d+\.\d+)\] (\S+)\s+hex=([0-9a-f]+)")
 
-DECRYPT_OPCODES = frozenset({
-    0x1001, 0x1003, 0x1005, 0x1007, 0x1008, 0x1009, 0x100B,
-    0x1011, 0x1013, 0x1051, 0x1100, 0x1103, 0x2000, 0x2100,
-})
+DECRYPT_OPCODES = frozenset(
+    {
+        0x1001,
+        0x1003,
+        0x1005,
+        0x1007,
+        0x1008,
+        0x1009,
+        0x100B,
+        0x1011,
+        0x1013,
+        0x1051,
+        0x1100,
+        0x1103,
+        0x2000,
+        0x2100,
+    }
+)
 
 
 def _format_plaintext(opcode: int, plain: bytes) -> str:
@@ -79,10 +97,16 @@ def decrypt_log(
         if hdr is None:
             continue
 
-        if hdr.opcode == OP_SEARCH and direction == "PHONE→LIGHT" and len(hdr.payload) == 32:
+        if (
+            hdr.opcode == OP_SEARCH
+            and direction == "PHONE→LIGHT"
+            and len(hdr.payload) == 32
+        ):
             _, _, session_rand, _ = decrypt_search_hello(hdr.payload, mac)
             session_label = ts[:8]
-            print(f"\n{'='*72}\nSESSION {session_label}  session_rand={session_rand:#010x}\n{'='*72}")
+            print(
+                f"\n{'='*72}\nSESSION {session_label}  session_rand={session_rand:#010x}\n{'='*72}"
+            )
             continue
 
         if session_rand is None:
@@ -107,13 +131,19 @@ def decrypt_log(
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Decrypt captures.log encrypted BLE payloads")
+    p = argparse.ArgumentParser(
+        description="Decrypt captures.log encrypted BLE payloads"
+    )
     p.add_argument("--file", type=Path, default=Path("captures.log"))
     p.add_argument("--mac", default="10:20:BA:31:B2:BA")
     p.add_argument("--session", help="Filter to session time prefix, e.g. 19:17")
-    p.add_argument("--opcode", type=lambda x: int(x, 0), help="Filter to one opcode, e.g. 0x1008")
+    p.add_argument(
+        "--opcode", type=lambda x: int(x, 0), help="Filter to one opcode, e.g. 0x1008"
+    )
     args = p.parse_args()
-    decrypt_log(args.file, args.mac, session_filter=args.session, opcode_filter=args.opcode)
+    decrypt_log(
+        args.file, args.mac, session_filter=args.session, opcode_filter=args.opcode
+    )
 
 
 if __name__ == "__main__":

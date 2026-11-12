@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 
 from typing import Any
@@ -13,8 +12,7 @@ class LeproLightsTool(BaseTool):
 
     name = "lepro_lights"
     description = (
-        "Control a bonded Lepro light device connected to CYN-X "
-        "over Bluetooth."
+        "Control a bonded Lepro light device connected to CYN-X " "over Bluetooth."
     )
 
     def __init__(
@@ -45,17 +43,13 @@ class LeproLightsTool(BaseTool):
                                 "off",
                                 "color",
                             ],
-                            "description": (
-                                "The light action to perform."
-                            ),
+                            "description": ("The light action to perform."),
                         },
                         "brightness": {
                             "type": "integer",
                             "minimum": 10,
                             "maximum": 1000,
-                            "description": (
-                                "Brightness from 10 to 1000."
-                            ),
+                            "description": ("Brightness from 10 to 1000."),
                         },
                         "red": {
                             "type": "integer",
@@ -93,13 +87,9 @@ class LeproLightsTool(BaseTool):
 
         try:
             if action == "on":
-                brightness = int(
-                    arguments.get("brightness", 1000)
-                )
+                brightness = int(arguments.get("brightness", 1000))
 
-                await self.device.turn_on(
-                    brightness=brightness
-                )
+                await self.device.turn_on(brightness=brightness)
 
                 return ToolResult(
                     success=True,
@@ -130,19 +120,14 @@ class LeproLightsTool(BaseTool):
                 ):
                     return ToolResult(
                         success=False,
-                        error=(
-                            "Color requires red, green, "
-                            "and blue values."
-                        ),
+                        error=("Color requires red, green, " "and blue values."),
                     )
 
                 red = int(arguments["red"])
                 green = int(arguments["green"])
                 blue = int(arguments["blue"])
 
-                brightness = int(
-                    arguments.get("brightness", 1000)
-                )
+                brightness = int(arguments.get("brightness", 1000))
 
                 await self.device.set_color_rgb(
                     red=red,

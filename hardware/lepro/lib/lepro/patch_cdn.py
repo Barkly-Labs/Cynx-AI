@@ -114,14 +114,18 @@ def check_byte_patch(fw: bytes, patch: BytePatch) -> PatchResult:
     if cur == patch.patched:
         return PatchResult(patch.name, off, False, cur, cur)
     if cur == patch.stock:
-        raise SystemExit(f"{patch.name} @ {off:#x} not patched (stock bytes {cur.hex()})")
+        raise SystemExit(
+            f"{patch.name} @ {off:#x} not patched (stock bytes {cur.hex()})"
+        )
     raise SystemExit(
         f"{patch.name} @ {off:#x}: unexpected bytes {cur.hex()} "
         f"(expected stock {patch.stock.hex()} or patched {patch.patched.hex()})"
     )
 
 
-def apply_byte_patches(fw: bytearray, patches: Sequence[BytePatch]) -> list[PatchResult]:
+def apply_byte_patches(
+    fw: bytearray, patches: Sequence[BytePatch]
+) -> list[PatchResult]:
     return [apply_byte_patch(fw, patch) for patch in patches]
 
 
@@ -236,7 +240,9 @@ def pem_to_der(pem_path: Path) -> bytes:
     )
 
 
-def parse_host_port(value: str, default_port: int = DEFAULT_CDN_PORT) -> tuple[str, int]:
+def parse_host_port(
+    value: str, default_port: int = DEFAULT_CDN_PORT
+) -> tuple[str, int]:
     """Split "host" or "host:port" (ignoring bracketed IPv6) into (host, port)."""
     if not value.startswith("[") and value.count(":") == 1:
         host, _, port = value.partition(":")
@@ -317,7 +323,9 @@ def repair_esp_app_image(fw: bytearray, chip: str) -> tuple[int, int, str, str]:
     try:
         import esptool.bin_image as bi
     except ImportError as exc:
-        raise SystemExit("esptool is required; run via: uv run lepro-firmware patch") from exc
+        raise SystemExit(
+            "esptool is required; run via: uv run lepro-firmware patch"
+        ) from exc
 
     img = bi.LoadFirmwareImage(chip, bytes(fw))
     chk_idx = checksum_off(fw)
@@ -353,9 +361,10 @@ def warn_if_footer_invalid(fw: bytes, chip: str) -> None:
 
     chk_idx = checksum_off(fw)
     img = bi.LoadFirmwareImage(chip, bytes(fw))
-    if fw[chk_idx] == img.calculate_checksum() and bytes(fw[-32:]) == hashlib.sha256(
-        fw[:-32]
-    ).digest():
+    if (
+        fw[chk_idx] == img.calculate_checksum()
+        and bytes(fw[-32:]) == hashlib.sha256(fw[:-32]).digest()
+    ):
         return
     print(
         "Warning:   ESP image footer invalid (checksum or validation hash); "
@@ -447,11 +456,15 @@ def patch_firmware(
                     f"{result.before.hex()} -> {result.after.hex()} (force cert re-fetch)"
                 )
             else:
-                print(f"{result.name} @ {result.offset:#x}: already patched ({result.after.hex()})")
+                print(
+                    f"{result.name} @ {result.offset:#x}: already patched ({result.after.hex()})"
+                )
 
     any_changed = record_changed or any(r.changed for r in patch_results)
     if not any_changed:
-        print("Embedded crt-bundle entry already matches the CDN cert; no change needed.")
+        print(
+            "Embedded crt-bundle entry already matches the CDN cert; no change needed."
+        )
         if profile.patches:
             names = " + ".join(p.name for p in profile.patches)
             print(f"Byte patches ({names}) already applied.")
@@ -496,7 +509,11 @@ def patch_firmware(
     output_path.write_bytes(fw)
 
     patched = output_path.read_bytes()
-    if record_changed and patched[layout.entry_off : layout.entry_off + layout.record_len] != new_record:
+    if (
+        record_changed
+        and patched[layout.entry_off : layout.entry_off + layout.record_len]
+        != new_record
+    ):
         raise SystemExit("Post-write crt-bundle verification failed")
     for result in patch_results:
         if patched[result.offset : result.offset + len(result.after)] != result.after:

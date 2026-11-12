@@ -2,6 +2,7 @@
 Discord adapter stub. Implement event handlers and map messages to ChatEngine.
 Keep token and config out of source; load from environment variables.
 """
+
 from typing import Any
 
 

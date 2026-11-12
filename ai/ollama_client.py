@@ -1,4 +1,3 @@
-
 """
 Ollama API client wrapper.
 
@@ -22,18 +21,14 @@ class OllamaClient:
         self,
         base_url: str = "http://localhost:11434",
         model: str = "cyn-x:latest",
-        timeout: int = 600
+        timeout: int = 600,
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
         self.timeout = timeout
 
     def generate(
-        self,
-        prompt: str,
-        max_tokens: int = 512,
-        stream: bool = False,
-        **kwargs
+        self, prompt: str, max_tokens: int = 512, stream: bool = False, **kwargs
     ) -> Dict[str, Any]:
 
         url = f"{self.base_url}/api/generate"
@@ -42,23 +37,14 @@ class OllamaClient:
             "model": self.model,
             "prompt": prompt,
             "stream": stream,
-            "options": {
-                "num_predict": max_tokens,
-                "num_ctx": 8192,
-                "temperature": 0.7
-            },
-            **kwargs
+            "options": {"num_predict": max_tokens, "num_ctx": 8192, "temperature": 0.7},
+            **kwargs,
         }
 
         terminal.ollama("CYN-X REQUEST", f"Model={self.model} Streaming={stream}")
         terminal.dim("Prompt tokens may be large...")
 
-        response = requests.post(
-            url,
-            json=payload,
-            stream=stream,
-            timeout=self.timeout
-        )
+        response = requests.post(url, json=payload, stream=stream, timeout=self.timeout)
 
         terminal.dim(f"Ollama: {response.status_code}")
 
@@ -83,11 +69,7 @@ class OllamaClient:
             token = data.get("response", "")
 
             if token:
-                print(
-                    token,
-                    end="",
-                    flush=True
-                )
+                print(token, end="", flush=True)
                 output += token
 
             if data.get("done"):
@@ -95,17 +77,14 @@ class OllamaClient:
 
         terminal.result("CYN-X COMPLETE")
 
-        return {
-            "response": output,
-            "done": True
-        }
+        return {"response": output, "done": True}
 
     def chat(
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
         stream: bool = False,
-        **kwargs
+        **kwargs,
     ) -> Dict[str, Any]:
         """
         Call Ollama's chat endpoint with optional tools.
@@ -122,26 +101,22 @@ class OllamaClient:
             "model": self.model,
             "messages": messages,
             "stream": stream,
-            "options": {
-                "num_ctx": num_ctx,
-                "temperature": temperature
-            },
-            **kwargs
+            "options": {"num_ctx": num_ctx, "temperature": temperature},
+            **kwargs,
         }
 
         # Only send tools when tools were actually provided.
         if tools:
             payload["tools"] = tools
 
-        terminal.ollama("OLLAMA CHAT REQUEST", f"Model={self.model} Messages={len(messages)} Tools={len(tools) if tools else 0} Context={num_ctx} Streaming={stream}")
+        terminal.ollama(
+            "OLLAMA CHAT REQUEST",
+            f"Model={self.model} Messages={len(messages)} Tools={len(tools) if tools else 0} Context={num_ctx} Streaming={stream}",
+        )
 
         # Print a shortened debugging version of the request.
         try:
-            debug_payload = {
-                "model": self.model,
-                "messages": messages,
-                "tools": tools
-            }
+            debug_payload = {"model": self.model, "messages": messages, "tools": tools}
 
             terminal.json(debug_payload)
 
@@ -152,10 +127,7 @@ class OllamaClient:
 
         try:
             response = requests.post(
-                url,
-                json=payload,
-                stream=stream,
-                timeout=self.timeout
+                url, json=payload, stream=stream, timeout=self.timeout
             )
 
         except requests.RequestException as exc:
@@ -195,16 +167,10 @@ class OllamaClient:
 
                 if messages:
                     for message in messages:
-                        if (
-                            message.get("role") == "system"
-                            and isinstance(
-                                message.get("content"),
-                                str
-                            )
+                        if message.get("role") == "system" and isinstance(
+                            message.get("content"), str
                         ):
-                            system_prompt_chars += len(
-                                message.get("content")
-                            )
+                            system_prompt_chars += len(message.get("content"))
 
             except Exception:
                 system_prompt_chars = "unknown"
@@ -224,13 +190,8 @@ class OllamaClient:
             )
 
             # Handle known peg-native parser errors gracefully.
-            is_peg_native_error = (
-                isinstance(body, str)
-                and (
-                    "peg-native" in body
-                    or
-                    "does not match the expected peg-native" in body
-                )
+            is_peg_native_error = isinstance(body, str) and (
+                "peg-native" in body or "does not match the expected peg-native" in body
             )
 
             if is_peg_native_error and tools and not stream:
@@ -246,7 +207,7 @@ class OllamaClient:
                     stream=False,
                     num_ctx=num_ctx,
                     temperature=temperature,
-                    **kwargs
+                    **kwargs,
                 )
 
         # Raise all remaining HTTP errors.
@@ -266,19 +227,14 @@ class OllamaClient:
                 continue
 
             try:
-                data = json.loads(
-                    line.decode("utf-8")
-                )
+                data = json.loads(line.decode("utf-8"))
 
             except Exception:
                 continue
 
             message = data.get("message", {})
 
-            token = message.get(
-                "content",
-                ""
-            )
+            token = message.get("content", "")
 
             if token:
                 terminal.dim(token)
@@ -297,9 +253,7 @@ class OllamaClient:
                     if value:
                         previous = current.get(key, "")
                         current[key] = (
-                            value
-                            if value.startswith(previous)
-                            else previous + value
+                            value if value.startswith(previous) else previous + value
                         )
 
                 for key in ("name", "arguments"):
@@ -311,9 +265,7 @@ class OllamaClient:
                         previous.update(value)
                     elif isinstance(value, str) and isinstance(previous, str):
                         current_function[key] = (
-                            value
-                            if value.startswith(previous)
-                            else previous + value
+                            value if value.startswith(previous) else previous + value
                         )
                     else:
                         current_function[key] = value
@@ -327,16 +279,13 @@ class OllamaClient:
             "message": {
                 "role": "assistant",
                 "content": output,
-                "tool_calls": list(tool_calls.values())
+                "tool_calls": list(tool_calls.values()),
             },
-            "done": True
+            "done": True,
         }
 
     def generate_stream(
-        self,
-        prompt: str,
-        max_tokens: int = 512,
-        **kwargs
+        self, prompt: str, max_tokens: int = 512, **kwargs
     ) -> Generator[str, None, None]:
 
         url = f"{self.base_url}/api/generate"
@@ -345,18 +294,11 @@ class OllamaClient:
             "model": self.model,
             "prompt": prompt,
             "stream": True,
-            "options": {
-                "num_predict": max_tokens
-            },
-            **kwargs
+            "options": {"num_predict": max_tokens},
+            **kwargs,
         }
 
-        response = requests.post(
-            url,
-            json=payload,
-            stream=True,
-            timeout=self.timeout
-        )
+        response = requests.post(url, json=payload, stream=True, timeout=self.timeout)
 
         response.raise_for_status()
 
@@ -366,17 +308,12 @@ class OllamaClient:
                 continue
 
             try:
-                data = json.loads(
-                    line.decode("utf-8")
-                )
+                data = json.loads(line.decode("utf-8"))
 
             except Exception:
                 continue
 
-            token = data.get(
-                "response",
-                ""
-            )
+            token = data.get("response", "")
 
             if token:
                 yield token

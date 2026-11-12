@@ -91,7 +91,10 @@ def fetch_cdn_body(host: str, ip: str, root: str) -> bytes:
                 buf += chunk
     head, _, body = buf.partition(b"\r\n\r\n")
     status = head.split(b"\r\n", 1)[0].decode("latin-1", "replace")
-    if "Transfer-Encoding: chunked".lower() in head.decode("latin-1", "replace").lower():
+    if (
+        "Transfer-Encoding: chunked".lower()
+        in head.decode("latin-1", "replace").lower()
+    ):
         body = _dechunk(body)
     return status, body
 
@@ -122,8 +125,13 @@ def fetch_broker_chain(host: str, ip: str, port: int) -> list[x509.Certificate]:
 
     proc = subprocess.run(
         [
-            "openssl", "s_client", "-connect", f"{ip}:{port}",
-            "-servername", host, "-showcerts",
+            "openssl",
+            "s_client",
+            "-connect",
+            f"{ip}:{port}",
+            "-servername",
+            host,
+            "-showcerts",
         ],
         input=b"",
         capture_output=True,
@@ -158,8 +166,14 @@ def main() -> int:
     ap.add_argument("--mqtt-host", default=DEFAULT_MQTT_HOST)
     ap.add_argument("--mqtt-ip", default=DEFAULT_MQTT_IP)
     ap.add_argument("--mqtt-port", type=int, default=DEFAULT_MQTT_PORT)
-    ap.add_argument("--ca", type=Path, default=DEFAULT_CA, help="Local reference CA for comparison")
-    ap.add_argument("--save", type=Path, help="Write the reconstructed mqtt_cert_srv anchor to this file")
+    ap.add_argument(
+        "--ca", type=Path, default=DEFAULT_CA, help="Local reference CA for comparison"
+    )
+    ap.add_argument(
+        "--save",
+        type=Path,
+        help="Write the reconstructed mqtt_cert_srv anchor to this file",
+    )
     args = ap.parse_args()
 
     print("Lepro MQTT trust-anchor reconstruction")
@@ -169,7 +183,9 @@ def main() -> int:
     installed_ca: x509.Certificate | None = None
     try:
         status, body = fetch_cdn_body(args.cdn_host, args.cdn_ip, args.root)
-        print(f"\n[CDN] GET https://{args.cdn_host}/{args.root.lstrip('/')} via {args.cdn_ip}")
+        print(
+            f"\n[CDN] GET https://{args.cdn_host}/{args.root.lstrip('/')} via {args.cdn_ip}"
+        )
         print(f"      status      : {status}")
         print(f"      body length : {len(body)} bytes")
         if args.save:
@@ -212,7 +228,9 @@ def main() -> int:
     print("VERDICT")
     broker_ca = next((c for c in chain if c.subject == c.issuer), None)
     if installed_ca is None:
-        print("  Could not reconstruct mqtt_cert_srv (CDN fetch failed) — rerun on the IoT network.")
+        print(
+            "  Could not reconstruct mqtt_cert_srv (CDN fetch failed) — rerun on the IoT network."
+        )
         return 2
     if broker_ca is None:
         print("  Broker did not present a self-signed CA in its chain.")
@@ -224,17 +242,33 @@ def main() -> int:
         if names_match and not keys_match:
             print()
             print("  >> ROOT CAUSE: same CA *name*, different CA *key*.")
-            print("     The broker chain was signed by a DIFFERENT 'Lepro Mock CA' keypair")
-            print("     than the ca.pem the CDN serves and the bulb installs. The bulb's")
-            print("     mbedTLS rejects it with certificate-signature-failure => alert 48")
-            print("     unknown_ca. This is lab PKI deployment drift, NOT a firmware bug.")
-            print("     Fix (not applied): redeploy the broker with a server cert signed by")
-            print("     the current ca.pem (server-fullchain.pem/server.key in deploy/).")
+            print(
+                "     The broker chain was signed by a DIFFERENT 'Lepro Mock CA' keypair"
+            )
+            print(
+                "     than the ca.pem the CDN serves and the bulb installs. The bulb's"
+            )
+            print(
+                "     mbedTLS rejects it with certificate-signature-failure => alert 48"
+            )
+            print(
+                "     unknown_ca. This is lab PKI deployment drift, NOT a firmware bug."
+            )
+            print(
+                "     Fix (not applied): redeploy the broker with a server cert signed by"
+            )
+            print(
+                "     the current ca.pem (server-fullchain.pem/server.key in deploy/)."
+            )
         elif keys_match:
             print()
             print("  >> Installed CA key matches the broker's signing CA.")
-            print("     Content is correct -> if the bulb still emits unknown_ca, it is the")
-            print("     stale one-shot client binding (needs a cold boot with the cert already")
+            print(
+                "     Content is correct -> if the bulb still emits unknown_ca, it is the"
+            )
+            print(
+                "     stale one-shot client binding (needs a cold boot with the cert already"
+            )
             print("     present before the first 'network connected' event).")
     return 0
 

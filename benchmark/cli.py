@@ -32,21 +32,13 @@ def get_benchmark_command():
     # ---------------------------------
 
     if not args:
-        return {
-            "mode": "all",
-            "suites": None,
-            "limit": None
-        }
+        return {"mode": "all", "suites": None, "limit": None}
 
     # ---------------------------------
     # Help
     # ---------------------------------
 
-    if args[0] in (
-        "--help",
-        "-h",
-        "--elp"
-    ):
+    if args[0] in ("--help", "-h", "--elp"):
 
         print()
         print("=" * 60)
@@ -106,11 +98,7 @@ def get_benchmark_command():
         print("=" * 60)
         print()
 
-        return {
-            "mode": "help",
-            "suites": None,
-            "limit": None
-        }
+        return {"mode": "help", "suites": None, "limit": None}
 
     # ---------------------------------
     # Defaults
@@ -134,10 +122,7 @@ def get_benchmark_command():
         # --all
         # -----------------------------
 
-        if argument in (
-            "--all",
-            "all"
-        ):
+        if argument in ("--all", "all"):
 
             mode = "all"
 
@@ -149,10 +134,7 @@ def get_benchmark_command():
         # --suite
         # -----------------------------
 
-        if argument in (
-            "--suite",
-            "-s"
-        ):
+        if argument in ("--suite", "-s"):
 
             mode = "suite"
 
@@ -170,26 +152,17 @@ def get_benchmark_command():
                 if suite_name.startswith("-"):
                     break
 
-                suites.append(
-                    suite_name
-                )
+                suites.append(suite_name)
 
                 i += 1
 
             if not suites:
 
                 print()
-                print(
-                    "ERROR: --suite requires "
-                    "at least one suite name."
-                )
+                print("ERROR: --suite requires " "at least one suite name.")
                 print()
 
-                return {
-                    "mode": "error",
-                    "suites": None,
-                    "limit": None
-                }
+                return {"mode": "error", "suites": None, "limit": None}
 
             continue
 
@@ -197,33 +170,21 @@ def get_benchmark_command():
         # --limit
         # -----------------------------
 
-        if argument in (
-            "--limit",
-            "-l"
-        ):
+        if argument in ("--limit", "-l"):
 
             i += 1
 
             if i >= len(args):
 
                 print()
-                print(
-                    "ERROR: --limit requires "
-                    "a number."
-                )
+                print("ERROR: --limit requires " "a number.")
                 print()
 
-                return {
-                    "mode": "error",
-                    "suites": suites,
-                    "limit": None
-                }
+                return {"mode": "error", "suites": suites, "limit": None}
 
             try:
 
-                limit = int(
-                    args[i]
-                )
+                limit = int(args[i])
 
                 if limit < 1:
                     raise ValueError
@@ -231,17 +192,10 @@ def get_benchmark_command():
             except ValueError:
 
                 print()
-                print(
-                    "ERROR: --limit must be "
-                    "a positive integer."
-                )
+                print("ERROR: --limit must be " "a positive integer.")
                 print()
 
-                return {
-                    "mode": "error",
-                    "suites": suites,
-                    "limit": None
-                }
+                return {"mode": "error", "suites": suites, "limit": None}
 
             i += 1
 
@@ -251,11 +205,7 @@ def get_benchmark_command():
         # Legacy benchmark modes
         # -----------------------------
 
-        if argument in (
-            "quick",
-            "normal",
-            "full"
-        ):
+        if argument in ("quick", "normal", "full"):
 
             mode = argument
 
@@ -268,29 +218,16 @@ def get_benchmark_command():
         # -----------------------------
 
         print()
-        print(
-            f"ERROR: Unknown benchmark option: "
-            f"{args[i]}"
-        )
+        print(f"ERROR: Unknown benchmark option: " f"{args[i]}")
         print()
 
-        print(
-            "Use --help for available commands."
-        )
+        print("Use --help for available commands.")
         print()
 
-        return {
-            "mode": "error",
-            "suites": suites,
-            "limit": limit
-        }
+        return {"mode": "error", "suites": suites, "limit": limit}
 
     # ---------------------------------
     # Return parsed command
     # ---------------------------------
 
-    return {
-        "mode": mode,
-        "suites": suites,
-        "limit": limit
-    }
+    return {"mode": mode, "suites": suites, "limit": limit}

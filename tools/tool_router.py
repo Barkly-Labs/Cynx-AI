@@ -1,4 +1,3 @@
-
 """
 ToolRouter:
 - Register tools
@@ -16,27 +15,20 @@ class ToolRouter:
     def __init__(self):
         self.tools: Dict[str, BaseTool] = {}
 
-
     def register_tool(self, tool: BaseTool):
         self.tools[tool.name] = tool
 
-
     def list_tools(self):
         return list(self.tools.keys())
-
 
     def describe_tools(self):
         """
         Gives the AI a list of available tools.
         """
         return [
-            {
-                "name": tool.name,
-                "description": tool.description
-            }
+            {"name": tool.name, "description": tool.description}
             for tool in self.tools.values()
         ]
-
 
     def as_ollama_tools(self):
         """Convert the registered tools into Ollama function-calling schemas."""
@@ -56,13 +48,7 @@ class ToolRouter:
                             "properties": {
                                 "action": {
                                     "type": "string",
-                                    "enum": [
-                                        "log",
-                                        "stats",
-                                        "recent",
-                                        "last",
-                                        "reset"
-                                    ]
+                                    "enum": ["log", "stats", "recent", "last", "reset"],
                                 },
                                 "smoke_type": {
                                     "type": "string",
@@ -72,19 +58,15 @@ class ToolRouter:
                                         "vape",
                                         "joint",
                                         "bong",
-                                        "unknown"
-                                    ]
+                                        "unknown",
+                                    ],
                                 },
-                                "amount": {
-                                    "type": "number"
-                                },
-                                "limit": {
-                                    "type": "integer"
-                                }
+                                "amount": {"type": "number"},
+                                "limit": {"type": "integer"},
                             },
-                            "required": []
-                        }
-                    }
+                            "required": [],
+                        },
+                    },
                 }
 
             elif getattr(tool, "name", None) == "chart":
@@ -99,25 +81,25 @@ class ToolRouter:
                             "properties": {
                                 "chart_type": {
                                     "type": "string",
-                                    "enum": ["line", "bar", "pie", "doughnut"]
+                                    "enum": ["line", "bar", "pie", "doughnut"],
                                 },
                                 "title": {"type": "string"},
                                 "source": {
                                     "type": "string",
-                                    "enum": ["smoke_counter", "data"]
+                                    "enum": ["smoke_counter", "data"],
                                 },
                                 "scope": {
                                     "type": "string",
-                                    "enum": ["today", "7d", "30d", "all"]
+                                    "enum": ["today", "7d", "30d", "all"],
                                 },
                                 "smoke_type": {"type": "string"},
                                 "labels": {
                                     "type": "array",
-                                    "items": {"type": "string"}
+                                    "items": {"type": "string"},
                                 },
                                 "values": {
                                     "type": "array",
-                                    "items": {"type": "number"}
+                                    "items": {"type": "number"},
                                 },
                                 "series": {
                                     "type": "array",
@@ -127,15 +109,15 @@ class ToolRouter:
                                             "name": {"type": "string"},
                                             "values": {
                                                 "type": "array",
-                                                "items": {"type": "number"}
-                                            }
-                                        }
-                                    }
-                                }
+                                                "items": {"type": "number"},
+                                            },
+                                        },
+                                    },
+                                },
                             },
-                            "required": []
-                        }
-                    }
+                            "required": [],
+                        },
+                    },
                 }
 
             elif getattr(tool, "name", None) == "calculator":
@@ -150,12 +132,12 @@ class ToolRouter:
                             "properties": {
                                 "expression": {
                                     "type": "string",
-                                    "description": "Arithmetic expression to evaluate."
+                                    "description": "Arithmetic expression to evaluate.",
                                 }
                             },
-                            "required": ["expression"]
-                        }
-                    }
+                            "required": ["expression"],
+                        },
+                    },
                 }
 
             elif getattr(tool, "name", None) == "web_search":
@@ -167,14 +149,10 @@ class ToolRouter:
                         "description": "Search the internet only when the current request needs external/current information or explicitly asks to search, find, verify, or look something up. Do not use for greetings, casual conversation, or questions answerable from established context.",
                         "parameters": {
                             "type": "object",
-                            "properties": {
-                                "query": {
-                                    "type": "string"
-                                }
-                            },
-                            "required": ["query"]
-                        }
-                    }
+                            "properties": {"query": {"type": "string"}},
+                            "required": ["query"],
+                        },
+                    },
                 }
 
             elif callable(getattr(tool, "schema", None)):
@@ -190,30 +168,22 @@ class ToolRouter:
                         "parameters": {
                             "type": "object",
                             "properties": {},
-                            "required": []
-                        }
-                    }
+                            "required": [],
+                        },
+                    },
                 }
 
             tools.append(schema)
 
         return tools
 
-
-    def call_tool(
-        self,
-        name: str,
-        args: Dict[str, Any]
-    ) -> ToolResult:
+    def call_tool(self, name: str, args: Dict[str, Any]) -> ToolResult:
 
         print(f"[TOOL CALL] {name}")
         print(f"[ARGS] {args}")
 
         if name not in self.tools:
-            return ToolResult(
-                False,
-                f"Tool '{name}' not found"
-            )
+            return ToolResult(False, f"Tool '{name}' not found")
 
         tool = self.tools[name]
 
@@ -221,19 +191,13 @@ class ToolRouter:
 
             result = tool.call(args)
 
-            print(
-                f"[RESULT] {result.output}"
-            )
+            print(f"[RESULT] {result.output}")
 
             return result
 
         except Exception as e:
 
-            return ToolResult(
-                False,
-                f"Tool '{name}' exception: {e}"
-            )
-
+            return ToolResult(False, f"Tool '{name}' exception: {e}")
 
     def normalize_smoke_type(self, text: str):
         """Normalize a freeform smoke_type string into a canonical type (pen, vape, cigarette, bong, weed, joint, unknown)."""
@@ -244,25 +208,16 @@ class ToolRouter:
         tl = str(text).lower()
 
         # canonical types in priority order
-        for t in [
-            'cigarette',
-            'cig',
-            'bong',
-            'vape',
-            'pen',
-            'weed',
-            'joint'
-        ]:
+        for t in ["cigarette", "cig", "bong", "vape", "pen", "weed", "joint"]:
 
             if t in tl:
 
-                if t == 'cig':
-                    return 'cigarette'
+                if t == "cig":
+                    return "cigarette"
 
                 return t
 
         return tl.strip()
-
 
     def is_read_only_smoke_query(self, text: str) -> bool:
         """Return True when the request is asking for counts/stats/history instead of logging."""
@@ -287,23 +242,13 @@ class ToolRouter:
         ):
             return False
         read_only_patterns = [
-
             r"\b(how many|how much|how often|show my|show me|what's my|what is my|what was my|what were my)\b",
-
             r"\b(stats|statistics|count|counts|total|totals)\b",
-
             r"\b(recent|last)\b",
-
             r"\b(how many .* (hit|hits|smoke|smoked|cigarette|cigarettes|vape|pen|bong|joint|weed) .* today)\b",
-
-            r"\b(how many .* did i have today|how much did i smoke today|how many hits did i have today|how many vape hits did i have today|how many cigarettes did i have today)\b"
-
+            r"\b(how many .* did i have today|how much did i smoke today|how many hits did i have today|how many vape hits did i have today|how many cigarettes did i have today)\b",
         ]
-        return any(
-            __import__('re').search(p, tl)
-            for p in read_only_patterns
-        )
-
+        return any(__import__("re").search(p, tl) for p in read_only_patterns)
 
     def detect(self, text: str):
         """
@@ -314,7 +259,6 @@ class ToolRouter:
             return None
 
         text_lower = text.lower()
-
 
         # ========================================================
         # First: detect smoke-counter intents
@@ -341,9 +285,8 @@ class ToolRouter:
             "puff",
             "nicotine",
             "quit",
-            "reset"
+            "reset",
         ]
-
 
         def parse_number(text: str):
 
@@ -361,18 +304,18 @@ class ToolRouter:
                     pass
 
             words = {
-                'one': 1,
-                'two': 2,
-                'three': 3,
-                'four': 4,
-                'five': 5,
-                'six': 6,
-                'seven': 7,
-                'eight': 8,
-                'nine': 9,
-                'ten': 10,
-                'a': 1,
-                'an': 1
+                "one": 1,
+                "two": 2,
+                "three": 3,
+                "four": 4,
+                "five": 5,
+                "six": 6,
+                "seven": 7,
+                "eight": 8,
+                "nine": 9,
+                "ten": 10,
+                "a": 1,
+                "an": 1,
             }
 
             for w, n in words.items():
@@ -382,7 +325,6 @@ class ToolRouter:
 
             return None
 
-
         def parse_smoke_request(text: str):
 
             # return dict with tool and parsed args if smoking
@@ -391,15 +333,8 @@ class ToolRouter:
 
             tl = text.lower()
 
-            if not any(
-                re.search(
-                    rf"\b{re.escape(w)}\b",
-                    tl
-                )
-                for w in smoke_words
-            ):
+            if not any(re.search(rf"\b{re.escape(w)}\b", tl) for w in smoke_words):
                 return None
-
 
             # --------------------------------------------------------
             # IMPORTANT:
@@ -415,28 +350,17 @@ class ToolRouter:
             # The tool requires an actual tracking/statistics action.
             # --------------------------------------------------------
 
-
             # reset explicit
 
-            if re.search(
-                r"\breset (my )?(smoke|smoking|smoke counter|tracker)\b",
-                tl
-            ):
+            if re.search(r"\breset (my )?(smoke|smoking|smoke counter|tracker)\b", tl):
 
-                return {
-                    "tool": "smoke_counter",
-                    "action": "reset"
-                }
-
+                return {"tool": "smoke_counter", "action": "reset"}
 
             # read-only requests must never log
 
             if self.is_read_only_smoke_query(tl):
 
-                payload = {
-                    "tool": "smoke_counter",
-                    "action": "stats"
-                }
+                payload = {"tool": "smoke_counter", "action": "stats"}
 
                 smoke_type_for_stats = None
 
@@ -447,89 +371,53 @@ class ToolRouter:
                     "cigarette",
                     "cig",
                     "joint",
-                    "weed"
+                    "weed",
                 ]:
 
-                    if re.search(
-                        rf"\b{re.escape(candidate)}\b",
-                        tl
-                    ):
+                    if re.search(rf"\b{re.escape(candidate)}\b", tl):
 
-                        smoke_type_for_stats = (
-                            self.normalize_smoke_type(
-                                candidate
-                            )
-                        )
+                        smoke_type_for_stats = self.normalize_smoke_type(candidate)
 
                         break
 
                 if smoke_type_for_stats:
 
-                    payload[
-                        "smoke_type"
-                    ] = smoke_type_for_stats
+                    payload["smoke_type"] = smoke_type_for_stats
 
                 if "today" in tl:
 
-                    payload[
-                        "scope"
-                    ] = "today"
+                    payload["scope"] = "today"
 
-                if (
-                    "last" in tl
-                    and "what was my last" in tl
-                ):
+                if "last" in tl and "what was my last" in tl:
 
-                    return {
-                        "tool": "smoke_counter",
-                        "action": "last"
-                    }
+                    return {"tool": "smoke_counter", "action": "last"}
 
-                if (
-                    "recent" in tl
-                    or "recent hits" in tl
-                ):
+                if "recent" in tl or "recent hits" in tl:
 
                     return {
                         "tool": "smoke_counter",
                         "action": "recent",
-                        "limit": parse_number(tl) or 10
+                        "limit": parse_number(tl) or 10,
                     }
 
                 return payload
 
-
             # last
 
             if (
-                re.search(
-                    r"\blast (hit|smoke|session)\b",
-                    tl
-                )
+                re.search(r"\blast (hit|smoke|session)\b", tl)
                 or "what was my last" in tl
             ):
 
-                return {
-                    "tool": "smoke_counter",
-                    "action": "last"
-                }
-
+                return {"tool": "smoke_counter", "action": "last"}
 
             # recent
 
-            if re.search(
-                r"\b(recent|show my recent|recent hits|recent smoking)\b",
-                tl
-            ):
+            if re.search(r"\b(recent|show my recent|recent hits|recent smoking)\b", tl):
 
                 limit = parse_number(tl) or 10
 
-                return {
-                    "tool": "smoke_counter",
-                    "action": "recent",
-                    "limit": limit
-                }
-
+                return {"tool": "smoke_counter", "action": "recent", "limit": limit}
 
             # stats
             # including type-filtered counts like
@@ -544,46 +432,31 @@ class ToolRouter:
                 "cigarette",
                 "cig",
                 "joint",
-                "weed"
+                "weed",
             ]:
 
-                if re.search(
-                    rf"\b{re.escape(candidate)}\b",
-                    tl
-                ):
+                if re.search(rf"\b{re.escape(candidate)}\b", tl):
 
-                    smoke_type_for_stats = (
-                        self.normalize_smoke_type(
-                            candidate
-                        )
-                    )
+                    smoke_type_for_stats = self.normalize_smoke_type(candidate)
 
                     break
 
             if re.search(
                 r"\b(how many|how often|how many times|show my smoking stats|show my stats|how many hits|how many times did|how much have i smoked|how much have i smoked today|how much did i smoke today|how much did i smoke)\b",
-                tl
+                tl,
             ):
 
-                payload = {
-                    "tool": "smoke_counter",
-                    "action": "stats"
-                }
+                payload = {"tool": "smoke_counter", "action": "stats"}
 
                 if smoke_type_for_stats:
 
-                    payload[
-                        "smoke_type"
-                    ] = smoke_type_for_stats
+                    payload["smoke_type"] = smoke_type_for_stats
 
                 if "today" in tl:
 
-                    payload[
-                        "scope"
-                    ] = "today"
+                    payload["scope"] = "today"
 
                 return payload
-
 
             # --------------------------------------------------------
             # Explicit logging requests only
@@ -611,15 +484,11 @@ class ToolRouter:
                 r"\bcount that\b",
                 r"\bput (this|that) in\b",
                 r"\badd this\b",
-                r"\badd that\b"
+                r"\badd that\b",
             ]
 
             explicit_logging_request = any(
-                re.search(
-                    pattern,
-                    tl
-                )
-                for pattern in explicit_log_patterns
+                re.search(pattern, tl) for pattern in explicit_log_patterns
             )
 
             # Natural logging statements are also accepted,
@@ -631,21 +500,14 @@ class ToolRouter:
                 r"\bi just took\b",
                 r"\bi smoked\b",
                 r"\bi took\b",
-                r"\bi had\b"
+                r"\bi had\b",
             ]
 
             natural_logging_request = any(
-                re.search(
-                    pattern,
-                    tl
-                )
-                for pattern in natural_log_patterns
+                re.search(pattern, tl) for pattern in natural_log_patterns
             )
 
-            if (
-                explicit_logging_request
-                or natural_logging_request
-            ):
+            if explicit_logging_request or natural_logging_request:
 
                 amount = parse_number(tl) or 1
 
@@ -665,71 +527,47 @@ class ToolRouter:
                     "joint",
                     "hit",
                     "hits",
-                    "rip"
+                    "rip",
                 ]:
 
-                    if re.search(
-                        rf"\b{re.escape(candidate)}\b",
-                        tl
-                    ):
+                    if re.search(rf"\b{re.escape(candidate)}\b", tl):
 
-                        if candidate in (
-                            'vape',
-                            'vaped'
-                        ):
+                        if candidate in ("vape", "vaped"):
 
-                            smoke_type = 'vape'
+                            smoke_type = "vape"
 
-                        elif candidate in (
-                            'pen',
-                            'pens'
-                        ):
+                        elif candidate in ("pen", "pens"):
 
-                            smoke_type = 'pen'
+                            smoke_type = "pen"
 
-                        elif candidate in (
-                            'bong',
-                            'bongs'
-                        ):
+                        elif candidate in ("bong", "bongs"):
 
-                            smoke_type = 'bong'
+                            smoke_type = "bong"
 
-                        elif candidate in (
-                            'cig',
-                            'cigarette',
-                            'cigarettes'
-                        ):
+                        elif candidate in ("cig", "cigarette", "cigarettes"):
 
-                            smoke_type = 'cigarette'
+                            smoke_type = "cigarette"
 
-                        elif candidate in (
-                            'weed',
-                            'joint'
-                        ):
+                        elif candidate in ("weed", "joint"):
 
-                            smoke_type = (
-                                'weed'
-                                if 'weed' in tl
-                                else 'joint'
-                            )
+                            smoke_type = "weed" if "weed" in tl else "joint"
 
                         else:
 
-                            smoke_type = 'unknown'
+                            smoke_type = "unknown"
 
                         break
 
                 if smoke_type is None:
 
-                    smoke_type = 'unknown'
+                    smoke_type = "unknown"
 
                 return {
                     "tool": "smoke_counter",
                     "action": "log",
                     "smoke_type": smoke_type,
-                    "amount": amount
+                    "amount": amount,
                 }
-
 
             # --------------------------------------------------------
             # IMPORTANT:
@@ -745,23 +583,26 @@ class ToolRouter:
             # No explicit smoke-counter intent detected.
             return None
 
-
-        smoke_req = parse_smoke_request(
-            text_lower
-        )
+        smoke_req = parse_smoke_request(text_lower)
 
         if smoke_req:
 
             return smoke_req
-
 
         # ========================================================
         # Visualization / chart detection
         # ========================================================
 
         chart_words = [
-            "graph", "graph this", "graph my", "chart", "plot",
-            "visualize", "visualise", "visualization", "visualisation"
+            "graph",
+            "graph this",
+            "graph my",
+            "chart",
+            "plot",
+            "visualize",
+            "visualise",
+            "visualization",
+            "visualisation",
         ]
 
         if any(word in text_lower for word in chart_words):
@@ -769,7 +610,6 @@ class ToolRouter:
                 "tool": "chart",
                 "action": "create",
             }
-
 
         # ========================================================
         # Research / factual-question detection
@@ -800,9 +640,8 @@ class ToolRouter:
             "search online",
             "find out",
             "latest information",
-            "recent information"
+            "recent information",
         ]
-
 
         research_question_patterns = [
             "why do people",
@@ -826,9 +665,8 @@ class ToolRouter:
             "what are the risks",
             "how common",
             "how often",
-            "how prevalent"
+            "how prevalent",
         ]
-
 
         # --------------------------------------------------------
         # Normalize common casual typos
@@ -846,41 +684,23 @@ class ToolRouter:
 
         for old, new in typo_replacements.items():
 
-            normalized_text = normalized_text.replace(
-                old,
-                new
-            )
-
+            normalized_text = normalized_text.replace(old, new)
 
         # --------------------------------------------------------
         # Explicit research requests
         # --------------------------------------------------------
 
-        if any(
-            word in normalized_text
-            for word in research_words
-        ):
+        if any(word in normalized_text for word in research_words):
 
-            return {
-                "tool": "web_search",
-                "query": text
-            }
-
+            return {"tool": "web_search", "query": text}
 
         # --------------------------------------------------------
         # Known research question patterns
         # --------------------------------------------------------
 
-        if any(
-            pattern in normalized_text
-            for pattern in research_question_patterns
-        ):
+        if any(pattern in normalized_text for pattern in research_question_patterns):
 
-            return {
-                "tool": "web_search",
-                "query": text
-            }
-
+            return {"tool": "web_search", "query": text}
 
         # --------------------------------------------------------
         # Stable knowledge should stay local by default.
@@ -907,19 +727,11 @@ class ToolRouter:
             "find source",
             "reviews",
             "price",
-            "where can i buy"
+            "where can i buy",
         ]
 
+        if any(phrase in text_lower for phrase in search_phrases):
 
-        if any(
-            phrase in text_lower
-            for phrase in search_phrases
-        ):
-
-            return {
-                "tool": "web_search",
-                "query": text
-            }
-
+            return {"tool": "web_search", "query": text}
 
         return None

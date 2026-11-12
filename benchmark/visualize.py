@@ -12,7 +12,6 @@ matplotlib.use("Agg")
 
 import matplotlib.pyplot as plt
 
-
 # ==========================
 # PATHS
 # ==========================
@@ -32,15 +31,13 @@ SECTIONS = BASE / "sections"
 OUTPUT = BASE / "dashboard"
 
 
-OUTPUT.mkdir(
-    parents=True,
-    exist_ok=True
-)
+OUTPUT.mkdir(parents=True, exist_ok=True)
 
 
 # ==========================
 # LOAD DATA
 # ==========================
+
 
 def load_results():
 
@@ -54,15 +51,7 @@ def load_results():
 
             return
 
-
-        test_id = data.get(
-            "test_id",
-            data.get(
-                "id",
-                None
-            )
-        )
-
+        test_id = data.get("test_id", data.get("id", None))
 
         if test_id:
 
@@ -70,20 +59,11 @@ def load_results():
 
                 return
 
-            seen_ids.add(
-                test_id
-            )
+            seen_ids.add(test_id)
 
+        data["source_file"] = str(source)
 
-        data["source_file"] = str(
-            source
-        )
-
-
-        results.append(
-            data
-        )
-
+        results.append(data)
 
     # ----------------------
     # RAW RESULTS
@@ -95,46 +75,23 @@ def load_results():
 
             try:
 
-                with open(
-                    file,
-                    encoding="utf-8"
-                ) as f:
+                with open(file, encoding="utf-8") as f:
 
                     data = json.load(f)
 
-
-                if isinstance(
-                    data,
-                    list
-                ):
+                if isinstance(data, list):
 
                     for item in data:
 
-                        add_result(
-                            item,
-                            file
-                        )
+                        add_result(item, file)
 
+                elif isinstance(data, dict):
 
-                elif isinstance(
-                    data,
-                    dict
-                ):
-
-                    add_result(
-                        data,
-                        file
-                    )
-
+                    add_result(data, file)
 
             except Exception as error:
 
-                print(
-                    "RAW LOAD ERROR:",
-                    file,
-                    error
-                )
-
+                print("RAW LOAD ERROR:", file, error)
 
     # ----------------------
     # SECTION RESULTS
@@ -146,65 +103,39 @@ def load_results():
 
             try:
 
-                with open(
-                    file,
-                    encoding="utf-8"
-                ) as f:
+                with open(file, encoding="utf-8") as f:
 
                     data = json.load(f)
 
-
-                if not isinstance(
-                    data,
-                    dict
-                ):
+                if not isinstance(data, dict):
 
                     continue
 
-
                 parts = file.parts
-
 
                 if "sections" in parts:
 
-                    index = parts.index(
-                        "sections"
-                    )
-
+                    index = parts.index("sections")
 
                     if len(parts) > index + 1:
 
-                        category = parts[
-                            index + 1
-                        ]
+                        category = parts[index + 1]
 
                     else:
 
                         category = "unknown"
 
-
                 else:
 
                     category = "unknown"
 
-
                 data["section"] = category
 
-
-                add_result(
-                    data,
-                    file
-                )
-
+                add_result(data, file)
 
             except Exception as error:
 
-                print(
-                    "SECTION LOAD ERROR:",
-                    file,
-                    error
-                )
-
+                print("SECTION LOAD ERROR:", file, error)
 
     return results
 
@@ -214,32 +145,22 @@ results = load_results()
 
 if not results:
 
-    print(
-        "No benchmark data found."
-    )
+    print("No benchmark data found.")
 
+    print(f"Checked RAW: {RAW.resolve()}")
 
-    print(
-        f"Checked RAW: {RAW.resolve()}"
-    )
-
-
-    print(
-        f"Checked SECTIONS: {SECTIONS.resolve()}"
-    )
-
+    print(f"Checked SECTIONS: {SECTIONS.resolve()}")
 
     exit()
 
 
-print(
-    f"Loaded {len(results)} benchmark records"
-)
+print(f"Loaded {len(results)} benchmark records")
 
 
 # ==========================
 # SCORE INTERPRETATION
 # ==========================
+
 
 def score_rating(score):
 
@@ -247,31 +168,25 @@ def score_rating(score):
 
         return "Not Scored"
 
-
     if score >= 3.0:
 
         return "Excellent"
-
 
     if score >= 2.0:
 
         return "Strong"
 
-
     if score >= 1.5:
 
         return "Good"
-
 
     if score >= 1.0:
 
         return "Developing"
 
-
     if score > 0:
 
         return "Needs Work"
-
 
     return "Needs Attention"
 
@@ -282,12 +197,7 @@ def human_category_name(name):
 
         return "Unknown"
 
-
-    return (
-        str(name)
-        .replace("_", " ")
-        .title()
-    )
+    return str(name).replace("_", " ").title()
 
 
 # ==========================
@@ -296,21 +206,13 @@ def human_category_name(name):
 
 for result in results:
 
-    scores = result.get(
-        "scores",
-        {}
-    )
+    scores = result.get("scores", {})
 
-
-    if not isinstance(
-        scores,
-        dict
-    ):
+    if not isinstance(scores, dict):
 
         scores = {}
 
         result["scores"] = scores
-
 
     # Only calculate an overall score when
     # there are actual numeric component scores.
@@ -321,35 +223,15 @@ for result in results:
     if "overall" not in scores:
 
         numeric_scores = [
-
-            value
-
-            for value in scores.values()
-
-            if isinstance(
-                value,
-                (int, float)
-            )
-
+            value for value in scores.values() if isinstance(value, (int, float))
         ]
-
 
         if numeric_scores:
 
-            scores["overall"] = (
-
-                sum(numeric_scores)
-
-                /
-
-                len(numeric_scores)
-
-            )
+            scores["overall"] = sum(numeric_scores) / len(numeric_scores)
 
 
-print(
-    "Scores normalized"
-)
+print("Scores normalized")
 
 
 # ==========================
@@ -359,71 +241,33 @@ print(
 graphs = []
 
 
-def graph(
-    name,
-    values,
-    title,
-    label
-):
+def graph(name, values, title, label):
 
     if not values:
 
         return
 
-
     file = OUTPUT / f"{name}.png"
 
+    plt.figure(figsize=(8, 4))
 
-    plt.figure(
-        figsize=(8, 4)
-    )
+    plt.plot(range(1, len(values) + 1), values, marker="o")
 
+    plt.title(title)
 
-    plt.plot(
-        range(
-            1,
-            len(values) + 1
-        ),
-        values,
-        marker="o"
-    )
+    plt.ylabel(label)
 
+    plt.xlabel("Benchmark Test")
 
-    plt.title(
-        title
-    )
-
-
-    plt.ylabel(
-        label
-    )
-
-
-    plt.xlabel(
-        "Benchmark Test"
-    )
-
-
-    plt.grid(
-        True
-    )
-
+    plt.grid(True)
 
     plt.tight_layout()
 
-
-    plt.savefig(
-        file,
-        dpi=200
-    )
-
+    plt.savefig(file, dpi=200)
 
     plt.close()
 
-
-    graphs.append(
-        file.name
-    )
+    graphs.append(file.name)
 
 
 # ==========================
@@ -441,52 +285,29 @@ failures = []
 
 for index, result in enumerate(results):
 
-    scores = result.get(
-        "scores",
-        {}
-    )
+    scores = result.get("scores", {})
 
-
-    if not isinstance(
-        scores,
-        dict
-    ):
+    if not isinstance(scores, dict):
 
         scores = {}
-
 
     # ----------------------
     # METRICS
     # ----------------------
 
-    result_metrics = result.get(
-        "metrics",
-        {}
-    )
+    result_metrics = result.get("metrics", {})
 
-
-    if not isinstance(
-        result_metrics,
-        dict
-    ):
+    if not isinstance(result_metrics, dict):
 
         result_metrics = {}
-
 
     # ----------------------
     # TEST ID TRACKING
     # ----------------------
 
-    test_id = result.get(
-        "test_id",
-        f"TEST-{index + 1}"
-    )
+    test_id = result.get("test_id", f"TEST-{index + 1}")
 
-
-    test_ids.append(
-        test_id
-    )
-
+    test_ids.append(test_id)
 
     # ----------------------
     # SCORE METRICS
@@ -494,80 +315,40 @@ for index, result in enumerate(results):
 
     for key, value in scores.items():
 
-        if isinstance(
-            value,
-            (int, float)
-        ):
+        if isinstance(value, (int, float)):
 
-            metrics[key].append(
-                value
-            )
-
+            metrics[key].append(value)
 
     # ----------------------
     # CATEGORY TRACKING
     # ----------------------
 
-    category = result.get(
-        "section",
-        result.get(
-            "category",
-            "unknown"
-        )
-    )
+    category = result.get("section", result.get("category", "unknown"))
 
-
-    overall_score = scores.get(
-        "overall",
-        None
-    )
-
+    overall_score = scores.get("overall", None)
 
     # Only put genuinely scored tests
     # into the category leaderboard.
 
-    if isinstance(
-        overall_score,
-        (int, float)
-    ):
+    if isinstance(overall_score, (int, float)):
 
-        categories[category].append(
-            overall_score
-        )
-
+        categories[category].append(overall_score)
 
     # ----------------------
     # FAILURE TRACKING
     # ----------------------
 
-    runtime = result.get(
-        "runtime",
-        {}
-    )
+    runtime = result.get("runtime", {})
 
-
-    if not isinstance(
-        runtime,
-        dict
-    ):
+    if not isinstance(runtime, dict):
 
         runtime = {}
 
-
-    failed = result.get(
-        "failed",
-        runtime.get(
-            "failed",
-            False
-        )
-    )
-
+    failed = result.get("failed", runtime.get("failed", False))
 
     if failed:
 
-        failures.append(
-            result
-        )
+        failures.append(result)
 
 
 # ==========================
@@ -581,29 +362,12 @@ for category, scores in categories.items():
 
     if scores:
 
-        average = (
+        average = sum(scores) / len(scores)
 
-            sum(scores)
-
-            /
-
-            len(scores)
-
-        )
+        leaderboard.append((category, average))
 
 
-        leaderboard.append(
-            (
-                category,
-                average
-            )
-        )
-
-
-leaderboard.sort(
-    key=lambda x: x[1],
-    reverse=True
-)
+leaderboard.sort(key=lambda x: x[1], reverse=True)
 
 
 # ==========================
@@ -612,12 +376,7 @@ leaderboard.sort(
 
 for name, data in metrics.items():
 
-    graph(
-        name,
-        data,
-        f"CYN-X {name.title()}",
-        "Score"
-    )
+    graph(name, data, f"CYN-X {name.title()}", "Score")
 
 
 # ==========================
@@ -626,12 +385,7 @@ for name, data in metrics.items():
 
 for name, data in categories.items():
 
-    graph(
-        f"category_{name}",
-        data,
-        f"CYN-X {name.title()} Performance",
-        "Score"
-    )
+    graph(f"category_{name}", data, f"CYN-X {name.title()} Performance", "Score")
 
 
 # ==========================
@@ -645,19 +399,9 @@ for name, data in categories.items():
 
 graph(
     "response_time",
-    [
-        result.get(
-            "metrics",
-            {}
-        ).get(
-            "response_time_seconds",
-            0
-        )
-
-        for result in results
-    ],
+    [result.get("metrics", {}).get("response_time_seconds", 0) for result in results],
     "Response Time",
-    "Seconds"
+    "Seconds",
 )
 
 
@@ -665,19 +409,9 @@ graph(
 
 graph(
     "tokens",
-    [
-        result.get(
-            "metrics",
-            {}
-        ).get(
-            "estimated_tokens",
-            0
-        )
-
-        for result in results
-    ],
+    [result.get("metrics", {}).get("estimated_tokens", 0) for result in results],
     "Token Usage",
-    "Tokens"
+    "Tokens",
 )
 
 
@@ -685,19 +419,9 @@ graph(
 
 graph(
     "words",
-    [
-        result.get(
-            "metrics",
-            {}
-        ).get(
-            "response_words",
-            0
-        )
-
-        for result in results
-    ],
+    [result.get("metrics", {}).get("response_words", 0) for result in results],
     "Response Length",
-    "Words"
+    "Words",
 )
 
 
@@ -740,15 +464,17 @@ for result in results:
         if isinstance(failures_found, list):
             failure = ", ".join(str(x) for x in failures_found)
 
-    tool_test_results.append({
-        "test_id": result.get("test_id", result.get("id", "UNKNOWN")),
-        "status": status,
-        "expected_tool": tool_test.get("expected_tool", "—"),
-        "tool_name": tool_test.get("tool_name", "—"),
-        "tool_called": tool_test.get("tool_called", "—"),
-        "result_passed_to_llm": tool_test.get("result_passed_to_llm", "—"),
-        "failure": failure,
-    })
+    tool_test_results.append(
+        {
+            "test_id": result.get("test_id", result.get("id", "UNKNOWN")),
+            "status": status,
+            "expected_tool": tool_test.get("expected_tool", "—"),
+            "tool_name": tool_test.get("tool_name", "—"),
+            "tool_called": tool_test.get("tool_called", "—"),
+            "result_passed_to_llm": tool_test.get("result_passed_to_llm", "—"),
+            "failure": failure,
+        }
+    )
 
 tool_test_total = len(tool_test_results)
 
@@ -762,74 +488,23 @@ total_tests = len(results)
 # Only include tests that actually
 # have a numeric overall score.
 
-all_scores = [
-
-    result.get(
-        "scores",
-        {}
-    ).get(
-        "overall",
-        None
-    )
-
-    for result in results
-
-]
+all_scores = [result.get("scores", {}).get("overall", None) for result in results]
 
 
-all_scores = [
-
-    value
-
-    for value in all_scores
-
-    if isinstance(
-        value,
-        (int, float)
-    )
-
-]
+all_scores = [value for value in all_scores if isinstance(value, (int, float))]
 
 
-average_score = (
-
-    sum(all_scores)
-
-    /
-
-    len(all_scores)
-
-    if all_scores
-
-    else 0
-
-)
+average_score = sum(all_scores) / len(all_scores) if all_scores else 0
 
 
 # ==========================
 # ERROR RATE
 # ==========================
 
-failure_count = len(
-    failures
-)
+failure_count = len(failures)
 
 
-error_rate = (
-
-    (
-        failure_count
-        /
-        total_tests
-    )
-    *
-    100
-
-    if total_tests
-
-    else 0
-
-)
+error_rate = (failure_count / total_tests) * 100 if total_tests else 0
 
 
 # ==========================
@@ -837,54 +512,19 @@ error_rate = (
 # ==========================
 
 response_times = [
-
-    result.get(
-        "metrics",
-        {}
-    ).get(
-        "response_time_seconds",
-        None
-    )
-
-    for result in results
-
+    result.get("metrics", {}).get("response_time_seconds", None) for result in results
 ]
 
 
 # Only use valid numeric response times.
 
-response_times = [
-
-    value
-
-    for value in response_times
-
-    if isinstance(
-        value,
-        (int, float)
-    )
-
-]
+response_times = [value for value in response_times if isinstance(value, (int, float))]
 
 
-average_response = (
-
-    sum(response_times)
-
-    /
-
-    len(response_times)
-
-    if response_times
-
-    else 0
-
-)
+average_response = sum(response_times) / len(response_times) if response_times else 0
 
 
-timestamp = datetime.now().strftime(
-    "%Y-%m-%d %H:%M:%S"
-)
+timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 # ==========================
@@ -1345,23 +985,11 @@ Assessment
 """
 
 
-for rank, (category, score) in enumerate(
+for rank, (category, score) in enumerate(leaderboard, start=1):
 
-    leaderboard,
+    rating = score_rating(score)
 
-    start=1
-
-):
-
-    rating = score_rating(
-        score
-    )
-
-
-    display_category = human_category_name(
-        category
-    )
-
+    display_category = human_category_name(category)
 
     html += f"""
 
@@ -1523,50 +1151,31 @@ html += """
 dashboard = OUTPUT / "index.html"
 
 
-dashboard.write_text(
-    html,
-    encoding="utf-8"
-)
+dashboard.write_text(html, encoding="utf-8")
 
 
 print()
 
 
-print(
-    "Dashboard created:"
-)
+print("Dashboard created:")
 
 
-print(
-    dashboard
-)
+print(dashboard)
 
 
-print(
-    f"Total tests: {total_tests}"
-)
+print(f"Total tests: {total_tests}")
 
 
-print(
-    f"Failures: {failure_count}"
-)
+print(f"Failures: {failure_count}")
 
 
-print(
-    f"Error rate: {error_rate:.2f}%"
-)
+print(f"Error rate: {error_rate:.2f}%")
 
 
-print(
-    f"Average score: {average_score:.2f}"
-)
+print(f"Average score: {average_score:.2f}")
 
 
-print(
-    f"Average response time: {average_response:.2f}s"
-)
+print(f"Average response time: {average_response:.2f}s")
 
 
-webbrowser.open(
-    dashboard.resolve().as_uri()
-)
+webbrowser.open(dashboard.resolve().as_uri())

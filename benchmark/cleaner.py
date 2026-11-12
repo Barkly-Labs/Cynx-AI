@@ -1,4 +1,3 @@
-
 """
 CYN-X Benchmark Cleanup Tool
 
@@ -30,7 +29,6 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-
 
 # =====================================
 # Project Paths
@@ -94,6 +92,7 @@ TEMP_EXTENSIONS = {
 # Cleanup Manager
 # =====================================
 
+
 class BenchmarkCleaner:
 
     def __init__(
@@ -117,9 +116,7 @@ class BenchmarkCleaner:
 
         if self.execute:
 
-            print(
-                f"[DELETE] {path}"
-            )
+            print(f"[DELETE] {path}")
 
             try:
 
@@ -129,28 +126,19 @@ class BenchmarkCleaner:
 
             except Exception as error:
 
-                self.errors.append(
-                    f"{path}: {error}"
-                )
+                self.errors.append(f"{path}: {error}")
 
-                print(
-                    f"[ERROR] {path}: {error}"
-                )
+                print(f"[ERROR] {path}: {error}")
 
         else:
 
-            print(
-                f"[DRY-RUN] Would delete: {path}"
-            )
+            print(f"[DRY-RUN] Would delete: {path}")
 
     # =================================
     # Check Protected File
     # =================================
 
-    def is_protected(
-        self,
-        path: Path
-    ) -> bool:
+    def is_protected(self, path: Path) -> bool:
 
         # ---------------------------------
         # Never delete source/config files
@@ -166,9 +154,7 @@ class BenchmarkCleaner:
 
         try:
 
-            path.relative_to(
-                SUITES_DIR
-            )
+            path.relative_to(SUITES_DIR)
 
             # Everything inside suites is protected.
             #
@@ -187,13 +173,9 @@ class BenchmarkCleaner:
 
         try:
 
-            path.relative_to(
-                DASHBOARD_DIR
-            )
+            path.relative_to(DASHBOARD_DIR)
 
-            if path.suffix.lower() in (
-                DASHBOARD_IMAGE_EXTENSIONS
-            ):
+            if path.suffix.lower() in (DASHBOARD_IMAGE_EXTENSIONS):
 
                 return True
 
@@ -216,9 +198,7 @@ class BenchmarkCleaner:
 
         if not RESULTS_DIR.exists():
 
-            print(
-                "No benchmark results directory found."
-            )
+            print("No benchmark results directory found.")
 
             return
 
@@ -240,9 +220,7 @@ class BenchmarkCleaner:
 
                 self.kept.append(path)
 
-                print(
-                    f"[KEEP] {path}"
-                )
+                print(f"[KEEP] {path}")
 
                 continue
 
@@ -314,13 +292,9 @@ class BenchmarkCleaner:
 
         # Deepest directories first
         directories = sorted(
-            [
-                p
-                for p in RESULTS_DIR.rglob("*")
-                if p.is_dir()
-            ],
+            [p for p in RESULTS_DIR.rglob("*") if p.is_dir()],
             key=lambda p: len(p.parts),
-            reverse=True
+            reverse=True,
         )
 
         for directory in directories:
@@ -331,28 +305,21 @@ class BenchmarkCleaner:
 
                     if self.execute:
 
-                        print(
-                            f"[DELETE DIR] {directory}"
-                        )
+                        print(f"[DELETE DIR] {directory}")
 
                         directory.rmdir()
 
-                        self.deleted.append(
-                            directory
-                        )
+                        self.deleted.append(directory)
 
                     else:
 
                         print(
-                            f"[DRY-RUN] Would delete empty "
-                            f"directory: {directory}"
+                            f"[DRY-RUN] Would delete empty " f"directory: {directory}"
                         )
 
             except Exception as error:
 
-                self.errors.append(
-                    f"{directory}: {error}"
-                )
+                self.errors.append(f"{directory}: {error}")
 
     # =================================
     # Safety Report
@@ -365,26 +332,15 @@ class BenchmarkCleaner:
         print("PROTECTED FILES")
         print("=" * 60)
 
-        print(
-            f"Question directory: {SUITES_DIR}"
-        )
+        print(f"Question directory: {SUITES_DIR}")
 
-        print(
-            "All files under benchmark/suites/ "
-            "are protected."
-        )
+        print("All files under benchmark/suites/ " "are protected.")
 
-        print(
-            f"Dashboard: {DASHBOARD_DIR}"
-        )
+        print(f"Dashboard: {DASHBOARD_DIR}")
 
-        print(
-            "Dashboard image files are protected."
-        )
+        print("Dashboard image files are protected.")
 
-        print(
-            "Python/source/config files are protected."
-        )
+        print("Python/source/config files are protected.")
 
     # =================================
     # Summary
@@ -399,51 +355,35 @@ class BenchmarkCleaner:
 
         if self.execute:
 
-            print(
-                f"Files/directories deleted: "
-                f"{len(self.deleted)}"
-            )
+            print(f"Files/directories deleted: " f"{len(self.deleted)}")
 
         else:
 
-            print(
-                "DRY-RUN COMPLETE"
-            )
+            print("DRY-RUN COMPLETE")
 
-            print(
-                "Nothing was deleted."
-            )
+            print("Nothing was deleted.")
 
             print()
-            print(
-                "Run again with --execute "
-                "to perform the cleanup."
-            )
+            print("Run again with --execute " "to perform the cleanup.")
 
         if self.kept:
 
-            print(
-                f"Protected files encountered: "
-                f"{len(self.kept)}"
-            )
+            print(f"Protected files encountered: " f"{len(self.kept)}")
 
         if self.errors:
 
             print()
-            print(
-                "Errors:"
-            )
+            print("Errors:")
 
             for error in self.errors:
 
-                print(
-                    f"  {error}"
-                )
+                print(f"  {error}")
 
 
 # =====================================
 # Main
 # =====================================
+
 
 def main():
 
@@ -458,19 +398,15 @@ def main():
     parser.add_argument(
         "--execute",
         action="store_true",
-        help=(
-            "Actually delete files. "
-            "Without this flag, only preview."
-        )
+        help=("Actually delete files. " "Without this flag, only preview."),
     )
 
     parser.add_argument(
         "--temp",
         action="store_true",
         help=(
-            "Also remove temporary development "
-            "files such as run_storage_test.py."
-        )
+            "Also remove temporary development " "files such as run_storage_test.py."
+        ),
     )
 
     args = parser.parse_args()
@@ -480,10 +416,7 @@ def main():
     print("CYN-X BENCHMARK CLEANUP")
     print("=" * 60)
 
-    print(
-        f"Mode: "
-        f"{'EXECUTE' if args.execute else 'DRY-RUN'}"
-    )
+    print(f"Mode: " f"{'EXECUTE' if args.execute else 'DRY-RUN'}")
 
     cleaner = BenchmarkCleaner(
         execute=args.execute,
@@ -508,4 +441,3 @@ def main():
 if __name__ == "__main__":
 
     main()
-

@@ -127,7 +127,9 @@ def test_v2_technical_turn_keeps_context_available(monkeypatch):
 
     assert prompt.calls[0]["memory_summary"]
     assert prompt.calls[0]["knowledge_context"]
-    assert any("parse_config" in m.get("content", "") for m in ollama.calls[0]["messages"])
+    assert any(
+        "parse_config" in m.get("content", "") for m in ollama.calls[0]["messages"]
+    )
 
 
 def test_v1_context_behavior_is_unchanged(monkeypatch):

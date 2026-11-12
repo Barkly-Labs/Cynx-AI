@@ -29,10 +29,7 @@ def apply_benchmark_filters(
         Filtered list of benchmark tests.
     """
 
-
     filtered = tests.copy()
-
-
 
     # -------------------------------
     # Category filtering
@@ -40,19 +37,7 @@ def apply_benchmark_filters(
 
     if categories:
 
-        filtered = [
-
-            test
-
-            for test in filtered
-
-            if test.get("category")
-
-            in categories
-
-        ]
-
-
+        filtered = [test for test in filtered if test.get("category") in categories]
 
     # -------------------------------
     # Suite filtering
@@ -60,19 +45,7 @@ def apply_benchmark_filters(
 
     if suites:
 
-        filtered = [
-
-            test
-
-            for test in filtered
-
-            if test.get("suite")
-
-            in suites
-
-        ]
-
-
+        filtered = [test for test in filtered if test.get("suite") in suites]
 
     # -------------------------------
     # Test limit
@@ -82,17 +55,10 @@ def apply_benchmark_filters(
 
         filtered = filtered[:limit]
 
-
-
     return filtered
 
 
-
-
-
-def get_benchmark_mode(
-    mode: str
-) -> dict:
+def get_benchmark_mode(mode: str) -> dict:
     """
     Returns preset benchmark configurations.
 
@@ -102,50 +68,10 @@ def get_benchmark_mode(
         full
     """
 
-
     modes = {
-
-
-        "quick": {
-
-            "limit": 5,
-
-            "categories": None,
-
-            "suites": None
-
-        },
-
-
-        "normal": {
-
-            "limit": 15,
-
-            "categories": None,
-
-            "suites": None
-
-        },
-
-
-        "full": {
-
-            "limit": None,
-
-            "categories": None,
-
-            "suites": None
-
-        }
-
+        "quick": {"limit": 5, "categories": None, "suites": None},
+        "normal": {"limit": 15, "categories": None, "suites": None},
+        "full": {"limit": None, "categories": None, "suites": None},
     }
 
-
-
-    return modes.get(
-
-        mode.lower(),
-
-        modes["normal"]
-
-    )
+    return modes.get(mode.lower(), modes["normal"])

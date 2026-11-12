@@ -44,13 +44,20 @@ def test_exact_greeting_tools_zero_build_has_full_personality_and_no_tools():
 
 def test_no_new_modes_or_canned_greeting():
     prompt = build_personality_prompt()
-    for item in ("hey mommy how are u today", "casual_mode", "flirty_mode",
-                 "uncanny_mode", "serious_mode", "If Piper says hello"):
+    for item in (
+        "hey mommy how are u today",
+        "casual_mode",
+        "flirty_mode",
+        "uncanny_mode",
+        "serious_mode",
+        "If Piper says hello",
+    ):
         assert item not in prompt
 
 
 def test_optional_tool_schemas_discourage_casual_misuse_without_hiding_tools():
     from tools.tool_router import ToolRouter
+
     router = ToolRouter()
     # Avoid depending on app registration; inspect source-generated schema guidance.
     source = __import__("inspect").getsource(ToolRouter.as_ollama_tools)

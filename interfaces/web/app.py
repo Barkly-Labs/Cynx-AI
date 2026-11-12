@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -24,17 +23,7 @@ from ai.knowledge.store import KnowledgeStore
 from memory.sqlite import connect
 from config import get_config
 
-
-
-sys.path.append(
-    os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__),
-            "../../"
-        )
-    )
-)
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 
 from ai.context_manager import ContextManager
@@ -56,28 +45,13 @@ from interfaces.web.benchmark_runs import BenchmarkRunManager
 from benchmark.watchdog import BenchmarkWatchdog
 from benchmark.personality.diagnostics import PersonalityDiagnosticsService
 
+app = FastAPI(title="CYN-X")
 
 
-app = FastAPI(
-    title="CYN-X"
-)
+app.mount("/static", StaticFiles(directory="interfaces/web/static"), name="static")
 
 
-
-app.mount(
-    "/static",
-    StaticFiles(
-        directory="interfaces/web/static"
-    ),
-    name="static"
-)
-
-
-
-templates = Jinja2Templates(
-    directory="interfaces/web/templates"
-)
-
+templates = Jinja2Templates(directory="interfaces/web/templates")
 
 
 # ======================
@@ -93,7 +67,6 @@ prompt_builder = PromptBuilder()
 conn = connect()
 
 
-
 # ======================
 # MEMORY
 # ======================
@@ -101,15 +74,10 @@ conn = connect()
 # MemoryManager is now the single
 # memory system used by CYN-X.
 
-memory_manager = MemoryManager(
-    conn
-)
+memory_manager = MemoryManager(conn)
 
 
-memory_extractor = MemoryExtractor(
-    memory_manager
-)
-
+memory_extractor = MemoryExtractor(memory_manager)
 
 
 # ======================
@@ -120,38 +88,28 @@ memory_extractor = MemoryExtractor(
 tool_router = ToolRouter()
 
 from hardware.lepro.integration import register_selected
+
 try:
     register_selected(tool_router)
 except Exception as exc:
     print(f"[LEPRO] Optional registration unavailable: {exc}")
 
 
-tool_router.register_tool(
-    WebSearchTool()
-)
+tool_router.register_tool(WebSearchTool())
 
 
-tool_router.register_tool(
-    CalculatorTool()
-)
+tool_router.register_tool(CalculatorTool())
 
-tool_router.register_tool(
-    FilesystemTool()
-)
+tool_router.register_tool(FilesystemTool())
 
 
 # Register the smoke_counter tool so Cyn
 # can call it from the web interface
-tool_router.register_tool(
-    smoke_counter
-)
+tool_router.register_tool(smoke_counter)
 
 
 # Register the chart tool for structured visualizations.
-tool_router.register_tool(
-    chart_tool
-)
-
+tool_router.register_tool(chart_tool)
 
 
 # ======================
@@ -162,10 +120,7 @@ tool_router.register_tool(
 mode_manager = ModeManager()
 
 
-knowledge_store = KnowledgeStore(
-    conn
-)
-
+knowledge_store = KnowledgeStore(conn)
 
 
 # ======================
@@ -181,7 +136,6 @@ context_manager = ContextManager(
 )
 
 
-
 # ======================
 # CHAT ENGINE
 # ======================
@@ -195,8 +149,7 @@ chat_engine = ChatEngine(
     mode_manager,
     memory_manager,
     memory_extractor=memory_extractor,
-    context_manager=context_manager
-
+    context_manager=context_manager,
 )
 
 pipeline_events = PipelineEventStore()
@@ -210,23 +163,16 @@ web_logger = logging.getLogger("cynx.web")
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request:Request):
+async def home(request: Request):
 
-    return templates.TemplateResponse(
-        request=request,
-        name="chat.html",
-        context={}
-    )
-
+    return templates.TemplateResponse(request=request, name="chat.html", context={})
 
 
 @app.get("/dashboard")
-def dashboard(request:Request):
+def dashboard(request: Request):
 
     return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html",
-        context={}
+        request=request, name="dashboard.html", context={}
     )
 
 
@@ -249,9 +195,7 @@ def dx_health():
     """Report live local service state without returning URLs or secrets."""
     config = get_config()
     try:
-        response = requests.get(
-            f"{ollama_client.base_url}/api/tags", timeout=2
-        )
+        response = requests.get(f"{ollama_client.base_url}/api/tags", timeout=2)
         response.raise_for_status()
         ollama_ok = True
         models = [m.get("name", "") for m in response.json().get("models", [])]
@@ -274,7 +218,10 @@ def dx_health():
         "tools": tool_router.describe_tools(),
         "tool_count": len(tool_router.list_tools()),
         "environment": "local",
-        "hardware": {"available": False, "reason": "No supported telemetry provider is configured."},
+        "hardware": {
+            "available": False,
+            "reason": "No supported telemetry provider is configured.",
+        },
     }
 
 
@@ -284,11 +231,33 @@ def dx_benchmark_suites():
     for path in sorted(BENCHMARK_SUITES.glob("*.json")):
         try:
             suite_data = json.loads(path.read_text(encoding="utf-8"))
-            cases = suite_data if isinstance(suite_data, list) else suite_data.get("scenarios", suite_data.get("questions", [])) if isinstance(suite_data, dict) else None
+            cases = (
+                suite_data
+                if isinstance(suite_data, list)
+                else (
+                    suite_data.get("scenarios", suite_data.get("questions", []))
+                    if isinstance(suite_data, dict)
+                    else None
+                )
+            )
             if isinstance(cases, list):
-                suites.append({"id": path.name, "name": path.stem.replace("_", " ").replace("-", " "), "count": len(cases),
-                               "personality_contract_version": suite_data.get("contract_version") if isinstance(suite_data, dict) else None,
-                               "scenario_library_version": suite_data.get("version") if isinstance(suite_data, dict) else None})
+                suites.append(
+                    {
+                        "id": path.name,
+                        "name": path.stem.replace("_", " ").replace("-", " "),
+                        "count": len(cases),
+                        "personality_contract_version": (
+                            suite_data.get("contract_version")
+                            if isinstance(suite_data, dict)
+                            else None
+                        ),
+                        "scenario_library_version": (
+                            suite_data.get("version")
+                            if isinstance(suite_data, dict)
+                            else None
+                        ),
+                    }
+                )
         except (OSError, ValueError):
             continue
     return {"suites": suites}
@@ -298,13 +267,19 @@ def dx_benchmark_suites():
 def dx_benchmark_suite(suite_id: str):
     # Accept only a filename present in the benchmark suite directory.
     path = (BENCHMARK_SUITES / suite_id).resolve()
-    if path.parent != BENCHMARK_SUITES.resolve() or path.suffix.lower() != ".json" or not path.is_file():
+    if (
+        path.parent != BENCHMARK_SUITES.resolve()
+        or path.suffix.lower() != ".json"
+        or not path.is_file()
+    ):
         from fastapi import HTTPException
+
         raise HTTPException(status_code=404, detail="Benchmark suite not found")
     try:
         suite_data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         from fastapi import HTTPException
+
         raise HTTPException(status_code=422, detail="Benchmark suite could not be read")
     if isinstance(suite_data, dict):
         cases = suite_data.get("scenarios", suite_data.get("questions", []))
@@ -312,10 +287,18 @@ def dx_benchmark_suite(suite_id: str):
         cases = suite_data
     if not isinstance(cases, list):
         from fastapi import HTTPException
+
         raise HTTPException(status_code=422, detail="Benchmark suite format is invalid")
-    return {"id": suite_id, "cases": cases,
-            "personality_contract_version": suite_data.get("contract_version") if isinstance(suite_data, dict) else None,
-            "scenario_library_version": suite_data.get("version") if isinstance(suite_data, dict) else None}
+    return {
+        "id": suite_id,
+        "cases": cases,
+        "personality_contract_version": (
+            suite_data.get("contract_version") if isinstance(suite_data, dict) else None
+        ),
+        "scenario_library_version": (
+            suite_data.get("version") if isinstance(suite_data, dict) else None
+        ),
+    }
 
 
 @app.post("/api/dx/benchmark/runs")
@@ -324,10 +307,12 @@ def dx_save_benchmark_run(data: dict):
     from benchmark.analyzer import analyze_response
     from benchmark.scoring import score_response
     import statistics
+
     run_id = str(uuid.uuid4())
     cases = data.get("results", [])
     if not isinstance(cases, list) or len(cases) > 500:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=400, detail="Invalid benchmark results")
     scored = []
     for item in cases:
@@ -340,33 +325,48 @@ def dx_save_benchmark_run(data: dict):
         scores = score_response(response_text, category, test=item.get("test"))
         raw_response_time = item.get("response_time")
         try:
-            response_time = float(raw_response_time) if raw_response_time is not None else None
-            if response_time is not None and (not math.isfinite(response_time) or response_time < 0):
+            response_time = (
+                float(raw_response_time) if raw_response_time is not None else None
+            )
+            if response_time is not None and (
+                not math.isfinite(response_time) or response_time < 0
+            ):
                 response_time = None
         except (TypeError, ValueError):
             response_time = None
-        scored.append({
-            "test_id": str(item.get("test_id", ""))[:200],
-            "category": category,
-            "question": question,
-            "response": response_text,
-            # Missing timing is unavailable, not a measured zero-second response.
-            "response_time": response_time,
-            "failed": bool(item.get("failed", False)),
-            "error": "Request failed" if item.get("failed") else None,
-            "tools": item.get("tools", []) if isinstance(item.get("tools", []), list) else [],
-            "analysis": analysis,
-            "scores": scores,
-        })
-    timings = [row["response_time"] for row in scored if row["response_time"] is not None]
+        scored.append(
+            {
+                "test_id": str(item.get("test_id", ""))[:200],
+                "category": category,
+                "question": question,
+                "response": response_text,
+                # Missing timing is unavailable, not a measured zero-second response.
+                "response_time": response_time,
+                "failed": bool(item.get("failed", False)),
+                "error": "Request failed" if item.get("failed") else None,
+                "tools": (
+                    item.get("tools", [])
+                    if isinstance(item.get("tools", []), list)
+                    else []
+                ),
+                "analysis": analysis,
+                "scores": scores,
+            }
+        )
+    timings = [
+        row["response_time"] for row in scored if row["response_time"] is not None
+    ]
     score_values = [
-        row["scores"]["overall"] for row in scored
-        if not row["failed"] and isinstance(row.get("scores"), dict)
+        row["scores"]["overall"]
+        for row in scored
+        if not row["failed"]
+        and isinstance(row.get("scores"), dict)
         and isinstance(row["scores"].get("overall"), (int, float))
         and not isinstance(row["scores"].get("overall"), bool)
     ]
     tool_failures = sum(
-        1 for row in scored
+        1
+        for row in scored
         for tool_event in row["tools"]
         if isinstance(tool_event, dict) and tool_event.get("status") == "failed"
     )
@@ -380,18 +380,28 @@ def dx_save_benchmark_run(data: dict):
         "failed": sum(row["failed"] for row in scored),
         "tool_failures": tool_failures,
         "partial_tool_failures": sum(
-            not row["failed"] and any(
+            not row["failed"]
+            and any(
                 isinstance(event, dict) and event.get("status") == "failed"
                 for event in row["tools"]
-            ) for row in scored
+            )
+            for row in scored
         ),
-        "average_response_time": round(statistics.mean(timings), 3) if timings else None,
-        "median_response_time": round(statistics.median(timings), 3) if timings else None,
-        "average_score": round(statistics.mean(score_values), 2) if score_values else None,
+        "average_response_time": (
+            round(statistics.mean(timings), 3) if timings else None
+        ),
+        "median_response_time": (
+            round(statistics.median(timings), 3) if timings else None
+        ),
+        "average_score": (
+            round(statistics.mean(score_values), 2) if score_values else None
+        ),
         "results": scored,
     }
     DX_BENCHMARK_RUNS.mkdir(parents=True, exist_ok=True)
-    (DX_BENCHMARK_RUNS / f"{run_id}.json").write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    (DX_BENCHMARK_RUNS / f"{run_id}.json").write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     return summary
 
 
@@ -403,6 +413,7 @@ def dx_benchmark_runs():
 @app.post("/api/dx/benchmark/start")
 def dx_start_benchmark(data: dict):
     from fastapi import HTTPException
+
     try:
         run = benchmark_runs.start(
             str(data.get("suite", "")),
@@ -413,7 +424,9 @@ def dx_start_benchmark(data: dict):
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except RuntimeError as exc:
-        raise HTTPException(status_code=409, detail=f"A benchmark is already active ({exc}).")
+        raise HTTPException(
+            status_code=409, detail=f"A benchmark is already active ({exc})."
+        )
 
 
 @app.get("/api/dx/benchmark/active")
@@ -430,6 +443,7 @@ def dx_latest_benchmark():
 def dx_benchmark_watchdog(run_id: str | None = None, baseline_id: str | None = None):
     """Return read-only watchdog findings for persisted benchmark runs."""
     from fastapi import HTTPException
+
     report = BenchmarkWatchdog(benchmark_runs.results_dir).report(run_id, baseline_id)
     if report is None:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
@@ -437,8 +451,11 @@ def dx_benchmark_watchdog(run_id: str | None = None, baseline_id: str | None = N
 
 
 @app.get("/api/dx/benchmark/personality/history")
-def dx_personality_history(run_id: str | None = None, baseline_id: str | None = None, limit: int = 50):
+def dx_personality_history(
+    run_id: str | None = None, baseline_id: str | None = None, limit: int = 50
+):
     from fastapi import HTTPException
+
     try:
         if run_id:
             personality_diagnostics._run_path(run_id)
@@ -446,14 +463,19 @@ def dx_personality_history(run_id: str | None = None, baseline_id: str | None = 
             personality_diagnostics._run_path(baseline_id)
     except KeyError:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
-    return personality_diagnostics.history(run_id=run_id, baseline_id=baseline_id, limit=limit)
+    return personality_diagnostics.history(
+        run_id=run_id, baseline_id=baseline_id, limit=limit
+    )
 
 
 @app.post("/api/dx/benchmark/personality/{run_id}/evaluate")
 async def dx_evaluate_personality(run_id: str, refresh: bool = False):
     from fastapi import HTTPException
+
     try:
-        return await run_in_threadpool(personality_diagnostics.evaluate_run, run_id, refresh=refresh)
+        return await run_in_threadpool(
+            personality_diagnostics.evaluate_run, run_id, refresh=refresh
+        )
     except KeyError:
         raise HTTPException(status_code=404, detail="Benchmark run not found")
     except ValueError as exc:
@@ -463,6 +485,7 @@ async def dx_evaluate_personality(run_id: str, refresh: bool = False):
 @app.post("/api/dx/benchmark/personality/{run_id}/review-baseline")
 def dx_review_personality_baseline(run_id: str):
     from fastapi import HTTPException
+
     try:
         return personality_diagnostics.mark_reviewed_baseline(run_id)
     except KeyError:
@@ -474,6 +497,7 @@ def dx_review_personality_baseline(run_id: str):
 @app.get("/api/dx/benchmark/personality/{run_id}")
 def dx_personality_run(run_id: str):
     from fastapi import HTTPException
+
     try:
         personality_diagnostics._run_path(run_id)
     except KeyError:
@@ -484,6 +508,7 @@ def dx_personality_run(run_id: str):
 @app.get("/api/dx/benchmark/runs/{run_id}")
 def dx_benchmark_run(run_id: str, after_event: int = 0):
     from fastapi import HTTPException
+
     try:
         return benchmark_runs.get(run_id, after_event=max(0, after_event))
     except KeyError:
@@ -493,6 +518,7 @@ def dx_benchmark_run(run_id: str, after_event: int = 0):
 @app.get("/api/dx/benchmark/runs/{run_id}/updates")
 def dx_benchmark_run_updates(run_id: str, after_event: int = 0):
     from fastapi import HTTPException
+
     try:
         return benchmark_runs.updates(run_id, after_event=max(0, after_event))
     except KeyError:
@@ -502,6 +528,7 @@ def dx_benchmark_run_updates(run_id: str, after_event: int = 0):
 @app.post("/api/dx/benchmark/runs/{run_id}/pause")
 def dx_pause_benchmark(run_id: str):
     from fastapi import HTTPException
+
     try:
         return benchmark_runs.pause(run_id)
     except KeyError:
@@ -513,6 +540,7 @@ def dx_pause_benchmark(run_id: str):
 @app.post("/api/dx/benchmark/runs/{run_id}/resume")
 def dx_resume_benchmark(run_id: str):
     from fastapi import HTTPException
+
     try:
         return benchmark_runs.resume(run_id)
     except KeyError:
@@ -524,6 +552,7 @@ def dx_resume_benchmark(run_id: str):
 @app.post("/api/dx/benchmark/runs/{run_id}/next")
 def dx_next_benchmark_question(run_id: str):
     from fastapi import HTTPException
+
     try:
         return benchmark_runs.resume(run_id, next_question=True)
     except KeyError:
@@ -535,6 +564,7 @@ def dx_next_benchmark_question(run_id: str):
 @app.post("/api/dx/benchmark/runs/{run_id}/stop")
 def dx_stop_benchmark(run_id: str):
     from fastapi import HTTPException
+
     try:
         return benchmark_runs.stop(run_id)
     except KeyError:
@@ -549,8 +579,15 @@ def dx_clear_benchmark_results():
 @app.get("/api/dx/tools")
 def dx_tools():
     schemas = tool_router.as_ollama_tools()
-    by_name = {x.get("function", {}).get("name"): x.get("function", {}) for x in schemas}
-    return {"tools": [{**tool, "schema": by_name.get(tool["name"], {})} for tool in tool_router.describe_tools()]}
+    by_name = {
+        x.get("function", {}).get("name"): x.get("function", {}) for x in schemas
+    }
+    return {
+        "tools": [
+            {**tool, "schema": by_name.get(tool["name"], {})}
+            for tool in tool_router.describe_tools()
+        ]
+    }
 
 
 @app.get("/api/dx/requests")
@@ -568,6 +605,7 @@ def dx_select_model(data: dict):
     model = str(data.get("model", ""))
     if not model or len(model) > 200 or any(c in model for c in "\r\n\\"):
         from fastapi import HTTPException
+
         raise HTTPException(status_code=400, detail="Choose a valid installed model")
     try:
         response = requests.get(f"{ollama_client.base_url}/api/tags", timeout=2)
@@ -575,22 +613,23 @@ def dx_select_model(data: dict):
         installed = {m.get("name") for m in response.json().get("models", [])}
     except Exception:
         from fastapi import HTTPException
+
         raise HTTPException(status_code=503, detail="Ollama is unavailable")
     if model not in installed:
         from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="That model is not installed in Ollama")
+
+        raise HTTPException(
+            status_code=400, detail="That model is not installed in Ollama"
+        )
     ollama_client.model = model
     return {"ok": True, "model": model, "persistence": "runtime"}
-
-
 
 
 chat_request_count = 0
 
 
-
 @app.post("/chat")
-async def chat(data:dict):
+async def chat(data: dict):
 
     return await _dispatch_chat(data)
 
@@ -609,25 +648,27 @@ async def _dispatch_chat(data: dict):
     stored_trace_callback = benchmark_runs.trace_callback(request_id)
     observed_trace_stages = set()
     if stored_trace_callback:
+
         def personality_trace_callback(details):
             try:
                 if details.get("stage"):
                     observed_trace_stages.add(details["stage"])
                 stored_trace_callback(details)
             except Exception as exc:
-                web_logger.warning("[PERSONALITY TRACE STORE ERROR] request_id=%s error=%s", request_id, exc)
+                web_logger.warning(
+                    "[PERSONALITY TRACE STORE ERROR] request_id=%s error=%s",
+                    request_id,
+                    exc,
+                )
+
     else:
         personality_trace_callback = None
 
     pipeline_events.create(request_id)
 
-    start=time.perf_counter()
+    start = time.perf_counter()
 
-
-    message=data.get(
-        "message",
-        ""
-    )
+    message = data.get("message", "")
 
     try:
         conversation_id = str(uuid.UUID(str(data.get("conversation_id"))))
@@ -635,24 +676,15 @@ async def _dispatch_chat(data: dict):
     except (ValueError, TypeError, AttributeError):
         conversation_key = "web_user"
 
+    prompt_preset = data.get("prompt_preset", None)
 
-    prompt_preset = data.get(
-        "prompt_preset",
-        None
-    )
-
-    prompt_layers = data.get(
-        "prompt_layers",
-        None
-    )
-
+    prompt_layers = data.get("prompt_layers", None)
 
     print(
         f"[CHAT REQUEST] id={request_id} "
         f"count={chat_request_count} "
         f"message_preview={message[:120]}"
     )
-
 
     def process_request():
         with chat_engine_lock:
@@ -668,24 +700,37 @@ async def _dispatch_chat(data: dict):
                 print(f"[PROMPT LAYERS] {prompt_builder.get_prompt_layers()}")
 
                 if personality_trace_callback:
-                    personality_trace_callback({
-                        "stage": "configuration_loaded", "status": "completed",
-                        "architecture": getattr(prompt_builder, "personality_arch", None),
-                        "prompt_layers": prompt_builder.get_prompt_layers(),
-                        "preset": prompt_preset or "not specified",
-                        "configuration_overrides": prompt_layers or {},
-                        "model": getattr(ollama_client, "model", None),
-                        "generation_parameters": "not exposed by the active Ollama client",
-                    })
+                    personality_trace_callback(
+                        {
+                            "stage": "configuration_loaded",
+                            "status": "completed",
+                            "architecture": getattr(
+                                prompt_builder, "personality_arch", None
+                            ),
+                            "prompt_layers": prompt_builder.get_prompt_layers(),
+                            "preset": prompt_preset or "not specified",
+                            "configuration_overrides": prompt_layers or {},
+                            "model": getattr(ollama_client, "model", None),
+                            "generation_parameters": "not exposed by the active Ollama client",
+                        }
+                    )
 
                 def publish_pipeline(event):
                     event_type = event.pop("type")
-                    if event_type == "decision" and personality_trace_callback and "routing_decision" not in observed_trace_stages:
-                        personality_trace_callback({
-                            "stage": "routing_decision", "status": "completed",
-                            "action": event.get("action"), "tools": event.get("tools", []),
-                            "policy_classification": "not instrumented in this request path",
-                        })
+                    if (
+                        event_type == "decision"
+                        and personality_trace_callback
+                        and "routing_decision" not in observed_trace_stages
+                    ):
+                        personality_trace_callback(
+                            {
+                                "stage": "routing_decision",
+                                "status": "completed",
+                                "action": event.get("action"),
+                                "tools": event.get("tools", []),
+                                "policy_classification": "not instrumented in this request path",
+                            }
+                        )
                     pipeline_events.publish(request_id, event_type, **event)
 
                 response = chat_engine.handle_user_message(
@@ -693,18 +738,21 @@ async def _dispatch_chat(data: dict):
                     text=message,
                     request_id=request_id,
                     pipeline_callback=publish_pipeline,
-                    cancellation_check=lambda: pipeline_events.is_cancelled(
-                        request_id
-                    ),
+                    cancellation_check=lambda: pipeline_events.is_cancelled(request_id),
                     trace_callback=personality_trace_callback,
                     conversation_key=conversation_key,
                 )
                 elapsed = round(time.perf_counter() - start, 3)
                 pipeline_events.publish(request_id, "request_completed")
                 if personality_trace_callback:
-                    personality_trace_callback({"stage": "response_returned", "status": "completed",
-                                                "final_response": response,
-                                                "transformation": "No separate response normalization stage is instrumented."})
+                    personality_trace_callback(
+                        {
+                            "stage": "response_returned",
+                            "status": "completed",
+                            "final_response": response,
+                            "transformation": "No separate response normalization stage is instrumented.",
+                        }
+                    )
                 print(f"[CHAT COMPLETE] id={request_id} elapsed={elapsed}s")
                 return {
                     "response": response,
@@ -720,7 +768,9 @@ async def _dispatch_chat(data: dict):
                     message="Request cancelled before a response was ready.",
                 )
                 if personality_trace_callback:
-                    personality_trace_callback({"stage": "request_cancelled", "status": "cancelled"})
+                    personality_trace_callback(
+                        {"stage": "request_cancelled", "status": "cancelled"}
+                    )
                 return {
                     "response": "",
                     "response_time": elapsed,
@@ -736,8 +786,13 @@ async def _dispatch_chat(data: dict):
                     message="CYN-X Core could not complete this request.",
                 )
                 if personality_trace_callback:
-                    personality_trace_callback({"stage": "request_failed", "status": "failed",
-                                                "error": "See sanitized request diagnostics; raw stack traces are not stored in Personality Trace."})
+                    personality_trace_callback(
+                        {
+                            "stage": "request_failed",
+                            "status": "failed",
+                            "error": "See sanitized request diagnostics; raw stack traces are not stored in Personality Trace.",
+                        }
+                    )
                 raise
 
     return await run_in_threadpool(process_request)
@@ -757,11 +812,25 @@ async def _dispatch_benchmark_scenario(data: dict):
         if index and run_id and question_id:
             benchmark_runs.register_question_request(run_id, question_id, request_id)
         try:
-            result = await _dispatch_chat({"message": message, "request_id": request_id, "conversation_id": conversation_id})
+            result = await _dispatch_chat(
+                {
+                    "message": message,
+                    "request_id": request_id,
+                    "conversation_id": conversation_id,
+                }
+            )
         except Exception:
-            web_logger.exception("Personality scenario turn failed; run_id=%s question_id=%s request_id=%s", run_id, question_id, request_id)
+            web_logger.exception(
+                "Personality scenario turn failed; run_id=%s question_id=%s request_id=%s",
+                run_id,
+                question_id,
+                request_id,
+            )
             events = pipeline_events.read(request_id).get("events", [])
-            pipeline_history.extend({**event, "request_id": request_id, "turn_index": index + 1} for event in events)
+            pipeline_history.extend(
+                {**event, "request_id": request_id, "turn_index": index + 1}
+                for event in events
+            )
             return {
                 "response": turn_records[-1]["response"] if turn_records else "",
                 "response_time": round(time.perf_counter() - started, 3),
@@ -771,20 +840,36 @@ async def _dispatch_benchmark_scenario(data: dict):
                 "error": "A scenario turn failed. Inspect its request ID in the benchmark diagnostics.",
             }
         events = pipeline_events.read(request_id).get("events", [])
-        pipeline_history.extend({**event, "request_id": request_id, "turn_index": index + 1} for event in events)
+        pipeline_history.extend(
+            {**event, "request_id": request_id, "turn_index": index + 1}
+            for event in events
+        )
         turn_expectations = data.get("turn_expectations") or []
-        expected_tools = turn_expectations[index].get("expected_tools") if index < len(turn_expectations) and isinstance(turn_expectations[index], dict) else None
-        actual_tools = sorted({str(event.get("name")) for event in events if event.get("type") == "tool" and event.get("name")})
-        turn_records.append({
-            "turn_index": index + 1,
-            "user_message": message,
-            "response": result.get("response", ""),
-            "request_id": request_id,
-            "response_time_seconds": result.get("response_time"),
-            "cancelled": bool(result.get("cancelled")),
-            "tools": actual_tools,
-            "expected_tools": expected_tools,
-        })
+        expected_tools = (
+            turn_expectations[index].get("expected_tools")
+            if index < len(turn_expectations)
+            and isinstance(turn_expectations[index], dict)
+            else None
+        )
+        actual_tools = sorted(
+            {
+                str(event.get("name"))
+                for event in events
+                if event.get("type") == "tool" and event.get("name")
+            }
+        )
+        turn_records.append(
+            {
+                "turn_index": index + 1,
+                "user_message": message,
+                "response": result.get("response", ""),
+                "request_id": request_id,
+                "response_time_seconds": result.get("response_time"),
+                "cancelled": bool(result.get("cancelled")),
+                "tools": actual_tools,
+                "expected_tools": expected_tools,
+            }
+        )
         if result.get("cancelled"):
             return {
                 "response": turn_records[-1]["response"],
@@ -808,7 +893,9 @@ def _dispatch_benchmark_question(data: dict):
     return asyncio.run(_dispatch_chat(data))
 
 
-personality_diagnostics = PersonalityDiagnosticsService(DX_BENCHMARK_RUNS, ollama_client=ollama_client)
+personality_diagnostics = PersonalityDiagnosticsService(
+    DX_BENCHMARK_RUNS, ollama_client=ollama_client
+)
 
 benchmark_runs = BenchmarkRunManager(
     BENCHMARK_SUITES,
@@ -832,28 +919,37 @@ async def cancel_chat(request_id: str):
 @app.get("/api/lepro/devices")
 async def lepro_devices():
     from hardware.lepro.discovery import discover
+
     try:
         return {"devices": await discover(), "error": None}
     except Exception as exc:
         return {"devices": [], "error": str(exc)}
 
+
 @app.get("/api/lepro/selection")
 async def lepro_selection():
     from hardware.lepro.integration import CONFIG
+
     devices = CONFIG.list_devices()
-    return {"selected": ({"name":devices[0]["name"],"mac":devices[0]["mac"]} if devices else None),
-            "registered": "lepro_lights" in tool_router.tools}
+    return {
+        "selected": (
+            {"name": devices[0]["name"], "mac": devices[0]["mac"]} if devices else None
+        ),
+        "registered": "lepro_lights" in tool_router.tools,
+    }
+
 
 @app.post("/api/lepro/select")
 async def lepro_select(data: dict):
     from hardware.lepro.integration import select_device
     from hardware.lepro.discovery import discover
+
     try:
         candidates = await discover()
         selected = next((d for d in candidates if d["mac"] == data.get("mac")), None)
         if selected is None:
-            return {"ok": False, "error":"Device not found in current BLE discovery"}
+            return {"ok": False, "error": "Device not found in current BLE discovery"}
         select_device(tool_router, selected["mac"], selected["name"])
-        return {"ok":True, "name":selected["name"]}
+        return {"ok": True, "name": selected["name"]}
     except Exception as exc:
-        return {"ok":False,"error":str(exc)}
+        return {"ok": False, "error": str(exc)}

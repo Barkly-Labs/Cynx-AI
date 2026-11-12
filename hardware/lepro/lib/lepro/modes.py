@@ -99,7 +99,9 @@ def hsv_hex(hue: float, sat: int = 1000, val: int = 1000) -> str:
     return f"{h:04X}{s:04X}{v:04X}"
 
 
-def rgbic_scene(d50: str, *, brightness: int = 1000, power: bool = True) -> dict[str, Any]:
+def rgbic_scene(
+    d50: str, *, brightness: int = 1000, power: bool = True
+) -> dict[str, Any]:
     """Segmented / RGB-IC scene mode (d2=2 + d50 + d52)."""
     payload: dict[str, Any] = {
         "d2": WORK_MODE_SCENE,
@@ -111,7 +113,9 @@ def rgbic_scene(d50: str, *, brightness: int = 1000, power: bool = True) -> dict
     return payload
 
 
-def white_mode(brightness: int = 500, temp: int = 400, *, power: bool = True) -> dict[str, Any]:
+def white_mode(
+    brightness: int = 500, temp: int = 400, *, power: bool = True
+) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "d2": WORK_MODE_WHITE,
         "d3": max(10, min(1000, brightness)),
@@ -286,13 +290,51 @@ class ModeSpec:
 
 
 BUILTIN_MODES: tuple[ModeSpec, ...] = (
-    ModeSpec("white", "White / temperature", ("d1", "d2", "d3", "d4"), "CCT white mode", "white_mode()"),
-    ModeSpec("color", "Solid RGB", ("d1", "d2", "d5", "d3"), "HSV on d5", "color_hsv()"),
-    ModeSpec("segment-solid", "Segment solid", ("d1", "d2", "d50", "d52"), "Simple N01 d50", "segment_solid()"),
-    ModeSpec("diy", "DIY solid + effect", ("d1", "d2", "d50", "d52"), f"Effects: {', '.join(DIY_EFFECTS)}", "diy_solid()"),
-    ModeSpec("gradient", "Bulb gradient (d6)", ("d1", "d2", "d6"), "APK built-in", "scene_gradient()"),
-    ModeSpec("rainbow", "Bulb rainbow (d6)", ("d1", "d2", "d6"), "APK built-in", "scene_rainbow()"),
-    ModeSpec("preset", "Captured preset (TB1)", ("d1", "d2", "d50", "d52"), "TB1-only refs — not for ZB1 replay", "load_preset()"),
+    ModeSpec(
+        "white",
+        "White / temperature",
+        ("d1", "d2", "d3", "d4"),
+        "CCT white mode",
+        "white_mode()",
+    ),
+    ModeSpec(
+        "color", "Solid RGB", ("d1", "d2", "d5", "d3"), "HSV on d5", "color_hsv()"
+    ),
+    ModeSpec(
+        "segment-solid",
+        "Segment solid",
+        ("d1", "d2", "d50", "d52"),
+        "Simple N01 d50",
+        "segment_solid()",
+    ),
+    ModeSpec(
+        "diy",
+        "DIY solid + effect",
+        ("d1", "d2", "d50", "d52"),
+        f"Effects: {', '.join(DIY_EFFECTS)}",
+        "diy_solid()",
+    ),
+    ModeSpec(
+        "gradient",
+        "Bulb gradient (d6)",
+        ("d1", "d2", "d6"),
+        "APK built-in",
+        "scene_gradient()",
+    ),
+    ModeSpec(
+        "rainbow",
+        "Bulb rainbow (d6)",
+        ("d1", "d2", "d6"),
+        "APK built-in",
+        "scene_rainbow()",
+    ),
+    ModeSpec(
+        "preset",
+        "Captured preset (TB1)",
+        ("d1", "d2", "d50", "d52"),
+        "TB1-only refs — not for ZB1 replay",
+        "load_preset()",
+    ),
 )
 
 
@@ -374,7 +416,10 @@ def resolve_mode(name: str, **kwargs: Any) -> DpPayload:
 
 def debug_payload(mac: str, payload: DpPayload) -> dict[str, Any]:
     """Return JSON text + encrypted size + estimated BLE page count."""
-    from hardware.lepro.lib.lepro.commands import build_dp_value_packets, build_get_dp_state_packet
+    from hardware.lepro.lib.lepro.commands import (
+        build_dp_value_packets,
+        build_get_dp_state_packet,
+    )
 
     text = dp_json_text(payload)
     if isinstance(payload, list):
@@ -383,7 +428,12 @@ def debug_payload(mac: str, payload: DpPayload) -> dict[str, Any]:
         pkt = build_get_dp_state_packet(mac, 0, payload, session_rand=0)
         hdr = parse_packet(pkt)
         ct_len = len(hdr.payload) if hdr else 0
-        return {"json": text, "opcode": "0x1102", "packets": 1, "ciphertext_bytes": ct_len}
+        return {
+            "json": text,
+            "opcode": "0x1102",
+            "packets": 1,
+            "ciphertext_bytes": ct_len,
+        }
     from hardware.lepro.lib.lepro.protocol import parse_packet
 
     packets, _ = build_dp_value_packets(mac, 0, payload, session_rand=0)
@@ -416,11 +466,13 @@ def format_mode_catalog() -> str:
         lines.append(f"                 {spec.description}")
     presets = list_presets()
     if presets:
-        lines.extend([
-            "",
-            f"TB1 reference presets ({PRESETS_DIR}) — wrong topology for ZB1:",
-            "",
-        ])
+        lines.extend(
+            [
+                "",
+                f"TB1 reference presets ({PRESETS_DIR}) — wrong topology for ZB1:",
+                "",
+            ]
+        )
         for p in presets:
             try:
                 data = json.loads(p.read_text())

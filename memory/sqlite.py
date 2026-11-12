@@ -9,99 +9,36 @@ Handles:
 - performance indexes
 """
 
-
 import sqlite3
 
 from pathlib import Path
-
-
-
-
-
-
 
 # ---------------------------------
 # Database Connection
 # ---------------------------------
 
 
-def connect(
-    db_path=None
-):
-
+def connect(db_path=None):
 
     if not db_path:
 
-
         root = Path(__file__).resolve().parents[1]
 
+        database_dir = root / "database"
 
-        database_dir = (
+        database_dir.mkdir(parents=True, exist_ok=True)
 
-            root
-
-            /
-
-            "database"
-
-        )
-
-
-        database_dir.mkdir(
-
-            parents=True,
-
-            exist_ok=True
-
-        )
-
-
-        db_path = (
-
-            database_dir
-
-            /
-
-            "cyn.db"
-
-        )
-
-
+        db_path = database_dir / "cyn.db"
 
     db_path = str(db_path)
 
+    print("DATABASE USING:", db_path)
 
+    conn = sqlite3.connect(db_path, check_same_thread=False)
 
-    print(
-        "DATABASE USING:",
-        db_path
-    )
-
-
-
-    conn = sqlite3.connect(
-
-        db_path,
-
-        check_same_thread=False
-
-    )
-
-
-
-    ensure_schema(
-
-        conn
-
-    )
-
+    ensure_schema(conn)
 
     return conn
-
-
-
-
-
 
 
 # ---------------------------------
@@ -109,24 +46,15 @@ def connect(
 # ---------------------------------
 
 
-def ensure_schema(
-    conn
-):
-
+def ensure_schema(conn):
 
     cur = conn.cursor()
-
-
-
-
 
     # -----------------------------
     # Memories
     # -----------------------------
 
-
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS memories (
 
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,15 +84,13 @@ def ensure_schema(
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
         )
-        """
-    )
+        """)
 
-        # -----------------------------
-        # Knowledge
-        # -----------------------------
+    # -----------------------------
+    # Knowledge
+    # -----------------------------
 
-    cur.execute(
-            """
+    cur.execute("""
             CREATE TABLE IF NOT EXISTS knowledge (
 
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,32 +108,19 @@ def ensure_schema(
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
             )
-            """
-            )
+            """)
 
-
-    cur.execute(
-    """
+    cur.execute("""
     CREATE INDEX IF NOT EXISTS idx_knowledge_category
 
     ON knowledge(category)
-    """
-    )
-    
-
-
-
-
-
-
+    """)
 
     # -----------------------------
     # Conversations
     # -----------------------------
 
-
-    cur.execute(
-        """
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS conversations (
 
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,97 +138,49 @@ def ensure_schema(
             ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 
         )
-        """
-    )
-
-
-
-
-
-
+        """)
 
     # -----------------------------
     # Memory Indexes
     # -----------------------------
 
-
-    cur.execute(
-        """
+    cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_memories_user
 
         ON memories(user_id)
-        """
-    )
+        """)
 
-
-
-    cur.execute(
-        """
+    cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_memories_importance
 
         ON memories(importance)
-        """
-    )
-
-
-
-
-
-
+        """)
 
     # -----------------------------
     # Conversation Index
     # -----------------------------
 
-
-    cur.execute(
-        """
+    cur.execute("""
         CREATE INDEX IF NOT EXISTS idx_conversations_user
 
         ON conversations(user_id)
-        """
-    )
-
-
-
-
-
+        """)
 
     conn.commit()
-
-
-
-
-
 
     # -----------------------------
     # Verify Database
     # -----------------------------
 
-
-    cur.execute(
-        """
+    cur.execute("""
         SELECT name
         FROM sqlite_master
         WHERE type='table'
-        """
-    )
-
+        """)
 
     tables = cur.fetchall()
 
-
-    print(
-        "DATABASE TABLES:",
-        tables
-    )
-
-
-
-
-
-
-
+    print("DATABASE TABLES:", tables)
 
 
 # ---------------------------------
@@ -323,17 +188,10 @@ def ensure_schema(
 # ---------------------------------
 
 
-def save_conversation(
-    conn,
-    user_id,
-    role,
-    message
-):
+def save_conversation(conn, user_id, role, message):
 
     print("LOADED CYN SQLITE MODULE")
     cur = conn.cursor()
-
-
 
     cur.execute(
         """
@@ -347,19 +205,9 @@ def save_conversation(
         VALUES (?, ?, ?)
 
         """,
-
-        (
-            user_id,
-            role,
-            message
-        )
-
+        (user_id, role, message),
     )
 
-
-
     conn.commit()
-
-
 
     return cur.lastrowid

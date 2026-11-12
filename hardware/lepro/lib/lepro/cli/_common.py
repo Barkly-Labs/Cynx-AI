@@ -9,8 +9,19 @@ from bleak import BleakClient, BleakScanner
 from hardware.lepro.lib.lepro.bond import creds_path, load_creds
 from hardware.lepro.lib.lepro.commands import DpPayload
 from hardware.lepro.lib.lepro.crypto import decrypt_dp_json
-from hardware.lepro.lib.lepro.protocol import GATT_CMD, GATT_RSP, OP_DP_CMD, OP_SEARCH, parse_packet
-from hardware.lepro.lib.lepro.session import BleakTransport, DryRunTransport, LeproSession, SessionConfig
+from hardware.lepro.lib.lepro.protocol import (
+    GATT_CMD,
+    GATT_RSP,
+    OP_DP_CMD,
+    OP_SEARCH,
+    parse_packet,
+)
+from hardware.lepro.lib.lepro.session import (
+    BleakTransport,
+    DryRunTransport,
+    LeproSession,
+    SessionConfig,
+)
 
 
 async def connect_transport(
@@ -38,11 +49,11 @@ async def connect_transport(
 async def run_dry_control(mac: str, payload: DpPayload) -> list[tuple[str, bytes]]:
     creds = load_creds(mac)
     if creds is None:
-        raise SystemExit(
-            f"No credentials at {creds_path(mac)}. Run lepro-bond first."
-        )
+        raise SystemExit(f"No credentials at {creds_path(mac)}. Run lepro-bond first.")
     transport = DryRunTransport()
-    session = LeproSession(mac, transport, config=SessionConfig(dry_run=True, send_delay=0))
+    session = LeproSession(
+        mac, transport, config=SessionConfig(dry_run=True, send_delay=0)
+    )
     await session.run_phase_discovery()
     await session.run_phase_auth(creds)
     await session.send_dp_payload(payload)
@@ -74,7 +85,9 @@ async def run_control(
 
     creds = load_creds(mac)
     if creds is None:
-        raise SystemExit(f"No credentials at {creds_path(mac)}. Run: lepro-bond --mac {mac}")
+        raise SystemExit(
+            f"No credentials at {creds_path(mac)}. Run: lepro-bond --mac {mac}"
+        )
 
     transport, client = await connect_transport(mac, debug_rx=debug_rx)
     try:
@@ -99,7 +112,9 @@ async def run_status(
         if creds is None:
             raise SystemExit(f"No credentials at {creds_path(mac)}")
         transport = DryRunTransport()
-        session = LeproSession(mac, transport, config=SessionConfig(dry_run=True, send_delay=0))
+        session = LeproSession(
+            mac, transport, config=SessionConfig(dry_run=True, send_delay=0)
+        )
         await session.run_phase_discovery()
         await session.run_phase_auth(creds)
         await session.send_get_dp_state(query)

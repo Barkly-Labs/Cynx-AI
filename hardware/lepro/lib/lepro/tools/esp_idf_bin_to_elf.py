@@ -91,7 +91,11 @@ def parse_esp_image(data: bytes) -> tuple[int, list[Segment]]:
             raise ValueError(f"truncated segment payload @ 0x{load_addr:08x}")
         payload = data[pos : pos + length]
         pos += _align4(length)
-        name = SEG_NAMES[len(segments)] if len(segments) < len(SEG_NAMES) else f".seg{len(segments)}"
+        name = (
+            SEG_NAMES[len(segments)]
+            if len(segments) < len(SEG_NAMES)
+            else f".seg{len(segments)}"
+        )
         segments.append(Segment(load_addr, payload, name))
 
     return entry, segments

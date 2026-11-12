@@ -16,14 +16,9 @@ class LeproSetup:
         self,
         base_dir: Path | None = None,
     ):
-        self.base_dir = Path(
-            base_dir
-            or Path(__file__).resolve().parent
-        )
+        self.base_dir = Path(base_dir or Path(__file__).resolve().parent)
 
-        self.config = LeproConfig(
-            self.base_dir / "devices.json"
-        )
+        self.config = LeproConfig(self.base_dir / "devices.json")
 
     async def run(
         self,
@@ -39,15 +34,9 @@ class LeproSetup:
         # 1. CHECK LIBRARY
         # -----------------------------------------
 
-        print(
-            "[1/4] Checking Lepro library..."
-        )
+        print("[1/4] Checking Lepro library...")
 
-        lib_path = (
-            self.base_dir
-            / "lib"
-            / "lepro"
-        )
+        lib_path = self.base_dir / "lib" / "lepro"
 
         if not lib_path.exists():
 
@@ -63,12 +52,8 @@ class LeproSetup:
         # -----------------------------------------
 
         print()
-        print(
-            "[2/4] Searching for Lepro devices..."
-        )
-        print(
-            "      Make sure your light is powered on."
-        )
+        print("[2/4] Searching for Lepro devices...")
+        print("      Make sure your light is powered on.")
         print()
 
         try:
@@ -111,20 +96,11 @@ class LeproSetup:
 
             if rssi is not None:
 
-                print(
-                    f"  [{number}] "
-                    f"{name} "
-                    f"({address}) "
-                    f"RSSI={rssi}"
-                )
+                print(f"  [{number}] " f"{name} " f"({address}) " f"RSSI={rssi}")
 
             else:
 
-                print(
-                    f"  [{number}] "
-                    f"{name} "
-                    f"({address})"
-                )
+                print(f"  [{number}] " f"{name} " f"({address})")
 
         # -----------------------------------------
         # SELECT DEVICE
@@ -132,9 +108,7 @@ class LeproSetup:
 
         while True:
 
-            choice = input(
-                "\nSelect your light: "
-            ).strip()
+            choice = input("\nSelect your light: ").strip()
 
             try:
 
@@ -152,13 +126,9 @@ class LeproSetup:
                 IndexError,
             ):
 
-                print(
-                    "Please enter a valid device number."
-                )
+                print("Please enter a valid device number.")
 
-        mac = str(
-            selected["address"]
-        )
+        mac = str(selected["address"])
 
         discovered_name = str(
             selected.get(
@@ -173,10 +143,7 @@ class LeproSetup:
 
         print()
 
-        name = input(
-            f"Name this device "
-            f"[{discovered_name}]: "
-        ).strip()
+        name = input(f"Name this device " f"[{discovered_name}]: ").strip()
 
         if not name:
             name = discovered_name
@@ -186,9 +153,7 @@ class LeproSetup:
         # -----------------------------------------
 
         print()
-        print(
-            "[3/4] Bonding with device..."
-        )
+        print("[3/4] Bonding with device...")
 
         device = LeproDevice(
             name=name,
@@ -197,9 +162,7 @@ class LeproSetup:
 
         try:
 
-            await device.bond(
-                force=False
-            )
+            await device.bond(force=False)
 
         except Exception as exc:
 
@@ -208,18 +171,14 @@ class LeproSetup:
                 str(exc),
             )
 
-        print(
-            "      Bond successful."
-        )
+        print("      Bond successful.")
 
         # -----------------------------------------
         # SAVE CYN-X DEVICE
         # -----------------------------------------
 
         print()
-        print(
-            "[4/4] Saving device..."
-        )
+        print("[4/4] Saving device...")
 
         saved = self.config.add_device(
             name=name,
@@ -227,21 +186,15 @@ class LeproSetup:
             discovered_name=discovered_name,
         )
 
-        print(
-            "      Device saved."
-        )
+        print("      Device saved.")
 
         print()
         print("==============================")
         print("        SETUP COMPLETE")
         print("==============================")
         print()
-        print(
-            f"Name: {name}"
-        )
-        print(
-            f"MAC:  {device.mac}"
-        )
+        print(f"Name: {name}")
+        print(f"MAC:  {device.mac}")
         print()
 
         return {
@@ -257,22 +210,14 @@ class LeproSetup:
     ) -> dict[str, Any]:
 
         print()
-        print(
-            "=============================="
-        )
+        print("==============================")
         print("        SETUP FAILED")
-        print(
-            "=============================="
-        )
+        print("==============================")
         print()
 
-        print(
-            f"Stage: {stage}"
-        )
+        print(f"Stage: {stage}")
 
-        print(
-            f"Error: {message}"
-        )
+        print(f"Error: {message}")
 
         return {
             "success": False,
@@ -283,13 +228,9 @@ class LeproSetup:
 
 def main() -> None:
 
-    result = asyncio.run(
-        LeproSetup().run()
-    )
+    result = asyncio.run(LeproSetup().run())
 
-    raise SystemExit(
-        0 if result["success"] else 1
-    )
+    raise SystemExit(0 if result["success"] else 1)
 
 
 if __name__ == "__main__":

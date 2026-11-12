@@ -2,7 +2,6 @@ from pathlib import Path
 
 from ai.context_builder import ContextBuilder
 
-
 PROMPTS = Path(__file__).resolve().parents[1] / "prompts_new"
 
 
@@ -27,17 +26,21 @@ def _install_prompt_manager(monkeypatch):
 def test_technical_explanations_define_mechanism_before_analogy(monkeypatch):
     _install_prompt_manager(monkeypatch)
     text = (PROMPTS / "modes" / "technical.md").read_text(encoding="utf-8")
-    normal_mode = ContextBuilder().build_context(
-        mode_name="normal",
-        prompt_layers={
-            "core": False,
-            "personality": False,
-            "voice": False,
-            "modes": True,
-            "safety": False,
-            "conversation": False,
-        },
-    ).render()
+    normal_mode = (
+        ContextBuilder()
+        .build_context(
+            mode_name="normal",
+            prompt_layers={
+                "core": False,
+                "personality": False,
+                "voice": False,
+                "modes": True,
+                "safety": False,
+                "conversation": False,
+            },
+        )
+        .render()
+    )
 
     assert "state the definition and core mechanism before using an analogy" in text
     assert "an analogy must not replace the explanation" in text.lower()
@@ -47,17 +50,21 @@ def test_technical_explanations_define_mechanism_before_analogy(monkeypatch):
 
 def test_self_directed_wellness_gets_bounded_general_guidance(monkeypatch):
     _install_prompt_manager(monkeypatch)
-    text = ContextBuilder().build_context(
-        mode_name="normal",
-        prompt_layers={
-            "core": False,
-            "personality": False,
-            "voice": False,
-            "modes": False,
-            "safety": True,
-            "conversation": False,
-        },
-    ).render()
+    text = (
+        ContextBuilder()
+        .build_context(
+            mode_name="normal",
+            prompt_layers={
+                "core": False,
+                "personality": False,
+                "voice": False,
+                "modes": False,
+                "safety": True,
+                "conversation": False,
+            },
+        )
+        .render()
+    )
 
     assert "self-directed sexual-wellness questions" in text
     assert "brief, non-graphic" in text

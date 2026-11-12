@@ -9,9 +9,21 @@ import json
 import sys
 
 from hardware.lepro.lib.lepro.bond import normalize_mac
-from hardware.lepro.lib.lepro.cli._common import print_dry_run, run_control, run_dry_control
+from hardware.lepro.lib.lepro.cli._common import (
+    print_dry_run,
+    run_control,
+    run_dry_control,
+)
 from hardware.lepro.lib.lepro.commands import color_hsv, power_off, power_on
-from hardware.lepro.lib.lepro.modes import DIY_EFFECTS, debug_payload, format_mode_catalog, load_preset, preset_duration_ms, preset_frames, resolve_mode
+from hardware.lepro.lib.lepro.modes import (
+    DIY_EFFECTS,
+    debug_payload,
+    format_mode_catalog,
+    load_preset,
+    preset_duration_ms,
+    preset_frames,
+    resolve_mode,
+)
 
 
 async def _cmd_mode_play(args: argparse.Namespace) -> None:
@@ -49,9 +61,7 @@ async def _cmd_mode_play(args: argparse.Namespace) -> None:
         brightness=args.brightness,
         bulb_count=args.length,
     )
-    await run_control(
-        mac, payload, dry_run=args.dry_run, debug_rx=args.debug_rx
-    )
+    await run_control(mac, payload, dry_run=args.dry_run, debug_rx=args.debug_rx)
 
 
 def main() -> None:
@@ -135,12 +145,18 @@ def main() -> None:
 
     mac = normalize_mac(args.mac)
     if args.cmd == "on":
-        asyncio.run(run_control(mac, power_on(), dry_run=args.dry_run, debug_rx=args.debug_rx))
+        asyncio.run(
+            run_control(mac, power_on(), dry_run=args.dry_run, debug_rx=args.debug_rx)
+        )
     elif args.cmd == "off":
-        asyncio.run(run_control(mac, power_off(), dry_run=args.dry_run, debug_rx=args.debug_rx))
+        asyncio.run(
+            run_control(mac, power_off(), dry_run=args.dry_run, debug_rx=args.debug_rx)
+        )
     elif args.cmd == "color":
         payload = color_hsv(args.hue, args.sat, args.val, args.brightness)
-        asyncio.run(run_control(mac, payload, dry_run=args.dry_run, debug_rx=args.debug_rx))
+        asyncio.run(
+            run_control(mac, payload, dry_run=args.dry_run, debug_rx=args.debug_rx)
+        )
 
 
 if __name__ == "__main__":

@@ -95,9 +95,7 @@ class CYNXTerminal:
 
     def json(self, payload):
         rendered = json.dumps(payload, ensure_ascii=False, indent=2)
-        self.console.print(
-            Syntax(rendered, "json", theme="monokai", word_wrap=True)
-        )
+        self.console.print(Syntax(rendered, "json", theme="monokai", word_wrap=True))
 
     def timing(self, message):
         self.console.print(Text(str(message), style=DIM))

@@ -72,7 +72,9 @@ class BondTokens:
 class BondCredentials:
     mac: str
     tokens: BondTokens
-    bonded_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    bonded_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
     aes_key: str | None = None
 
     def __post_init__(self) -> None:
@@ -224,7 +226,9 @@ def harvest_tokens(frames: list[DecryptedFrame], raw_rx: list[bytes]) -> BondTok
     ctrl_c = pool_16[2] if len(pool_16) > 2 else pool_16[-1]
     ctrl_d = pool_16[3] if len(pool_16) > 3 else pool_16[-1]
 
-    tokens = BondTokens(hs=hs, auth_16=auth_16, auth_32=auth_32, ctrl_c=ctrl_c, ctrl_d=ctrl_d)
+    tokens = BondTokens(
+        hs=hs, auth_16=auth_16, auth_32=auth_32, ctrl_c=ctrl_c, ctrl_d=ctrl_d
+    )
     tokens.validate()
     return tokens
 
@@ -319,7 +323,9 @@ async def _connect_transport(
 
     client = BleakClient(device)
     await client.connect()
-    transport = BleakTransport(client=client, cmd_char=GATT_CMD, rsp_char=GATT_RSP, debug_rx=debug_rx)
+    transport = BleakTransport(
+        client=client, cmd_char=GATT_CMD, rsp_char=GATT_RSP, debug_rx=debug_rx
+    )
     await client.start_notify(GATT_RSP, transport.on_notify)
     await asyncio.sleep(0.3)
     return transport, client
@@ -333,7 +339,9 @@ async def _cmd_bond(args: argparse.Namespace) -> None:
         mac, debug_rx=args.debug_rx, scan_timeout=args.scan_timeout
     )
     try:
-        creds = await bond_device(LeproSession(mac, transport), mac, force=args.force_bond)
+        creds = await bond_device(
+            LeproSession(mac, transport), mac, force=args.force_bond
+        )
         print(f"Bond saved: {creds_path(creds.mac)}")
     finally:
         await client.disconnect()
@@ -343,9 +351,13 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mac", required=True, help="Target light MAC address")
     parser.add_argument(
-        "--force-bond", action="store_true", help="Re-bond even if credentials already exist"
+        "--force-bond",
+        action="store_true",
+        help="Re-bond even if credentials already exist",
     )
-    parser.add_argument("--debug-rx", action="store_true", help="Log all light notifications")
+    parser.add_argument(
+        "--debug-rx", action="store_true", help="Log all light notifications"
+    )
     parser.add_argument(
         "--scan-timeout", type=float, default=15.0, help="BLE scan timeout in seconds"
     )

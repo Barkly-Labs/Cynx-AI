@@ -6,9 +6,14 @@ from ai.chat_engine import ChatEngine
 
 def test_current_user_remains_last_conversational_subject_when_history_is_trimmed():
     engine = ChatEngine.__new__(ChatEngine)
+
     class Logger:
-        def info(self, *args, **kwargs): pass
-        def warning(self, *args, **kwargs): pass
+        def info(self, *args, **kwargs):
+            pass
+
+        def warning(self, *args, **kwargs):
+            pass
+
     engine.logger = Logger()
 
     messages = [

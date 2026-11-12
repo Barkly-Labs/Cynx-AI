@@ -1,8 +1,6 @@
-
 # benchmark/formatter.py
 
 from datetime import datetime
-
 
 FORMAT_VERSION = "2.0"
 
@@ -24,103 +22,45 @@ def format_benchmark_result(
 ) -> dict:
 
     return {
-
         # ==========================
         # Metadata
         # ==========================
-
         "format_version": FORMAT_VERSION,
-
         "test_id": test_id,
-
         "category": category,
-
-        "timestamp":
-            datetime.utcnow().isoformat() + "Z",
-
-
+        "timestamp": datetime.utcnow().isoformat() + "Z",
         # ==========================
         # Benchmark Input
         # ==========================
-
-        "input": {
-
-            "question": question
-
-        },
-
-
+        "input": {"question": question},
         # ==========================
         # CYN-X Output
         # ==========================
-
-        "output": {
-
-            "response": response
-
-        },
-
-
+        "output": {"response": response},
         # ==========================
         # Performance Metrics
         # ==========================
-
         "metrics": {
-
-            "response_time_seconds":
-                response_time_seconds,
-
-            "response_words":
-                response_words,
-
-            "response_characters":
-                response_characters,
-
-            "response_lines":
-                response_lines,
-
-            "response_sentences":
-                response_sentences,
-
-            "estimated_tokens":
-                estimated_tokens
-
+            "response_time_seconds": response_time_seconds,
+            "response_words": response_words,
+            "response_characters": response_characters,
+            "response_lines": response_lines,
+            "response_sentences": response_sentences,
+            "estimated_tokens": estimated_tokens,
         },
-
-
         # ==========================
         # Behavior Analysis
         # ==========================
-
         "analysis": {
-
-            "observed_topics":
-                observed_topics,
-
-            "behavior_tags":
-                behavior_tags
-
+            "observed_topics": observed_topics,
+            "behavior_tags": behavior_tags,
         },
-
-
         # ==========================
         # Scoring
         # ==========================
-
-        "scores":
-            scores or {},
-
-
+        "scores": scores or {},
         # ==========================
         # Runtime Data
         # ==========================
-
-        "runtime": {
-
-            "failed": False,
-
-            "error": None
-
-        }
-
+        "runtime": {"failed": False, "error": None},
     }
