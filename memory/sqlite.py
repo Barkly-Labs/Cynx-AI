@@ -110,6 +110,36 @@ def ensure_schema(conn):
             )
             """)
 
+    # Extend the legacy knowledge table in place. Existing rows remain intact
+    # and are treated as legacy global notes until explicitly classified.
+    knowledge_columns = {
+        row[1] for row in cur.execute("PRAGMA table_info(knowledge)").fetchall()
+    }
+    additive_columns = {
+        "knowledge_type": "TEXT NOT NULL DEFAULT 'legacy'",
+        "user_id": "TEXT",
+        "source_feedback_id": "TEXT",
+        "status": "TEXT NOT NULL DEFAULT 'active'",
+        "confidence": "REAL",
+        "last_reviewed_at": "TEXT",
+        "superseded_by": "INTEGER",
+        "updated_at": "TEXT",
+        "learning_data_json": "TEXT",
+    }
+    for column, declaration in additive_columns.items():
+        if column not in knowledge_columns:
+            cur.execute(f"ALTER TABLE knowledge ADD COLUMN {column} {declaration}")
+
+    cur.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_source_feedback
+        ON knowledge(source_feedback_id)
+        WHERE source_feedback_id IS NOT NULL
+    """)
+    cur.execute("""
+        CREATE INDEX IF NOT EXISTS idx_knowledge_scope_status
+        ON knowledge(knowledge_type, user_id, status)
+    """)
+
     cur.execute("""
     CREATE INDEX IF NOT EXISTS idx_knowledge_category
 

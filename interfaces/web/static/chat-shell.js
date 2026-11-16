@@ -56,14 +56,15 @@
     if (heading) heading.textContent = title || "New conversation";
   }
   function displayMessage(message) {
-    if (typeof window.addMessage === "function") window.addMessage(message);
+    if (typeof window.addMessage === "function") window.addMessage(typeof message === "string" ? message : message.text, typeof message === "object" ? message : {});
   }
+  const messageText = message => typeof message === "string" ? message : String(message?.text || "");
   function renderConversationHistory(filter="") {
     const list = $("#chat-history");
     if (!list) return;
     list.replaceChildren();
     const normalized = filter.trim().toLowerCase();
-    const filtered = conversations.filter(item => (item.messages.length || item.id === activeId) && (!normalized || `${item.title} ${item.messages.join(" ")}`.toLowerCase().includes(normalized)));
+    const filtered = conversations.filter(item => (item.messages.length || item.id === activeId) && (!normalized || `${item.title} ${item.messages.map(messageText).join(" ")}`.toLowerCase().includes(normalized)));
     if (!filtered.length) {
       const empty = document.createElement("div");
       empty.className = "cx-history-empty";
@@ -149,20 +150,27 @@
     }
   }
   function recordMessage(message) {
-    if (restoring || typeof message !== "string") return;
+    if (restoring || !(typeof message === "string" || (message && typeof message === "object"))) return;
     ensureConversation();
     const item = activeConversation();
     if (!item) return;
-    item.messages.push(message.slice(0, 50000));
+    item.messages.push(typeof message === "string" ? message.slice(0, 50000) : {...message, text:messageText(message).slice(0,50000)});
     item.messages = item.messages.slice(-MAX_MESSAGES);
-    if (message.startsWith("You:") && (item.title === "New conversation" || !item.title)) {
-      item.title = titleFrom(message);
+    const plain = messageText(message);
+    if (plain.startsWith("You:") && (item.title === "New conversation" || !item.title)) {
+      item.title = titleFrom(plain);
       setHeading(item.title);
     }
     item.updatedAt = Date.now();
     persist();
     updateWelcome();
     renderConversationHistory($("#history-search")?.value || "");
+  }
+  function updateMessageFeedback(messageId, feedback) {
+    const item = activeConversation();
+    if (!item) return;
+    const entry = item.messages.find(message => typeof message === "object" && message.feedback?.message_id === messageId);
+    if (entry) { entry.feedback.saved = feedback; persist(); }
   }
   function setRequestBusy(value) {
     busy = Boolean(value);
@@ -263,6 +271,6 @@
     }
     loadCoreStatus();
   }
-  window.CynxShell = {conversationId:() => activeId, recordMessage, setRequestBusy, newConversation};
+  window.CynxShell = {conversationId:() => activeId, recordMessage, updateMessageFeedback, setRequestBusy, newConversation};
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", initialize, {once:true}); else initialize();
 })();

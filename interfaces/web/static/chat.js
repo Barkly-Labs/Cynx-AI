@@ -1730,10 +1730,16 @@ async function send(){
 
         const cynResponse = data.response;
         if(cynResponse && typeof cynResponse === "object"){
-            addMessage("Cyn: " + (cynResponse.text || ""));
+            addMessage("Cyn: " + (cynResponse.text || ""), {feedback:{
+                message_id:data.message_id || data.request_id, conversation_id:data.conversation_id || (window.CynxShell && window.CynxShell.conversationId()),
+                user_input:text, comparison:null
+            }});
             if(cynResponse.chart) addChart(cynResponse.chart);
         }else{
-            addMessage("Cyn: " + (cynResponse || ""));
+            addMessage("Cyn: " + (cynResponse || ""), {feedback:{
+                message_id:data.message_id || data.request_id, conversation_id:data.conversation_id || (window.CynxShell && window.CynxShell.conversationId()),
+                user_input:text, comparison:null
+            }});
         }
         stopLoading(requestId);
     }catch(_error){
@@ -2097,7 +2103,7 @@ function formatCynText(text){
 
 
 
-function addMessage(message) {
+function addMessage(message, metadata = {}) {
 
     const chat = document.getElementById("chat");
 
@@ -2123,6 +2129,71 @@ function addMessage(message) {
             escapeHTML(text) +
 
             '</span>';
+
+        if (metadata.feedback?.message_id && metadata.feedback?.conversation_id) {
+            const feedback = metadata.feedback;
+            div.dataset.messageId = feedback.message_id;
+            div.dataset.conversationId = feedback.conversation_id;
+            const bar = document.createElement("div");
+            bar.className = "cx-feedback";
+            const label = document.createElement("span");
+            label.className = "cx-feedback-label";
+            label.textContent = "Was this response helpful?";
+            const up = document.createElement("button"); up.type = "button"; up.textContent = "👍"; up.setAttribute("aria-label", "Rate this response helpful");
+            const down = document.createElement("button"); down.type = "button"; down.textContent = "👎"; down.setAttribute("aria-label", "Rate this response not helpful");
+            const form = document.createElement("form"); form.className = "cx-feedback-form"; form.hidden = true;
+            const category = document.createElement("select"); category.setAttribute("aria-label", "Reason for this rating");
+            const reasons = [["", "Choose a reason (optional)"], ["misunderstood_intent", "Misunderstood what I meant"], ["unnecessary_refusal", "Refused unnecessarily"], ["generic_or_robotic", "Too generic or robotic"], ["incorrect_information", "Information was incorrect"], ["missed_context", "Missed important context"], ["forgot_previous_information", "Forgot prior information"], ["inappropriate_tone", "Tone did not fit"], ["other", "Other"]];
+            for (const [value, text] of reasons) { const option = document.createElement("option"); option.value=value; option.textContent=text; category.append(option); }
+            const explanation = document.createElement("textarea"); explanation.maxLength=1500; explanation.rows=2; explanation.placeholder="What should have been different? (optional)"; explanation.setAttribute("aria-label", "Optional explanation");
+            const submit = document.createElement("button"); submit.type="submit"; submit.textContent="Send feedback";
+            const status = document.createElement("span"); status.className="cx-feedback-status"; status.setAttribute("role", "status");
+            const comparison = document.createElement("details"); comparison.className="cx-feedback-comparison"; comparison.hidden=true;
+            const comparisonSummary=document.createElement("summary"); comparisonSummary.textContent="Response comparison";
+            const comparisonBody=document.createElement("div"); comparisonBody.className="cx-feedback-comparison-body";
+            comparison.append(comparisonSummary, comparisonBody);
+            const showComparison = item => {
+                if (!item) return;
+                comparison.hidden=false; comparisonBody.replaceChildren();
+                if (item.status && item.status !== "completed") { comparisonBody.textContent=item.status === "queued" ? "Local comparison is queued." : "Local comparison is unavailable."; return; }
+                const dimensions=Array.isArray(item.dimensions) ? item.dimensions : item.evaluation_json?.dimensions;
+                if (!dimensions?.length) { comparisonBody.textContent="No comparison results were recorded."; return; }
+                for (const dimension of dimensions) {
+                    const row=document.createElement("p");
+                    row.textContent=`${dimension.name}: ${dimension.score == null ? "not enough evidence" : `${dimension.score}/5`}${dimension.confidence == null ? "" : ` · ${Math.round(dimension.confidence*100)}% evaluator confidence`}${dimension.evidence ? ` — “${dimension.evidence}”` : ""}`;
+                    comparisonBody.append(row);
+                }
+                const note=document.createElement("p"); note.textContent=item.limitations || "Evaluator interpretations are subjective signals, not objective scores."; comparisonBody.append(note);
+            };
+            if (feedback.comparison) showComparison(feedback.comparison);
+            form.append(category, explanation, submit, status); bar.append(label, up, down, form, comparison); div.append(bar);
+            const send = async (rating) => {
+                status.textContent="Saving…"; submit.disabled=true; up.disabled=true; down.disabled=true;
+                try {
+                    const response = await fetch(`/api/feedback/${encodeURIComponent(feedback.conversation_id)}/${encodeURIComponent(feedback.message_id)}`, {
+                        method:"POST", headers:{"Content-Type":"application/json"},
+                        body:JSON.stringify({rating, category:rating === "down" ? category.value || null : null, explanation:rating === "down" ? explanation.value : "", user_input:feedback.user_input || "", assistant_response:text})
+                    });
+                    const result=await response.json(); if(!response.ok) throw new Error(result.detail || "Could not save feedback.");
+                    feedback.saved=result.feedback; window.CynxShell?.updateMessageFeedback(feedback.message_id, result.feedback);
+                    status.textContent="Thanks, your feedback was saved."; form.hidden=true; up.disabled=false; down.disabled=false; submit.disabled=false; label.textContent=`Your rating: ${rating === "up" ? "helpful" : "not helpful"}.`;
+                } catch(error) { status.textContent=error.message; up.disabled=false; down.disabled=false; submit.disabled=false; }
+            };
+            up.addEventListener("click", () => send("up"));
+            down.addEventListener("click", () => { form.hidden=false; category.focus(); });
+            form.addEventListener("submit", event => { event.preventDefault(); send("down"); });
+            if (feedback.saved?.rating) { label.textContent=`Your rating: ${feedback.saved.rating === "up" ? "helpful" : "not helpful"}.`; }
+            else {
+                fetch(`/api/feedback/${encodeURIComponent(feedback.conversation_id)}/${encodeURIComponent(feedback.message_id)}`)
+                    .then(response => response.ok ? response.json() : null).then(data => {
+                        if (!data) return;
+                        if (data.feedback?.rating) { feedback.saved=data.feedback; label.textContent=`Your rating: ${data.feedback.rating === "up" ? "helpful" : "not helpful"}.`; }
+                        if (data.comparison) { feedback.comparison=data.comparison; showComparison(data.comparison); }
+                        if (data.can_rate === false && !data.feedback) { label.textContent="This saved response can still be rated."; }
+                        window.CynxShell?.updateMessageFeedback(feedback.message_id, data.feedback || feedback.saved);
+                    }).catch(()=>{});
+            }
+        }
 
     }
 
@@ -2152,7 +2223,7 @@ function addMessage(message) {
     chat.appendChild(div);
 
     chat.scrollTop = chat.scrollHeight;
-    if(window.CynxShell) window.CynxShell.recordMessage(message);
+    if(window.CynxShell) window.CynxShell.recordMessage(metadata.feedback ? {text:message, feedback:metadata.feedback} : message);
 
 }
 

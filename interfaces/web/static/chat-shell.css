@@ -223,3 +223,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .cx-history-delete:disabled, .cx-history-item:disabled, .cx-new-chat:disabled { cursor: wait; opacity: .55; }
 .cx-shell button { margin: 0; }
 .cx-layer-list input[type="checkbox"] { flex: none; width: 14px; height: 14px; margin: 0; padding: 0; border: 0; }
+
+.cx-feedback { display:flex; align-items:center; flex-wrap:wrap; gap:7px; margin-top:12px; padding-top:9px; border-top:1px solid #3b3245; color:#aaa0b7; font-size:12px; }
+.cx-feedback > button { min-width:35px; min-height:34px; padding:5px 9px; border:1px solid #4d4259; border-radius:9px; background:#211b2a; color:#eee8f3; cursor:pointer; }
+.cx-feedback > button:hover, .cx-feedback > button:focus-visible { border-color:#c27de8; outline:2px solid #c27de855; }
+.cx-feedback > button:disabled { opacity:.48; cursor:not-allowed; }
+.cx-feedback-form { display:flex; align-items:center; flex-wrap:wrap; gap:7px; flex-basis:100%; }
+.cx-feedback-form select, .cx-feedback-form textarea { max-width:100%; padding:8px; border:1px solid #51445c; border-radius:8px; background:#17131d; color:#f5eef8; font:inherit; }
+.cx-feedback-form textarea { flex:1 1 240px; resize:vertical; }
+.cx-feedback-form button { min-height:36px; border:0; border-radius:8px; padding:7px 12px; background:#9862b5; color:white; font:inherit; cursor:pointer; }
+.cx-feedback-status { flex-basis:100%; }
+@media(max-width:640px) { .cx-feedback { font-size:11px; } .cx-feedback-form select { flex-basis:100%; } }
+.cx-feedback-comparison { flex-basis:100%; color:#b9adbf; }
+.cx-feedback-comparison summary { cursor:pointer; width:max-content; }
+.cx-feedback-comparison-body { max-width:65ch; margin-top:6px; padding:8px 10px; border-left:2px solid #76518a; color:#d5cbdc; }
+.cx-feedback-comparison-body p { margin:4px 0; }

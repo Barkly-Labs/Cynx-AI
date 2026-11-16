@@ -1,9 +1,10 @@
 class ContextManager:
 
-    def __init__(self, memory_store, knowledge_store):
+    def __init__(self, memory_store, knowledge_store, feedback_service=None):
 
         self.memory_store = memory_store
         self.knowledge_store = knowledge_store
+        self.feedback_service = feedback_service
 
         print("===== CONTEXT INIT =====")
         print("MEMORY:", type(memory_store))
@@ -65,7 +66,7 @@ class ContextManager:
 
         try:
 
-            documents = self.knowledge_store.search(user_message, limit=3)
+            documents = self.knowledge_store.search(user_message, limit=3, user_id=user_id)
 
             if documents:
 
@@ -82,5 +83,29 @@ class ContextManager:
         except Exception as e:
 
             print("[KNOWLEDGE ERROR]", e)
+
+        # Historical feedback and user-scoped learning candidates are context,
+        # not instructions. Keep them labelled and bounded before prompt use.
+        try:
+            if self.feedback_service:
+                lessons = self.knowledge_store.search_records(user_message, limit=3, user_id=user_id)
+                examples = self.feedback_service.search_examples(user_id, user_message, limit=2)
+                fragments = []
+                if lessons:
+                    fragments.append("Relevant feedback lessons (unverified unless reviewed; user-scoped):")
+                    fragments.extend("- " + str(item["content"])[:700] for item in lessons)
+                if examples:
+                    fragments.append("Relevant rated examples from this user (signals, not proof):")
+                    fragments.extend(
+                        f"- User request: {item['user_input'][:400]} | rating: {item['rating']}"
+                        + (f" | reason: {item['category']}" if item.get("category") else "")
+                        + (f" | explanation: {item['explanation'][:300]}" if item.get("explanation") else "")
+                        + (f" | previous response: {item['assistant_response'][:350]}" if item.get("assistant_response") else "")
+                        for item in examples
+                    )
+                if fragments:
+                    knowledge_context = (knowledge_context + "\n" + "\n".join(fragments))[-4000:]
+        except Exception as e:
+            print("[FEEDBACK CONTEXT ERROR]", e)
 
         return {"memory": memory_context, "knowledge": knowledge_context}
