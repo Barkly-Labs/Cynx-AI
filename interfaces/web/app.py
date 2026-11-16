@@ -1,6 +1,6 @@
 
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -15,6 +15,8 @@ import asyncio
 import json
 import math
 import re
+import ipaddress
+import hmac
 from pathlib import Path
 
 import requests
@@ -59,6 +61,8 @@ from benchmark.watchdog import BenchmarkWatchdog
 from benchmark.personality.diagnostics import PersonalityDiagnosticsService
 from ai.personality_studio import PersonalityStudioStore, TRAITS, TRAIT_INFO, STARTER_TRAITS, validate_traits
 from ai.personality import configure_personality_studio_store
+from interfaces.web.admin_auth import AdminAuthStore
+from ai.model_configuration import ModelConfigurationStore, validate_model_configuration
 
 
 
@@ -89,14 +93,61 @@ templates = Jinja2Templates(
 # ======================
 
 
-ollama_client = OllamaClient()
+ollama_client = OllamaClient(base_url=get_config().ollama_url, model=get_config().model_name)
+model_configurations = ModelConfigurationStore(get_config().db_path, ollama_client.model)
+_active_model_configuration = model_configurations.active()
+ollama_client.configure(_active_model_configuration["model"], _active_model_configuration["options"])
 
 prompt_builder = PromptBuilder()
 
 
-conn = connect()
+conn = connect(get_config().db_path)
 personality_studio = PersonalityStudioStore(get_config().db_path)
 configure_personality_studio_store(personality_studio)
+admin_auth = AdminAuthStore(get_config().db_path)
+ADMIN_SESSION_COOKIE = "cynx_dx_admin"
+
+
+def _local_admin_request(request: Request) -> bool:
+    """Administrative access is loopback-only unless explicitly configured."""
+    if os.getenv("CYNX_ADMIN_ALLOW_REMOTE", "").strip().lower() in {"1", "true", "yes"}:
+        return True
+    host = request.client.host if request.client else ""
+    try:
+        return ipaddress.ip_address(host.split("%", 1)[0]).is_loopback
+    except ValueError:
+        return host.lower() == "localhost"
+
+
+@app.middleware("http")
+async def protect_research_console(request: Request, call_next):
+    path = request.url.path
+    protected = path == "/dx" or path.startswith("/api/dx/") or path.startswith("/api/lepro/")
+    auth_endpoint = path.startswith("/api/dx/auth/")
+    if not protected:
+        return await call_next(request)
+    if not _local_admin_request(request):
+        return JSONResponse({"detail": "The research console is available only from this computer."}, status_code=403)
+    if auth_endpoint:
+        return await call_next(request)
+
+    token = request.cookies.get(ADMIN_SESSION_COOKIE)
+    session = admin_auth.session(token)
+    if not session:
+        if path == "/dx":
+            return templates.TemplateResponse(request=request, name="dx-auth.html",
+                                              context={"setup_required": not admin_auth.is_configured()})
+        return JSONResponse({"detail": "Administrator authentication is required."}, status_code=401)
+    request.state.dx_admin = True
+    request.state.dx_csrf = session["csrf_token"]
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        csrf = request.headers.get("X-CSRF-Token", "")
+        if not csrf or not hmac.compare_digest(csrf, session["csrf_token"]):
+            return JSONResponse({"detail": "CSRF validation failed. Refresh the console and try again."}, status_code=403)
+    response = await call_next(request)
+    if request.method not in {"GET", "HEAD", "OPTIONS"}:
+        admin_auth.audit(path, response.status_code)
+    return response
 
 
 
@@ -245,6 +296,75 @@ def dx_home(request: Request):
     )
 
 
+def _issue_admin_cookie(response, token: str, request: Request):
+    response.set_cookie(ADMIN_SESSION_COOKIE, token, max_age=AdminAuthStore.SESSION_SECONDS,
+                        httponly=True,
+                        secure=(request.url.scheme == "https" or os.getenv("CYNX_ADMIN_ALLOW_REMOTE", "").strip().lower() in {"1", "true", "yes"}),
+                        samesite="strict", path="/")
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@app.get("/api/dx/auth/session")
+def dx_auth_session(request: Request):
+    session = admin_auth.session(request.cookies.get(ADMIN_SESSION_COOKIE))
+    return {"configured": admin_auth.is_configured(), "authenticated": bool(session),
+            "csrf_token": session["csrf_token"] if session else None}
+
+
+@app.post("/api/dx/auth/setup")
+def dx_auth_setup(data: dict, request: Request):
+    password = data.get("password")
+    if password != data.get("password_confirmation"):
+        raise HTTPException(status_code=400, detail="The password confirmation does not match.")
+    try:
+        admin_auth.setup(password)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    result = admin_auth.login(password)
+    if not result:
+        raise HTTPException(status_code=500, detail="Administrator setup could not create a session.")
+    token, csrf = result
+    response = JSONResponse({"ok": True, "csrf_token": csrf})
+    return _issue_admin_cookie(response, token, request)
+
+
+@app.post("/api/dx/auth/login")
+def dx_auth_login(data: dict, request: Request):
+    if not admin_auth.is_configured():
+        raise HTTPException(status_code=409, detail="Set up the administrator account first.")
+    client_key = request.client.host if request.client else "local"
+    if not admin_auth.login_allowed(client_key):
+        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Wait 15 minutes and try again.")
+    result = admin_auth.login(data.get("password", ""))
+    if not result:
+        admin_auth.record_login_failure(client_key)
+        raise HTTPException(status_code=401, detail="The password was not accepted.")
+    admin_auth.clear_login_failures(client_key)
+    token, csrf = result
+    response = JSONResponse({"ok": True, "csrf_token": csrf})
+    return _issue_admin_cookie(response, token, request)
+
+
+@app.post("/api/dx/auth/logout")
+def dx_auth_logout(request: Request):
+    token = request.cookies.get(ADMIN_SESSION_COOKIE)
+    session = admin_auth.session(token, touch=False)
+    if not session:
+        raise HTTPException(status_code=401, detail="Administrator session has expired.")
+    csrf = request.headers.get("X-CSRF-Token", "")
+    if not csrf or not hmac.compare_digest(csrf, session["csrf_token"]):
+        raise HTTPException(status_code=403, detail="CSRF validation failed.")
+    admin_auth.logout(token)
+    admin_auth.audit("/api/dx/auth/logout", 200)
+    response = JSONResponse({"ok": True})
+    response.delete_cookie(ADMIN_SESSION_COOKIE, path="/", httponly=True, samesite="strict")
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 BENCHMARK_SUITES = PROJECT_ROOT / "benchmark" / "suites"
 DX_BENCHMARK_RUNS = PROJECT_ROOT / "benchmark" / "results" / "dx_runs"
@@ -280,9 +400,10 @@ def _studio_generate(prompt: str, traits: dict[str, int], model: str | None = No
     architecture = (os.getenv("CYNX_PERSONALITY_ARCH", "v1") or "v1").strip().lower()
     builder = IsolatedPromptBuilder(personality_arch=architecture)
     system_prompt = builder.build_prompt(user_input=prompt, personality_matrix=traits)
+    _, generation_options = ollama_client.runtime_configuration()
     result = ollama_client.chat(
         messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": prompt}],
-        tools=None, stream=False, **({"model": model} if model else {}),
+        tools=None, stream=False, options=generation_options, **({"model": model} if model else {}),
     )
     message = result.get("message") or {}
     response_text = _studio_safe_text(str(message.get("content") or result.get("response") or "").strip())
@@ -291,7 +412,7 @@ def _studio_generate(prompt: str, traits: dict[str, int], model: str | None = No
     return {"response": response_text, "model": result.get("model") or getattr(ollama_client, "model", "unknown"),
             "metrics": {"prompt_tokens": result.get("prompt_eval_count"), "completion_tokens": result.get("eval_count"),
                         "total_duration_ns": result.get("total_duration"), "generation_duration_ns": result.get("eval_duration")},
-            "generation_parameters": {"temperature": 0.7, "context_tokens": 8192, "streaming": False}}
+            "generation_parameters": {**generation_options, "streaming": False}}
 
 
 def _studio_generate_conversation(prompts: list[str], traits: dict[str, int], model: str) -> dict:
@@ -300,12 +421,13 @@ def _studio_generate_conversation(prompts: list[str], traits: dict[str, int], mo
     architecture = (os.getenv("CYNX_PERSONALITY_ARCH", "v1") or "v1").strip().lower()
     builder = IsolatedPromptBuilder(personality_arch=architecture)
     system_prompt = builder.build_prompt(user_input=prompts[0], personality_matrix=traits)
+    _, generation_options = ollama_client.runtime_configuration()
     messages = [{"role": "system", "content": system_prompt}]
     turns, metrics = [], []
     result = {}
     for index, user_text in enumerate(prompts, 1):
         messages.append({"role": "user", "content": user_text})
-        result = ollama_client.chat(messages=messages, tools=None, stream=False, model=model)
+        result = ollama_client.chat(messages=messages, tools=None, stream=False, model=model, options=generation_options)
         raw = str((result.get("message") or {}).get("content") or result.get("response") or "").strip()
         answer = _studio_safe_text(raw)
         if result.get("done") is False or not answer:
@@ -317,7 +439,7 @@ def _studio_generate_conversation(prompts: list[str], traits: dict[str, int], mo
         metrics.append(turn_metrics)
     transcript = "\n\n".join(f"Turn {item['turn_index']} user: {item['user_message']}\nTurn {item['turn_index']} CYN-X: {item['response']}" for item in turns)
     return {"response": transcript, "turns": turns, "metrics": metrics, "model": result.get("model") or model,
-            "generation_parameters": {"temperature": 0.7, "context_tokens": 8192, "streaming": False}}
+            "generation_parameters": {**generation_options, "streaming": False}}
 
 
 def _studio_evaluate(prompt: str, response_text: str, traits: dict[str, int], model: str) -> dict:
@@ -648,6 +770,7 @@ def dx_health():
         "tool_count": len(tool_router.list_tools()),
         "environment": "local",
         "hardware": {"available": False, "reason": "No supported telemetry provider is configured."},
+        "model_configuration": model_configurations.active(),
     }
 
 
@@ -777,10 +900,30 @@ def dx_benchmark_runs():
 def dx_start_benchmark(data: dict):
     from fastapi import HTTPException
     try:
+        experiment_configuration = None
+        experiment_id = data.get("experiment_id")
+        base_configuration_version = data.get("base_configuration_version")
+        if data.get("experiment_configuration") is not None:
+            experiment_configuration = validate_model_configuration(data["experiment_configuration"])
+            try:
+                response = requests.get(f"{ollama_client.base_url}/api/tags", timeout=3)
+                response.raise_for_status()
+                installed = {str(model.get("name", "")) for model in response.json().get("models", [])}
+            except Exception as exc:
+                raise HTTPException(status_code=503, detail="Ollama model catalog is unavailable.") from exc
+            if experiment_configuration["model"] not in installed:
+                raise HTTPException(status_code=400, detail="The experimental model is not installed in local Ollama.")
+            if not isinstance(experiment_id, str) or not 1 <= len(experiment_id) <= 100:
+                raise HTTPException(status_code=400, detail="A valid experiment identifier is required.")
+            if isinstance(base_configuration_version, bool) or not isinstance(base_configuration_version, int):
+                raise HTTPException(status_code=400, detail="The production configuration version used as the draft baseline is required.")
         run = benchmark_runs.start(
             str(data.get("suite", "")),
             str(data.get("mode", "automatic")),
             str(data.get("idempotency_key", "")),
+            experiment_configuration=experiment_configuration,
+            experiment_id=experiment_id,
+            base_configuration_version=base_configuration_version,
         )
         return run
     except ValueError as exc:
@@ -938,22 +1081,58 @@ def dx_request(request_id: str):
 
 @app.post("/api/dx/model")
 def dx_select_model(data: dict):
-    model = str(data.get("model", ""))
-    if not model or len(model) > 200 or any(c in model for c in "\r\n\\"):
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="Choose a valid installed model")
+    current = model_configurations.active()
+    model = str(data.get("model", current["model"]))
+    try:
+        configuration = validate_model_configuration({"model": model, "options": data.get("options", current["options"])})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     try:
         response = requests.get(f"{ollama_client.base_url}/api/tags", timeout=2)
         response.raise_for_status()
         installed = {m.get("name") for m in response.json().get("models", [])}
     except Exception:
-        from fastapi import HTTPException
         raise HTTPException(status_code=503, detail="Ollama is unavailable")
     if model not in installed:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=400, detail="That model is not installed in Ollama")
-    ollama_client.model = model
-    return {"ok": True, "model": model, "persistence": "runtime"}
+        raise HTTPException(status_code=400, detail="That model is not installed in Ollama.")
+    expected_version = data.get("expected_version")
+    if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+        raise HTTPException(status_code=400, detail="Reload the current configuration before activating a change.")
+    try:
+        active = model_configurations.activate(configuration, expected_version, str(data.get("description") or "Model Lab activation"))
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    ollama_client.configure(active["model"], active["options"])
+    return {"ok": True, "model": active["model"], "active": active, "persistence": "versioned"}
+
+
+@app.get("/api/dx/model/config")
+def dx_model_config():
+    return {"active": model_configurations.active(), "versions": model_configurations.history(),
+            "supported_options": {"num_ctx": {"min": 256, "max": 131072}, "temperature": {"min": 0, "max": 2},
+                                  "top_p": {"min": 0.01, "max": 1}, "repeat_penalty": {"min": 0.5, "max": 2}}}
+
+
+@app.get("/api/dx/audit")
+def dx_admin_audit():
+    return {"events": admin_auth.audit_history()}
+
+
+@app.post("/api/dx/model/restore")
+def dx_model_restore(data: dict):
+    try:
+        expected_version = data.get("expected_version")
+        if isinstance(expected_version, bool) or not isinstance(expected_version, int):
+            raise ValueError("Reload the current model version before restoring.")
+        active = model_configurations.restore(str(data.get("config_id", "")), expected_version)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    ollama_client.configure(active["model"], active["options"])
+    return {"ok": True, "active": active, "restored": True}
 
 
 
@@ -964,7 +1143,7 @@ chat_request_count = 0
 
 @app.post("/chat")
 async def chat(data:dict):
-
+    data.pop("_experimental_configuration", None)
     return await _dispatch_chat(data)
 
 
@@ -1048,14 +1227,15 @@ async def _dispatch_chat(data: dict):
                 print(f"[PROMPT LAYERS] {prompt_builder.get_prompt_layers()}")
 
                 if personality_trace_callback:
+                    active_model, active_options = ollama_client.runtime_configuration()
                     personality_trace_callback({
                         "stage": "configuration_loaded", "status": "completed",
                         "architecture": getattr(prompt_builder, "personality_arch", None),
                         "prompt_layers": prompt_builder.get_prompt_layers(),
                         "preset": prompt_preset or "not specified",
                         "configuration_overrides": prompt_layers or {},
-                        "model": getattr(ollama_client, "model", None),
-                        "generation_parameters": "not exposed by the active Ollama client",
+                        "model": active_model,
+                        "generation_parameters": active_options,
                     })
 
                 def publish_pipeline(event):
@@ -1124,7 +1304,19 @@ async def _dispatch_chat(data: dict):
                                                 "error": "See sanitized request diagnostics; raw stack traces are not stored in Personality Trace."})
                 raise
 
-    return await run_in_threadpool(process_request)
+    experimental = data.get("_experimental_configuration")
+    token = None
+    if isinstance(experimental, dict):
+        try:
+            experimental = validate_model_configuration(experimental)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid experimental configuration.") from exc
+        token = ollama_client.set_request_configuration(experimental["model"], experimental["options"])
+    try:
+        return await run_in_threadpool(process_request)
+    finally:
+        if token is not None:
+            ollama_client.reset_request_configuration(token)
 
 
 async def _dispatch_benchmark_scenario(data: dict):
@@ -1141,7 +1333,8 @@ async def _dispatch_benchmark_scenario(data: dict):
         if run_id and question_id:
             benchmark_runs.register_question_request(run_id, question_id, request_id, index + 1)
         try:
-            result = await _dispatch_chat({"message": message, "request_id": request_id, "conversation_id": conversation_id})
+            result = await _dispatch_chat({"message": message, "request_id": request_id, "conversation_id": conversation_id,
+                                           "_experimental_configuration": data.get("_experimental_configuration")})
         except Exception:
             web_logger.exception("Personality scenario turn failed; run_id=%s question_id=%s request_id=%s", run_id, question_id, request_id)
             events = pipeline_events.read(request_id).get("events", [])

@@ -423,7 +423,9 @@ class BenchmarkRunManager:
             except OSError:
                 logger.exception("Unable to persist interrupted benchmark run %s", run.get("run_id"))
 
-    def start(self, suite_id: str, mode: str, idempotency_key: str) -> dict:
+    def start(self, suite_id: str, mode: str, idempotency_key: str,
+              experiment_configuration: dict | None = None, experiment_id: str | None = None,
+              base_configuration_version: int | None = None) -> dict:
         path = (self.suites_dir / suite_id).resolve()
         if path.parent != self.suites_dir or path.suffix.lower() != ".json" or not path.is_file():
             raise ValueError("Benchmark suite not found")
@@ -512,6 +514,9 @@ class BenchmarkRunManager:
                 "suite": suite_id,
                 "personality_contract_version": contract_version or next((case.get("contract_version") for case in cases if isinstance(case, dict) and case.get("contract_version")), None),
                 "scenario_library_version": scenario_library_version or next((case.get("scenario_version") for case in cases if isinstance(case, dict) and case.get("scenario_version")), None),
+                "experiment_id": str(experiment_id)[:100] if experiment_id else None,
+                "experimental_configuration": experiment_configuration,
+                "base_configuration_version": base_configuration_version,
                 "mode": "manual" if mode == "manual" else "automatic",
                 "status": "running",
                 "created_at": now,
@@ -592,6 +597,8 @@ class BenchmarkRunManager:
                 self._append(run, "question_started", question_id=question["question_id"], position=question["position"], request_id=request_id)
                 self._write(run)
                 payload = {"message": question["question"], "request_id": request_id}
+                if run.get("experimental_configuration"):
+                    payload["_experimental_configuration"] = run["experimental_configuration"]
                 if question.get("turns"):
                     payload.update({
                         "turns": question["turns"],

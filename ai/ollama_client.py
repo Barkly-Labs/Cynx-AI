@@ -8,6 +8,8 @@ from the local Ollama server.
 
 import json
 import time
+import threading
+import contextvars
 from typing import Any, Dict, Generator, List, Optional
 
 import requests
@@ -26,7 +28,29 @@ class OllamaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.options = {"num_ctx": 8192, "temperature": 0.7}
+        self._configuration_lock = threading.RLock()
+        self._request_configuration = contextvars.ContextVar("cynx_ollama_request_configuration", default=None)
         self.timeout = timeout
+
+    def configure(self, model: str, options: Dict[str, Any]) -> None:
+        """Swap active model settings together so requests see one configuration."""
+        with self._configuration_lock:
+            self.model = model
+            self.options = dict(options)
+
+    def runtime_configuration(self):
+        request_configuration = self._request_configuration.get()
+        if request_configuration is not None:
+            return request_configuration["model"], dict(request_configuration["options"])
+        with self._configuration_lock:
+            return self.model, dict(self.options)
+
+    def set_request_configuration(self, model: str, options: Dict[str, Any]):
+        return self._request_configuration.set({"model": model, "options": dict(options)})
+
+    def reset_request_configuration(self, token) -> None:
+        self._request_configuration.reset(token)
 
     def generate(
         self,
@@ -38,15 +62,16 @@ class OllamaClient:
 
         url = f"{self.base_url}/api/generate"
 
+        model, active_options = self.runtime_configuration()
+        generation_options = {**active_options, "num_predict": max_tokens}
+        supplied_options = kwargs.pop("options", None)
+        if isinstance(supplied_options, dict):
+            generation_options.update(supplied_options)
         payload = {
-            "model": self.model,
+            "model": model,
             "prompt": prompt,
             "stream": stream,
-            "options": {
-                "num_predict": max_tokens,
-                "num_ctx": 8192,
-                "temperature": 0.7
-            },
+            "options": generation_options,
             **kwargs
         }
 
@@ -114,18 +139,23 @@ class OllamaClient:
 
         url = f"{self.base_url}/api/chat"
 
-        # Allow callers to override context size and temperature.
-        num_ctx = kwargs.pop("num_ctx", 8192)
-        temperature = kwargs.pop("temperature", 0.7)
+        # The active saved config supplies defaults; isolated callers may override them.
+        model, options = self.runtime_configuration()
+        model = kwargs.pop("model", model)
+        supplied_options = kwargs.pop("options", None)
+        if isinstance(supplied_options, dict):
+            options.update(supplied_options)
+        for key in ("num_ctx", "temperature", "top_p", "repeat_penalty"):
+            if key in kwargs:
+                options[key] = kwargs.pop(key)
+        num_ctx = options.get("num_ctx", 8192)
+        temperature = options.get("temperature", 0.7)
 
         payload = {
-            "model": self.model,
+            "model": model,
             "messages": messages,
             "stream": stream,
-            "options": {
-                "num_ctx": num_ctx,
-                "temperature": temperature
-            },
+            "options": options,
             **kwargs
         }
 
@@ -133,7 +163,7 @@ class OllamaClient:
         if tools:
             payload["tools"] = tools
 
-        terminal.ollama("OLLAMA CHAT REQUEST", f"Model={self.model} Messages={len(messages)} Tools={len(tools) if tools else 0} Context={num_ctx} Streaming={stream}")
+        terminal.ollama("OLLAMA CHAT REQUEST", f"Model={model} Messages={len(messages)} Tools={len(tools) if tools else 0} Context={num_ctx} Streaming={stream}")
 
         # Print a shortened debugging version of the request.
         try:
@@ -216,7 +246,7 @@ class OllamaClient:
 
             terminal.timing(
                 "[OLLAMA DIAG] "
-                f"model={self.model} "
+                f"model={model} "
                 f"messages={num_messages} "
                 f"system_prompt_chars={system_prompt_chars} "
                 f"tools={num_tools} "
@@ -244,8 +274,8 @@ class OllamaClient:
                     messages=messages,
                     tools=None,
                     stream=False,
-                    num_ctx=num_ctx,
-                    temperature=temperature,
+                    model=model,
+                    options=options,
                     **kwargs
                 )
 
@@ -382,13 +412,16 @@ class OllamaClient:
 
         url = f"{self.base_url}/api/generate"
 
+        model, active_options = self.runtime_configuration()
+        generation_options = {**active_options, "num_predict": max_tokens}
+        supplied_options = kwargs.pop("options", None)
+        if isinstance(supplied_options, dict):
+            generation_options.update(supplied_options)
         payload = {
-            "model": self.model,
+            "model": model,
             "prompt": prompt,
             "stream": True,
-            "options": {
-                "num_predict": max_tokens
-            },
+            "options": generation_options,
             **kwargs
         }
 
