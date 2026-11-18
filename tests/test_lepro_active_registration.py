@@ -8,7 +8,6 @@ from unittest.mock import patch, AsyncMock
 from hardware.lepro.config import LeproConfig
 from hardware.lepro import integration
 from tools.tool_router import ToolRouter
-from tools.lepro_lights import LeproLightsTool
 from ai.chat_engine import ChatEngine
 import hardware.lepro as lepro_package
 from types import ModuleType
@@ -23,7 +22,7 @@ class ActiveRegistrationTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.config = LeproConfig(Path(self.tmp.name) / "selection.json")
-        self.config.add_device("Bedroom", "AA:BB:CC:DD:EE:FF")
+        self.config.add_device("Bedroom", "AA:BB:CC:DD:EE:FF", model="ZB1")
         self.patch_config = patch.object(integration, "CONFIG", self.config)
         self.patch_config.start()
         self.addCleanup(self.patch_config.stop)
@@ -33,19 +32,22 @@ class ActiveRegistrationTests(unittest.TestCase):
         with patch.dict(
             sys.modules, {"hardware.lepro.lib.lepro.bond": bond_module}
         ), patch.object(bond_module, "load_creds", return_value=None):
-            self.assertFalse(integration.register_selected(router))
-        self.assertNotIn("lepro_lights", router.tools)
+            self.assertTrue(integration.register_selected(router))
+        self.assertIn("lepro_list_devices", router.tools)
+        self.assertNotIn("lepro_turn_on", router.tools)
 
     def test_registered_tool_is_visible_to_chat_engine_and_dispatches(self):
         router = ToolRouter()
-        fake_device = type("FakeDevice", (), {})()
-        fake_device.turn_off = AsyncMock()
-        fake_devices = ModuleType("hardware.lepro.devices")
-        fake_devices.LeproDevice = lambda name, mac: fake_device
-        with patch.dict(
-            sys.modules, {"hardware.lepro.lib.lepro.bond": bond_module}
-        ), patch.object(bond_module, "load_creds", return_value=object()), patch.dict(
-            sys.modules, {"hardware.lepro.devices": fake_devices}
+        home = Path(self.tmp.name)
+        credential = home / ".lepro" / "aa-bb-cc-dd-ee-ff.json"
+        credential.parent.mkdir()
+        credential.write_text("{}", encoding="utf-8")
+        fake_controller = type("FakeController", (), {
+            "turn_off": lambda self, device_id=None: {"success": True},
+            "list_devices": lambda self: [],
+        })()
+        with patch("hardware.lepro.integration.Path.home", return_value=home), patch(
+            "hardware.lepro.integration.LeproController", return_value=fake_controller
         ):
             self.assertTrue(integration.register_selected(router))
         engine = ChatEngine.__new__(ChatEngine)
@@ -53,15 +55,13 @@ class ActiveRegistrationTests(unittest.TestCase):
         import logging
 
         engine.logger = logging.getLogger("test.lepro")
+        engine.prompt_builder = type("PromptBuilder", (), {"personality_arch": "v2"})()
         tools = engine._ollama_tools("turn off my lights")
-        self.assertIn("lepro_lights", [t["function"]["name"] for t in tools])
-        self.assertEqual(
-            tools[0]["function"]["parameters"]["properties"]["brightness"]["maximum"],
-            1000,
-        )
-        result = engine.tool_router.call_tool("lepro_lights", {"action": "off"})
+        self.assertEqual([t["function"]["name"] for t in tools], ["lepro_turn_off"])
+        all_off = engine._ollama_tools("turn everything off")
+        self.assertEqual([t["function"]["name"] for t in all_off], ["lepro_turn_off_all"])
+        result = engine.tool_router.call_tool("lepro_turn_off", {})
         self.assertTrue(result.success)
-        fake_device.turn_off.assert_awaited_once()
 
     def test_unconfigured_chat_does_not_expose_lepro(self):
         router = ToolRouter()
@@ -70,6 +70,7 @@ class ActiveRegistrationTests(unittest.TestCase):
         import logging
 
         engine.logger = logging.getLogger("test.lepro")
+        engine.prompt_builder = type("PromptBuilder", (), {"personality_arch": "v2"})()
         self.assertEqual(engine._ollama_tools("hello"), [])
 
 

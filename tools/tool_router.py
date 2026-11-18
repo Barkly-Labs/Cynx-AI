@@ -19,6 +19,20 @@ class ToolRouter:
     def register_tool(self, tool: BaseTool):
         self.tools[tool.name] = tool
 
+    def register_configured_lepro(self):
+        """Register saved Lepro tools without initiating Bluetooth activity."""
+        try:
+            from hardware.lepro.integration import register_selected
+
+            return register_selected(self)
+        except Exception as exc:
+            import logging
+
+            logging.getLogger("cynx.lepro").warning(
+                "Lepro registration unavailable (%s)", type(exc).__name__
+            )
+            return False
+
     def list_tools(self):
         return list(self.tools.keys())
 

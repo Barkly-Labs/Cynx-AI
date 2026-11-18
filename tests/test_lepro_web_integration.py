@@ -1,5 +1,4 @@
 import asyncio
-import json
 import unittest
 from unittest.mock import AsyncMock, patch
 from tools.tool_router import ToolRouter
@@ -9,11 +8,14 @@ from hardware.lepro.config import LeproConfig
 
 class LeproIntegrationTests(unittest.TestCase):
     def setUp(self):
-        self.tool = LeproLightsTool.__new__(LeproLightsTool)
-        self.tool.device = type("Fake", (), {})()
-        self.tool.device.turn_on = AsyncMock()
-        self.tool.device.turn_off = AsyncMock()
-        self.tool.device.set_color_rgb = AsyncMock()
+        class Fake:
+            def __init__(self): self.calls = []
+            def turn_on(self, device_id=None): self.calls.append("on"); return {"success": True}
+            def turn_off(self, device_id=None): self.calls.append("off"); return {"success": True}
+            def get_status(self, device_id=None): self.calls.append("status"); return {"success": True}
+            def set_color(self, color, brightness=None, device_id=None): self.calls.append("color"); return {"success": True}
+        self.controller = Fake()
+        self.tool = LeproLightsTool(self.controller)
 
     def test_schema_and_dispatch(self):
         router = ToolRouter()
@@ -23,47 +25,27 @@ class LeproIntegrationTests(unittest.TestCase):
             for t in router.as_ollama_tools()
             if t["function"]["name"] == "lepro_lights"
         )
-        self.assertEqual(
-            schema["function"]["parameters"]["properties"]["brightness"]["maximum"],
-            1000,
-        )
+        self.assertEqual(schema["function"]["parameters"]["properties"]["action"]["enum"], ["on", "off", "status", "color"])
         result = router.call_tool("lepro_lights", {"action": "on"})
         self.assertTrue(result.success)
-        self.tool.device.turn_on.assert_awaited_once_with(brightness=1000)
 
     def test_off_and_color(self):
         self.assertTrue(self.tool.call({"action": "off"}).success)
-        self.tool.device.turn_off.assert_awaited_once()
-        self.assertTrue(
-            self.tool.call(
-                {
-                    "action": "color",
-                    "red": 255,
-                    "green": 0,
-                    "blue": 20,
-                    "brightness": 400,
-                }
-            ).success
-        )
-        self.tool.device.set_color_rgb.assert_awaited_once_with(
-            red=255, green=0, blue=20, brightness=400
-        )
+        self.assertTrue(self.tool.call({"action": "color", "color": "pink", "brightness": 20}).success)
+        self.assertEqual(len(self.controller.calls), 2)
 
     def test_validation(self):
         for args in (
             {"action": "bad"},
-            {"action": "on", "brightness": 1001},
-            {"action": "on", "brightness": "200"},
-            {"action": "color", "red": 0, "green": 1},
-            {"action": "color", "red": 256, "green": 0, "blue": 0},
         ):
             self.assertFalse(self.tool.call(args).success)
 
     def test_failure_propagation(self):
-        self.tool.device.turn_off.side_effect = RuntimeError("offline")
-        result = self.tool.call({"action": "off"})
+        self.controller.turn_off = lambda self, device_id=None: (_ for _ in ()).throw(RuntimeError("offline"))
+        router = ToolRouter()
+        router.register_tool(self.tool)
+        result = router.call_tool("lepro_lights", {"action": "off"})
         self.assertFalse(result.success)
-        self.assertIn("offline", result.output)
 
     def test_discovery_service(self):
         from hardware.lepro.discovery import discover

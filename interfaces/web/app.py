@@ -1562,8 +1562,9 @@ async def lepro_devices():
 async def lepro_selection():
     from hardware.lepro.integration import CONFIG
     devices = CONFIG.list_devices()
-    return {"selected": ({"name":devices[0]["name"],"mac":devices[0]["mac"]} if devices else None),
-            "registered": "lepro_lights" in tool_router.tools}
+    return {"selected": ({"name":devices[0]["name"],"model":devices[0].get("model")} if devices else None),
+            "devices": [{"name":d.get("name"),"model":d.get("model")} for d in devices],
+            "registered": "lepro_turn_on" in tool_router.tools}
 
 @app.post("/api/lepro/select")
 async def lepro_select(data: dict):
@@ -1574,7 +1575,7 @@ async def lepro_select(data: dict):
         selected = next((d for d in candidates if d["mac"] == data.get("mac")), None)
         if selected is None:
             return {"ok": False, "error":"Device not found in current BLE discovery"}
-        select_device(tool_router, selected["mac"], selected["name"])
+        select_device(tool_router, selected["mac"], selected["name"], model=data.get("model"))
         return {"ok":True, "name":selected["name"]}
     except Exception as exc:
         return {"ok":False,"error":str(exc)}

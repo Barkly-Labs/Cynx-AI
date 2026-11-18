@@ -726,6 +726,45 @@ class ChatEngine:
 
         if (getattr(self.prompt_builder, "personality_arch", None)
                 or os.environ.get("CYNX_PERSONALITY_ARCH", "v1")).lower() == "v2":
+            # Physical device tools are opt-in per turn in V2. Offering only the
+            # relevant allowlisted lighting operations keeps casual mentions from
+            # causing Bluetooth actions while making explicit requests usable.
+            light_names = {
+                tool.get("function", {}).get("name")
+                for tool in tools
+                if str(tool.get("function", {}).get("name", "")).startswith("lepro_")
+            }
+            light_text = str(user_text or "").lower()
+            has_light = bool(re.search(r"\b(?:light|lights|lamp|lamps|lighting)\b", light_text))
+            all_off_request = bool(re.search(r"\b(?:turn|switch)\s+everything\s+off\b", light_text))
+            command_word = bool(re.search(
+                r"\b(?:turn|switch|set|make|dim|brighten|lower|raise|increase|decrease|"
+                r"check|show|list|is|are|reconnect|connect|change)\b", light_text
+            ))
+            if light_names and ((has_light and command_word) or all_off_request):
+                wanted = set()
+                if re.search(r"\b(?:list|show)\b.{0,40}\b(?:devices?|lights?|lamps?)\b", light_text):
+                    wanted.add("lepro_list_devices")
+                if re.search(r"\b(?:reconnect|connect)\b", light_text):
+                    wanted.add("lepro_reconnect")
+                elif re.search(r"\b(?:status|connected|available|reachable|working)\b", light_text):
+                    wanted.add("lepro_get_status")
+                if re.search(r"\b(?:turn|switch)\s+(?:my\s+)?(?:lights?|lamps?)\s+on\b|\bturn on\b.{0,50}\b(?:lights?|lamps?)\b|\b(?:lights?|lamps?)\s+on\b", light_text):
+                    wanted.add("lepro_turn_on")
+                if all_off_request:
+                    wanted.add("lepro_turn_off_all")
+                elif re.search(r"\b(?:turn|switch)\s+(?:my\s+)?(?:lights?|lamps?)\s+off\b|\bturn off\b.{0,50}\b(?:lights?|lamps?)\b|\b(?:lights?|lamps?)\s+off\b", light_text):
+                    wanted.add("lepro_turn_off")
+                if re.search(r"\b(?:brightness|dim|dimmer|darker|brighten|brighter|percent|%)\b", light_text):
+                    wanted.add("lepro_set_brightness")
+                if re.search(r"\b(?:color|colour|pink|red|orange|yellow|green|teal|cyan|blue|purple|lavender|white|warm|cool)\b", light_text):
+                    wanted.add("lepro_set_color")
+                if re.search(r"\b(?:effect|breathe|gradient|leftward|rightward|circle|flash|centerout|centerin|steady)\b", light_text):
+                    wanted.add("lepro_set_effect")
+                if not wanted:
+                    wanted.add("lepro_list_devices")
+                return [tool for tool in tools if tool.get("function", {}).get("name") in (wanted & light_names)]
+
             # V2 only exposes optional capabilities when the current request
             # has an observable need. Tool availability alone must not turn
             # ordinary conversation into a model-side routing decision.
@@ -744,6 +783,11 @@ class ChatEngine:
             "calculator",
             "lepro_lights",
         }
+        model_optional_tools.update(
+            tool.get("function", {}).get("name")
+            for tool in tools
+            if str(tool.get("function", {}).get("name", "")).startswith("lepro_")
+        )
 
         allowed_tools = set()
         mode_manager = getattr(self, "mode_manager", None)
