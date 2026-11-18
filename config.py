@@ -26,11 +26,11 @@ class Config:
 def get_config() -> Config:
     root = Path(__file__).resolve().parent
 
-    # Try to use prompts_new (refactored) first, fall back to old prompts
+    # Try to use prompts_new (refactored) first, then the preserved prompt set.
     new_prompts = root / "prompts_new"
-    # old_prompts = root / 'prompts'
+    old_prompts = root / "prompts_backup"
     default_templates_dir = (
-        str(new_prompts) if new_prompts.exists() else str(old_prompts)
+        str(new_prompts) if new_prompts.is_dir() else str(old_prompts)
     )
 
     return Config(
@@ -39,11 +39,7 @@ def get_config() -> Config:
         db_path=os.getenv("CYNX_DB_PATH", str(root / "database" / "cyn.db")),
         templates_dir=os.getenv("CYNX_TEMPLATES_DIR", default_templates_dir),
         log_dir=os.getenv("CYNX_LOG_DIR", str(root / "logs")),
-        log_level=(
-            int(os.getenv("CYNX_LOG_LEVEL", logging_level_from_env()))
-            if os.getenv("CYNX_LOG_LEVEL")
-            else 20
-        ),
+        log_level=logging_level_from_env(),
     )
 
 
