@@ -6,7 +6,6 @@ __pycache__/
 .env
 *.log
 *.logs
-*.png
 results/
 # Large benchmark artifacts
 /runbenchmark.zip

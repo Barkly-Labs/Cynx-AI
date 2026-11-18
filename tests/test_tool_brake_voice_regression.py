@@ -50,7 +50,7 @@ def test_explicit_and_fresh_retrieval_cues_remain_available():
 def test_brake_checks_current_user_text_and_regenerates_without_tools():
     source = inspect.getsource(ChatEngine.handle_user_message)
     assert "if not retrieval_cue.search(text):" in source
-    assert "tc_name == \"web_search\"" in source
+    assert 'tc_name == "web_search"' in source
     assert "blocked_optional_web_search = True" in source
     assert "if blocked_optional_web_search and not tool_calls:" in source
     assert "tools=None" in source

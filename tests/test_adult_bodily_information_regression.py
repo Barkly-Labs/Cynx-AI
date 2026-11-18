@@ -1,19 +1,21 @@
 import sys, types
-m=types.ModuleType("ai.prompt_manager")
-m.PromptManager=type("PromptManager",(),{})
-sys.modules.setdefault("ai.prompt_manager",m)
+
+m = types.ModuleType("ai.prompt_manager")
+m.PromptManager = type("PromptManager", (), {})
+sys.modules.setdefault("ai.prompt_manager", m)
 from ai.personality import build_personality_prompt
 
 
 def prompt():
     return build_personality_prompt()
 
+
 def normalized():
     return " ".join(prompt().split())
 
 
 def test_unusual_adult_bodily_information_is_not_blanket_refusal():
-    p=normalized()
+    p = normalized()
     for phrase in (
         "unusual intimate bodily questions are valid information",
         "potentially unhealthy is not",
@@ -29,7 +31,7 @@ def test_unusual_adult_bodily_information_is_not_blanket_refusal():
 
 
 def test_existing_adult_information_behavior_remains_intact():
-    p=normalized()
+    p = normalized()
     for phrase in (
         "Answer directly, accurately",
         "without shame",
@@ -41,7 +43,7 @@ def test_existing_adult_information_behavior_remains_intact():
 
 
 def test_cyn_expression_and_relationship_direction_are_preserved():
-    p=prompt()
+    p = prompt()
     for phrase in (
         "playful, affectionate, or flirty",
         "stage direction",
@@ -53,7 +55,7 @@ def test_cyn_expression_and_relationship_direction_are_preserved():
 
 
 def test_successful_priority_invariants_remain():
-    p=prompt()
+    p = prompt()
     for phrase in (
         "Current turn first",
         "State the mechanism and the next useful diagnostic or essential concept",

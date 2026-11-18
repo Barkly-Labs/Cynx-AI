@@ -3,6 +3,7 @@ Verification test for the refactored prompt system.
 
 Ensures that Cyn's personality is maintained and the new structure works correctly.
 """
+
 import sys
 from pathlib import Path
 
@@ -29,29 +30,29 @@ def test_prompt_manager():
 
     # Test mode discovery
     modes = manager.get_available_modes()
-    assert 'playful' in modes, "Playful mode missing"
-    assert 'technical' in modes, "Technical mode missing"
-    assert 'comfort' in modes, "Comfort mode missing"
+    assert "playful" in modes, "Playful mode missing"
+    assert "technical" in modes, "Technical mode missing"
+    assert "comfort" in modes, "Comfort mode missing"
     print(f"  [OK] Found {len(modes)} modes: {modes}")
 
     # Test individual mode loading
-    playful = manager.load_mode('playful')
+    playful = manager.load_mode("playful")
     assert len(playful) > 500, "Playful mode too short"
     assert "Playful Cyn" in playful
     print("  [OK] Playful mode loads correctly")
 
-    technical = manager.load_mode('technical')
+    technical = manager.load_mode("technical")
     assert len(technical) > 500, "Technical mode too short"
     assert "Technical Cyn" in technical
     print("  [OK] Technical mode loads correctly")
 
-    comfort = manager.load_mode('comfort')
+    comfort = manager.load_mode("comfort")
     assert len(comfort) > 500, "Comfort mode too short"
     assert "Comfort Cyn" in comfort
     print("  [OK] Comfort mode loads correctly")
 
     # Test full prompt building
-    full = manager.build_system_prompt(active_modes=['playful'])
+    full = manager.build_system_prompt(active_modes=["playful"])
     assert len(full) > 10000, "Full prompt too short"
     assert "CYN-X Core Identity" in full or "CYN-X Core Personality" in full
     assert "PLAYFUL MODE" in full or "playful" in full.lower()
@@ -59,8 +60,8 @@ def test_prompt_manager():
 
     # Test info
     info = manager.get_prompt_info()
-    assert 'available_modes' in info
-    assert 'core_files' in info
+    assert "available_modes" in info
+    assert "core_files" in info
     print("  [OK] Prompt info available")
 
     return True
@@ -98,15 +99,10 @@ def test_key_features_present():
     print("\n[TEST] All key Cyn features present")
     manager = PromptManager()
     full = manager.build_system_prompt(
-    active_modes=[
-        "companion"
-    ],
-    active_options=[
-        "playful",
-        "creative"
-    ],
-    include_safety=True
-)
+        active_modes=["companion"],
+        active_options=["playful", "creative"],
+        include_safety=True,
+    )
 
     features = [
         ("Glitchy AI style", "glitchy"),
@@ -128,8 +124,8 @@ def test_examples_quality():
     """Test that examples are well-formed and diverse."""
     print("\n[TEST] Examples quality and coverage")
     manager = PromptManager()
-    examples_path = manager.prompts_dir / 'examples.md'
-    examples_content = examples_path.read_text(encoding='utf-8')
+    examples_path = manager.prompts_dir / "examples.md"
+    examples_content = examples_path.read_text(encoding="utf-8")
 
     # Check for diverse example types
     example_types = [
@@ -142,7 +138,9 @@ def test_examples_quality():
     ]
 
     for example_type, search_term in example_types:
-        assert search_term.lower() in examples_content.lower(), f"Missing example type: {example_type}"
+        assert (
+            search_term.lower() in examples_content.lower()
+        ), f"Missing example type: {example_type}"
         print(f"  [OK] {example_type} example present")
 
     return True
@@ -163,15 +161,17 @@ def test_no_major_duplicates():
     ]
 
     core = manager.load_core_prompts()
-    voice = manager.prompts_dir / 'voice.md'
-    voice_content = voice.read_text(encoding='utf-8') if voice.exists() else ""
+    voice = manager.prompts_dir / "voice.md"
+    voice_content = voice.read_text(encoding="utf-8") if voice.exists() else ""
 
     for phrase, expected_max in single_mentions:
         core_count = core.lower().count(phrase.lower())
         voice_count = voice_content.lower().count(phrase.lower())
         total = core_count + voice_count
         assert total <= expected_max + 1, f"Too many mentions of '{phrase}': {total}"
-        print(f"  [OK] '{phrase}' appears {total} time(s) (max expected: {expected_max})")
+        print(
+            f"  [OK] '{phrase}' appears {total} time(s) (max expected: {expected_max})"
+        )
 
     return True
 
@@ -184,15 +184,15 @@ def test_backwards_compatibility():
     builder = PromptBuilder()
     prompt = builder.build_prompt(
         user_input="Hello Cyn",
-        history=[{'role': 'user', 'content': 'Hi there'}],
-        memory_summary="User is curious"
+        history=[{"role": "user", "content": "Hi there"}],
+        memory_summary="User is curious",
     )
     assert len(prompt) > 15000, "Legacy prompt too short"
     assert "Hello Cyn" in prompt
     print("  [OK] PromptBuilder backwards compatible")
 
     # Test personality loading
-    core = get_personality('normal')
+    core = get_personality("normal")
     assert len(core) > 1000, "Legacy personality loading broken"
     print("  [OK] get_personality() still works")
 
@@ -216,7 +216,7 @@ def test_context_reduction():
     print(f"  [INFO] Core personality: {core_size:,} characters")
 
     # With one mode
-    full_one_mode = manager.build_system_prompt(active_modes=['playful'])
+    full_one_mode = manager.build_system_prompt(active_modes=["playful"])
     one_mode_size = len(full_one_mode)
     print(f"  [INFO] With playful mode: {one_mode_size:,} characters")
 
@@ -246,13 +246,17 @@ def test_mode_independence():
     for mode_name in modes:
         mode = manager.load_mode(mode_name)
         assert len(mode) > 0, f"Mode '{mode_name}' is empty"
-        assert f"{mode_name}" in mode.lower() or "Mode" in mode, f"Mode '{mode_name}' doesn't identify itself"
+        assert (
+            f"{mode_name}" in mode.lower() or "Mode" in mode
+        ), f"Mode '{mode_name}' doesn't identify itself"
         print(f"  [OK] Mode '{mode_name}' is independent and complete")
 
     # Load all together
     full = manager.build_system_prompt(active_modes=modes)
     for mode_name in modes:
-        assert mode_name.title() in full or mode_name.lower() in full.lower(), f"Mode '{mode_name}' not in full prompt"
+        assert (
+            mode_name.title() in full or mode_name.lower() in full.lower()
+        ), f"Mode '{mode_name}' not in full prompt"
     print(f"  [OK] All {len(modes)} modes combine properly")
 
     return True
@@ -260,9 +264,9 @@ def test_mode_independence():
 
 def run_all_tests():
     """Run all verification tests."""
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print("CYN-X PROMPT REFACTORING VERIFICATION TESTS")
-    print("="*70)
+    print("=" * 70)
 
     tests = [
         test_prompt_manager,
@@ -289,20 +293,24 @@ def run_all_tests():
             print(f"  [ERROR] {e}")
             failed += 1
 
-    print("\n" + "="*70)
+    print("\n" + "=" * 70)
     print(f"RESULTS: {passed} passed, {failed} failed")
-    print("="*70 + "\n")
+    print("=" * 70 + "\n")
 
     if failed == 0:
         print("SUCCESS: All verification tests passed!")
-        print("\nCyn's personality has been successfully refactored into modular files.")
-        print("The new structure maintains all personality traits while reducing context usage.")
+        print(
+            "\nCyn's personality has been successfully refactored into modular files."
+        )
+        print(
+            "The new structure maintains all personality traits while reducing context usage."
+        )
         return True
     else:
         print(f"FAILURE: {failed} test(s) failed")
         return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     success = run_all_tests()
     sys.exit(0 if success else 1)

@@ -1,6 +1,7 @@
 """
 Filesystem tool with safe, limited operations. This is intentionally conservative.
 """
+
 from typing import Dict
 from pathlib import Path
 from tools.base import BaseTool, ToolResult
@@ -9,8 +10,8 @@ ALLOWED_ROOT = Path(__file__).resolve().parent.parent
 
 
 class FilesystemTool(BaseTool):
-    name = 'filesystem'
-    description = 'Read files within an allowed directory (read-only).'
+    name = "filesystem"
+    description = "Read files within an allowed directory (read-only)."
 
     def schema(self):
         return {
@@ -30,12 +31,12 @@ class FilesystemTool(BaseTool):
                                 "Path relative to the repository root, or an "
                                 "absolute path within it. For the repository's "
                                 "tools directory, use 'tools' (not 'project/tools')."
-                            )
+                            ),
                         }
                     },
-                    "required": ["path"]
-                }
-            }
+                    "required": ["path"],
+                },
+            },
         }
 
     def _resolve_target(self, raw_path: str) -> Path:
@@ -45,33 +46,32 @@ class FilesystemTool(BaseTool):
         return candidate.resolve()
 
     def _read_text(self, path: Path) -> str:
-        for encoding in ('utf-8-sig', 'utf-16', 'utf-16-le', 'utf-16-be', 'latin-1'):
+        for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "latin-1"):
             try:
                 return path.read_text(encoding=encoding)
             except UnicodeDecodeError:
                 continue
-        return path.read_text(encoding='utf-8', errors='replace')
+        return path.read_text(encoding="utf-8", errors="replace")
 
     def call(self, args: Dict) -> ToolResult:
-        unsupported_arguments = set(args) - {'path'}
+        unsupported_arguments = set(args) - {"path"}
         if unsupported_arguments:
             return ToolResult(
-                False,
-                'Filesystem tool is read-only and accepts only a path.'
+                False, "Filesystem tool is read-only and accepts only a path."
             )
-        path = args.get('path')
+        path = args.get("path")
         if not path:
-            return ToolResult(False, 'No path provided')
+            return ToolResult(False, "No path provided")
         try:
             target = self._resolve_target(path)
             try:
                 target.relative_to(ALLOWED_ROOT)
             except ValueError:
-                return ToolResult(False, 'Access denied to that path')
+                return ToolResult(False, "Access denied to that path")
             if not target.exists():
-                return ToolResult(False, 'Path does not exist')
+                return ToolResult(False, "Path does not exist")
             if target.is_dir():
-                return ToolResult(True, '\n'.join([p.name for p in target.iterdir()]))
+                return ToolResult(True, "\n".join([p.name for p in target.iterdir()]))
             return ToolResult(True, self._read_text(target))
         except Exception as e:
-            return ToolResult(False, f'Filesystem error: {e}')
+            return ToolResult(False, f"Filesystem error: {e}")

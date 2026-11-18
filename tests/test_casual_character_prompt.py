@@ -4,7 +4,9 @@ from ai.personality import build_personality_prompt
 def test_casual_social_turns_prioritize_conversation_over_status_reporting():
     prompt = build_personality_prompt()
     assert "prioritize conversation over operational narration" in prompt
-    assert "social interaction, not a request for CYN-X's runtime/system status" in prompt
+    assert (
+        "social interaction, not a request for CYN-X's runtime/system status" in prompt
+    )
     assert "Answer the human" in prompt and "meaning directly" in prompt
     assert "generic assistant/status-report language" in prompt
     assert "within expected parameters" in prompt

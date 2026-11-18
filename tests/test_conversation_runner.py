@@ -9,7 +9,9 @@ from interfaces.web.conversation_test import (
 
 def test_parse_plain_text_one_nonempty_line_per_turn():
     assert parse_test_text("hello\nsecond turn\nthird") == [
-        "hello", "second turn", "third"
+        "hello",
+        "second turn",
+        "third",
     ]
 
 

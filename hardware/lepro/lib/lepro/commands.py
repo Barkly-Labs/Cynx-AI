@@ -8,7 +8,12 @@ import json
 from typing import Any
 
 from hardware.lepro.lib.lepro.crypto import encrypt_dp_json
-from hardware.lepro.lib.lepro.protocol import OP_DP_CMD, OP_DP_VALUE, build_packet_opcode, build_packets_fragmented
+from hardware.lepro.lib.lepro.protocol import (
+    OP_DP_CMD,
+    OP_DP_VALUE,
+    build_packet_opcode,
+    build_packets_fragmented,
+)
 
 # Gson DpValue types serialize top-level keys (com.lepro.iotCore.mqtt.model.*).
 # TestProvisioningActivity: on/off {"d1":0|1}, getDpState '["d1",…]' string to native.
@@ -28,7 +33,9 @@ def power_off() -> dict[str, Any]:
     return {"d1": 0}
 
 
-def color_hsv(hue: float, sat: int = 1000, val: int = 1000, brightness: int = 1000) -> dict[str, Any]:
+def color_hsv(
+    hue: float, sat: int = 1000, val: int = 1000, brightness: int = 1000
+) -> dict[str, Any]:
     h = int(hue) % 360
     s = max(0, min(1000, sat))
     v = max(0, min(1000, val))
@@ -80,7 +87,9 @@ def build_dp_value_packets(
 ) -> tuple[list[bytes], int]:
     """Encrypt DP JSON and return (packets, next_seq)."""
     ct = encrypt_dp_json(mac, dp_json_text(payload), session_rand=session_rand)
-    packets = build_packets_fragmented(seq, OP_DP_VALUE, ct, max_payload, encrypted=True)
+    packets = build_packets_fragmented(
+        seq, OP_DP_VALUE, ct, max_payload, encrypted=True
+    )
     return packets, seq + len(packets)
 
 
@@ -102,7 +111,9 @@ def build_dp_ciphertext_packets(
     *,
     max_payload: int = 128,
 ) -> tuple[list[bytes], int]:
-    packets = build_packets_fragmented(seq, OP_DP_VALUE, ciphertext, max_payload, encrypted=True)
+    packets = build_packets_fragmented(
+        seq, OP_DP_VALUE, ciphertext, max_payload, encrypted=True
+    )
     return packets, seq + len(packets)
 
 

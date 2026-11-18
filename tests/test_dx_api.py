@@ -1,5 +1,6 @@
 import json
 import time
+import uuid
 
 from fastapi.testclient import TestClient
 
@@ -101,6 +102,204 @@ def test_dx_suite_route_rejects_path_traversal():
     assert response.status_code == 404
 
 
+def test_dx_benchmark_watchdog_reads_persisted_runs_without_running_benchmark(tmp_path, monkeypatch):
+    old = {
+        "run_id": "watch-old", "suite": "watch.json", "created_at": "2026-01-01", "status": "completed",
+        "questions": [{"question_id": "old-q", "test_id": "WATCH_1", "category": "SOCIAL_STYLE",
+                       "question": "Say hello.", "status": "completed", "quality_status": "passed",
+                       "response": "Hello!", "score": {"overall": 2.0}, "tools": [], "metrics": {}}],
+    }
+    new = {
+        "run_id": "watch-new", "suite": "watch.json", "created_at": "2026-01-02", "status": "completed_with_failures",
+        "questions": [{"question_id": "new-q", "test_id": "WATCH_1", "category": "SOCIAL_STYLE",
+                       "question": "Say hello.", "test": {"expected_behavior": "Greet"}, "status": "completed",
+                       "quality_status": "failed", "response": "I cannot help with that.",
+                       "score": {"overall": 0.0}, "tools": [], "metrics": {
+                           "prompt_tokens": 10, "completion_tokens": 4, "total_tokens": 14,
+                           "tokens_per_second": 8, "generation_duration_seconds": .5,
+                           "response_time_seconds": 1, "ttft_seconds": .2,
+                       }, "request_ids": ["watch-request"],
+                       "conversation_turns": [{"turn_index": 1, "user_message": "Say hello.",
+                                               "response": "I cannot help with that.", "request_id": "watch-request"}],
+                       "personality_trace": {"events": [{"stage": "configuration_loaded", "details": {
+                           "model": "cynx-local:latest", "preset": "warm", "architecture": "v2",
+                           "prompt_layers": ["core", "personality"],
+                       }}]}}],
+    }
+    tmp_path.joinpath("watch-old.json").write_text(json.dumps(old))
+    tmp_path.joinpath("watch-new.json").write_text(json.dumps(new))
+    diagnostic_dir = tmp_path / "personality_diagnostics"
+    diagnostic_dir.mkdir()
+    diagnostic_dir.joinpath("watch-new.json").write_text(json.dumps({
+        "run_id": "watch-new",
+        "diagnostics": [{
+            "evaluator_version": "cynx-local-judge-v1", "dimension": "warmth",
+            "score": 3.5, "status": "pass",
+        }],
+    }))
+    monkeypatch.setattr(web_app.benchmark_runs, "results_dir", tmp_path)
+
+    response = TestClient(web_app.app).get("/api/dx/benchmark/watchdog?run_id=watch-new")
+
+    assert response.status_code == 200
+    report = response.json()
+    assert report["baseline_run_id"] == "watch-old"
+    assert report["regression_feed"][0]["regression"] is True
+    assert report["questions"][0]["failure"]["signals"][0]["kind"] == "possible_unexpected_refusal"
+    assert report["questions"][0]["conversation_turns"][0]["user_message"] == "Say hello."
+    assert report["questions"][0]["telemetry"]["prompt_tokens"] == 10
+    assert report["metadata"]["model_identifiers"] == ["cynx-local:latest"]
+    assert report["metadata"]["personality_presets"] == ["warm"]
+    assert report["evaluation_coverage"]["rubric_eligible_questions"] == 1
+    assert report["personality_dimensions"]["warmth"] == {
+        "available": True, "value": 3.5, "sample_count": 1,
+        "source": "saved_personality_diagnostics",
+    }
+
+
+def test_dx_benchmark_detail_exposes_persisted_generation_and_turn_telemetry(tmp_path, monkeypatch):
+    import uuid
+
+    run_id = str(uuid.uuid4())
+    question_id = str(uuid.uuid4())
+    saved = {
+        "schema": "cynx-dx-benchmark-run-v1", "run_id": run_id,
+        "suite": "multi-turn.json", "status": "completed", "created_at": "2026-11-12T12:00:00+00:00",
+        "questions": [{
+            "question_id": question_id, "position": 1, "test_id": "MULTI_1", "category": "conversation",
+            "question": "First turn", "response": "Final answer", "status": "completed",
+            "quality_status": "scored", "request_id": "first-request", "terminal_request_id": "last-request",
+            "request_ids": ["first-request", "last-request"], "request_events": [
+                {"request_id": "first-request", "turn_index": 1},
+                {"request_id": "last-request", "turn_index": 2},
+            ], "tools": [], "tool_telemetry_available": True,
+            "metrics": {"response_time_seconds": 2.5, "ttft_seconds": 0.12,
+                        "prompt_tokens": 40, "completion_tokens": 30, "tokens_generated": 30,
+                        "total_tokens": 70, "prompt_evaluation_duration_seconds": 0.4,
+                        "generation_duration_seconds": 3.0, "tokens_per_second": 10.0},
+        }], "events": [], "elapsed_total_seconds": 2.5,
+    }
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(saved), encoding="utf-8")
+    monkeypatch.setattr(web_app.benchmark_runs, "results_dir", tmp_path)
+
+    response = TestClient(web_app.app).get(f"/api/dx/benchmark/runs/{run_id}")
+
+    assert response.status_code == 200
+    question = response.json()["questions"][0]
+    assert question["metrics"]["ttft_seconds"] == 0.12
+    assert question["metrics"]["prompt_tokens"] == 40
+    assert question["metrics"]["completion_tokens"] == 30
+    assert question["metrics"]["total_tokens"] == 70
+    assert question["metrics"]["generation_duration_seconds"] == 3.0
+    assert question["metrics"]["tokens_generated"] == 30
+    assert question["metrics"]["tokens_per_second"] == 10.0
+    assert response.json()["metrics_summary"]["prompt_tokens"]["total"] == 40
+    assert response.json()["metrics_summary"]["completion_tokens"]["total"] == 30
+    assert response.json()["metrics_summary"]["total_tokens"]["total"] == 70
+    assert response.json()["metrics_summary"]["tokens_per_second"]["value"] == 10.0
+    assert question["terminal_request_id"] == "last-request"
+    assert [event["turn_index"] for event in question["request_events"]] == [1, 2]
+
+
+def test_chat_dispatch_exposes_captured_ollama_metrics_for_benchmark_turn(monkeypatch):
+    request_id = str(uuid.uuid4())
+    captured = []
+    monkeypatch.setattr(web_app.benchmark_runs, "trace_callback", lambda _rid: captured.append)
+
+    def fake_engine(**kwargs):
+        kwargs["trace_callback"]({"stage": "first_model_output", "status": "observed", "ttft_seconds": 0.2})
+        kwargs["trace_callback"]({
+            "stage": "generation_response_received", "status": "completed",
+            "prompt_tokens": 25, "completion_tokens": 7, "tokens_generated": 7,
+            "total_tokens": 32, "prompt_evaluation_duration_nanoseconds": 500_000_000,
+            "generation_duration_nanoseconds": 1_000_000_000,
+        })
+        return "Actual benchmark answer"
+
+    monkeypatch.setattr(web_app.chat_engine, "handle_user_message", fake_engine)
+    response = TestClient(web_app.app).post("/chat", json={
+        "request_id": request_id, "message": "Use the normal benchmark chat path.",
+    })
+
+    assert response.status_code == 200
+    assert response.json()["metrics"] == {
+        "ttft_seconds": 0.2, "prompt_tokens": 25, "completion_tokens": 7,
+        "tokens_generated": 7, "total_tokens": 32,
+        "prompt_evaluation_duration_seconds": 0.5,
+        "generation_duration_seconds": 1.0, "tokens_per_second": 7.0,
+        "response_time_seconds": response.json()["metrics"]["response_time_seconds"],
+    }
+    assert [event["stage"] for event in captured].count("generation_response_received") == 1
+
+
+def test_dx_watchdog_tab_is_inside_existing_benchmark_workspace():
+    client = TestClient(web_app.app)
+    page = client.get("/dx")
+    script = client.get("/static/dx.js")
+    styles = client.get("/static/dx.css")
+
+    assert page.status_code == script.status_code == styles.status_code == 200
+    assert 'data-bench-tab="watchdog"' in script.text
+    assert 'id="benchmark-watchdog-panel"' in script.text
+    assert ".watchdog-inspector" in styles.text
+
+
+def test_versioned_personality_scenarios_are_added_to_existing_benchmark_catalog():
+    client = TestClient(web_app.app)
+    catalog = client.get("/api/dx/benchmark/suites")
+    suite = client.get("/api/dx/benchmark/suites/personality-diagnostics-v1.json")
+
+    assert catalog.status_code == suite.status_code == 200
+    item = next(entry for entry in catalog.json()["suites"] if entry["id"] == "personality-diagnostics-v1.json")
+    assert item["count"] >= 10
+    assert item["personality_contract_version"] == "1.0.0"
+    assert all(case.get("turns") and case.get("target_dimensions") for case in suite.json()["cases"])
+
+
+def test_personality_diagnostics_endpoints_read_and_persist_run_scoped_records(tmp_path, monkeypatch):
+    run_id = "85db1028-6819-42aa-b860-6711403053e2"
+    run = {
+        "schema": "cynx-dx-benchmark-run-v1", "run_id": run_id,
+        "suite": "personality-diagnostics-v1.json", "status": "completed", "created_at": "2026-11-12T12:00:00+00:00",
+        "personality_contract_version": "1.0.0", "scenario_library_version": "1.0.0",
+        "questions": [{
+            "question_id": "question-1", "scenario_id": "serious-support-01", "test_id": "SUPPORT_01",
+            "scenario_category": "emotional_sensitivity", "target_dimensions": ["warmth"],
+            "expected_behavior": "Respond calmly and acknowledge the stated feeling.",
+            "question": "I feel lonely.", "status": "completed", "quality_status": "scored",
+            "response": "I hear that this has been lonely.", "request_id": "request-1", "request_ids": ["request-1"],
+            "conversation_turns": [{"turn_index": 1, "user_message": "I feel lonely.", "response": "I hear that this has been lonely.", "request_id": "request-1"}],
+            "request_events": [], "tools": [], "metrics": {},
+        }],
+    }
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(run), encoding="utf-8")
+
+    class Judge:
+        model = "local-test-judge"
+
+        def chat(self, messages, tools=None, **kwargs):
+            assert tools is None
+            return {"message": {"content": json.dumps({"evaluations": [{
+                "dimension": "warmth", "score": 3.2, "confidence": 0.8,
+                "observed_behavior": "Acknowledged loneliness.", "expected_behavior": "Acknowledge the feeling.",
+                "explanation": "The answer uses a measured acknowledgment.", "potential_contributing_factors": [],
+                "recommendations": [], "evidence": [{"turn_index": 1, "quote": "I hear that this has been lonely."}],
+            }]})}}
+
+    service = web_app.personality_diagnostics
+    monkeypatch.setattr(service, "runs_dir", tmp_path)
+    monkeypatch.setattr(service, "records_dir", tmp_path / "personality_diagnostics")
+    monkeypatch.setattr(service, "ollama", Judge())
+    client = TestClient(web_app.app)
+
+    evaluated = client.post(f"/api/dx/benchmark/personality/{run_id}/evaluate?refresh=true", json={})
+    historical = client.get(f"/api/dx/benchmark/personality/history?run_id={run_id}")
+
+    assert evaluated.status_code == historical.status_code == 200
+    assert evaluated.json()["diagnostics"][0]["dimension"] == "warmth"
+    assert historical.json()["trend"][0]["dimensions"]["warmth"] == 3.2
+
+
 def test_backend_benchmark_runs_after_start_response_and_uses_chat_dispatcher(tmp_path, monkeypatch):
     suites = tmp_path / "suites"
     runs = tmp_path / "runs"
@@ -182,6 +381,45 @@ def test_benchmark_dispatch_persists_chat_engine_trace_events(tmp_path, monkeypa
     }
 
 
+def test_personality_scenario_turns_share_chat_conversation_but_use_distinct_request_ids(monkeypatch):
+    import asyncio
+
+    conversation_ids = []
+    request_ids = []
+    registrations = []
+
+    class Events:
+        def read(self, request_id):
+            return {"events": []}
+
+    async def fake_chat(data):
+        conversation_ids.append(data["conversation_id"])
+        request_ids.append(data["request_id"])
+        return {"response": f"Answer {len(request_ids)}", "response_time": 0.1}
+
+    class RunManager:
+        def register_question_request(self, run_id, question_id, request_id, turn_index=None):
+            registrations.append((run_id, question_id, request_id, turn_index))
+
+    monkeypatch.setattr(web_app, "_dispatch_chat", fake_chat)
+    monkeypatch.setattr(web_app, "benchmark_runs", RunManager())
+    monkeypatch.setattr(web_app, "pipeline_events", Events())
+    data = {
+        "request_id": "first-request", "conversation_id": "scenario-conversation",
+        "_benchmark_run_id": "run-1", "_benchmark_question_id": "question-1",
+        "turns": ["First user turn", "Second user turn"],
+        "turn_expectations": [{"expected_tools": []}, {"expected_tools": []}],
+    }
+
+    result = asyncio.run(web_app._dispatch_benchmark_scenario(data))
+
+    assert conversation_ids == ["scenario-conversation", "scenario-conversation"]
+    assert request_ids[0] == "first-request" and request_ids[0] != request_ids[1]
+    assert registrations == [("run-1", "question-1", request_ids[0], 1),
+                              ("run-1", "question-1", request_ids[1], 2)]
+    assert [turn["response"] for turn in result["conversation_turns"]] == ["Answer 1", "Answer 2"]
+
+
 def test_chat_route_uses_validated_conversation_id_for_short_term_context(monkeypatch):
     seen = {}
 
@@ -198,3 +436,45 @@ def test_chat_route_uses_validated_conversation_id_for_short_term_context(monkey
     assert response.status_code == 200
     assert seen["conversation_key"] == f"web_user:{conversation_id}"
     assert seen["user_id"] == "web_user"
+
+
+def test_benchmark_detail_api_exposes_trace_aggregates_for_historical_questions(tmp_path, monkeypatch):
+    run_id = str(uuid.uuid4())
+    saved = {
+        "schema": "cynx-dx-benchmark-run-v1", "run_id": run_id,
+        "suite": "multi.json", "status": "completed", "created_at": "2026-11-11T12:00:00Z",
+        "questions": [{
+            "question_id": "q-1", "position": 1, "test_id": "MULTI_1",
+            "category": "SOCIAL_STYLE", "question": "Hello?", "response": "Hi.",
+            "status": "completed", "quality_status": "scored", "request_id": "turn-1",
+            "request_ids": ["turn-1", "turn-2"],
+            "metrics": {"response_time_seconds": 1.5, "ttft_seconds": None,
+                        "tokens_generated": None, "tokens_per_second": None},
+            "personality_trace": {"events": [
+                {"stage": "first_model_output", "details": {"ttft_seconds": 0.1}},
+                {"stage": "generation_response_received", "details": {
+                    "prompt_tokens": 40, "completion_tokens": 10, "tokens_generated": 10,
+                    "total_tokens": 50, "prompt_evaluation_duration_nanoseconds": 200_000_000,
+                    "generation_duration_nanoseconds": 1_000_000_000,
+                }},
+                {"stage": "generation_response_received", "details": {
+                    "prompt_tokens": 50, "completion_tokens": 20, "tokens_generated": 20,
+                    "total_tokens": 70, "prompt_evaluation_duration_nanoseconds": 300_000_000,
+                    "generation_duration_nanoseconds": 2_000_000_000,
+                }},
+            ]},
+        }], "events": [],
+    }
+    (tmp_path / f"{run_id}.json").write_text(json.dumps(saved), encoding="utf-8")
+    monkeypatch.setattr(web_app.benchmark_runs, "results_dir", tmp_path)
+
+    response = TestClient(web_app.app).get(f"/api/dx/benchmark/runs/{run_id}")
+
+    assert response.status_code == 200
+    question = response.json()["questions"][0]
+    assert question["metrics"] == {
+        "response_time_seconds": 1.5, "ttft_seconds": 0.1,
+        "prompt_tokens": 90, "completion_tokens": 30, "tokens_generated": 30,
+        "total_tokens": 120, "prompt_evaluation_duration_seconds": 0.5,
+        "generation_duration_seconds": 3.0, "tokens_per_second": 10.0,
+    }

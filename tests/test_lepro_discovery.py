@@ -1,37 +1,40 @@
 import asyncio
-import tempfile
+import sys
 import types
 import unittest
-from pathlib import Path
-from unittest.mock import patch
-import sys
-from hardware.lepro.discovery import LeproDiscovery
+from unittest.mock import AsyncMock, patch
 
-def fake_modules():
-    bond=types.ModuleType("hardware.lepro.lib.lepro.bond")
-    bond.load_creds=lambda mac: {"mock": True}
-    device=types.ModuleType("hardware.lepro.devices")
-    device.LeproDevice=lambda name,mac: types.SimpleNamespace(name=name,mac=mac)
-    return {"hardware.lepro.lib.lepro.bond":bond,"hardware.lepro.devices":device}
+from hardware.lepro.discovery import GATT_SERVICE, discover
+
 
 class DiscoveryTests(unittest.TestCase):
-    def test_no_devices(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            scanner = types.SimpleNamespace(discover=lambda **kw: asyncio.sleep(0, result=[]))
-            with patch.dict('sys.modules', {'bleak': types.SimpleNamespace(BleakScanner=scanner), **fake_modules()}):
-                with self.assertRaisesRegex(RuntimeError, 'No bonded'):
-                    asyncio.run(LeproDiscovery(Path(tmp)/'lights.json').resolve())
-    def test_ambiguous(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            devices=[types.SimpleNamespace(name='LP',address=x) for x in ('AA:BB:CC:DD:EE:01','AA:BB:CC:DD:EE:02')]
-            scanner=types.SimpleNamespace(discover=lambda **kw: asyncio.sleep(0,result=devices))
-            with patch.dict('sys.modules', {'bleak':types.SimpleNamespace(BleakScanner=scanner), **fake_modules()}):
-                with self.assertRaisesRegex(RuntimeError,'Multiple bonded'):
-                    asyncio.run(LeproDiscovery(Path(tmp)/'lights.json').resolve())
-    def test_no_scan_for_saved_device(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            d=LeproDiscovery(Path(tmp)/'lights.json')
-            d.config.add_device('Desk','AA:BB:CC:DD:EE:01')
-            with patch.dict(sys.modules, fake_modules()):
-                result=asyncio.run(d.resolve())
-                self.assertEqual(result.name,'Desk')
+    def test_filters_by_lepro_service_and_reports_saved_bond_state(self):
+        devices = {
+            "AA:BB:CC:DD:EE:01": (
+                types.SimpleNamespace(address="AA:BB:CC:DD:EE:01", name="LP light"),
+                types.SimpleNamespace(service_uuids=[GATT_SERVICE], local_name="Bedroom"),
+            ),
+            "AA:BB:CC:DD:EE:02": (
+                types.SimpleNamespace(address="AA:BB:CC:DD:EE:02", name="Other"),
+                types.SimpleNamespace(service_uuids=["00000000-0000-0000-0000-000000000000"], local_name="Other"),
+            ),
+        }
+        bleak = types.ModuleType("bleak")
+        bleak.BleakScanner = types.SimpleNamespace(discover=AsyncMock(return_value=devices))
+        with patch.dict(sys.modules, {"bleak": bleak}), patch(
+            "hardware.lepro.discovery.load_creds", return_value={"saved": True}
+        ):
+            found = asyncio.run(discover(timeout=1))
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0]["name"], "Bedroom")
+        self.assertTrue(found[0]["bonded"])
+
+    def test_no_matching_devices_returns_empty_list(self):
+        bleak = types.ModuleType("bleak")
+        bleak.BleakScanner = types.SimpleNamespace(discover=AsyncMock(return_value={}))
+        with patch.dict(sys.modules, {"bleak": bleak}):
+            self.assertEqual(asyncio.run(discover(timeout=1)), [])
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -62,49 +62,51 @@ _CRC_TABLE_HEX = (
     "4a004ec18e818f404f018dc04d804c418c0044c184818540450187c047804641860"
     "182c042804341830041c18181804040"
 )
-CRC_TABLE: tuple[int, ...] = struct.unpack("<" + "H" * 256, bytes.fromhex(_CRC_TABLE_HEX))
+CRC_TABLE: tuple[int, ...] = struct.unpack(
+    "<" + "H" * 256, bytes.fromhex(_CRC_TABLE_HEX)
+)
 
 # Native opcodes (uint16)
-OP_SEARCH      = 0x1000
+OP_SEARCH = 0x1000
 OP_SEARCH_RESP = 0x1001
-OP_BOND        = 0x1002
-OP_BOND_RESP   = 0x1003
-OP_WIFI_MQTT       = 0x1008
-OP_WIFI_MQTT_RESP  = 0x1009
-OP_WIFI_PROGRESS   = 0x100B
-OP_OTA_START       = 0x1010
-OP_OTA_START_RESP  = 0x1011
-OP_OTA_DATA        = 0x1012
-OP_OTA_DATA_RESP   = 0x1013
-OP_DP_VALUE    = 0x1100
-OP_DP_ACK      = 0x1101
-OP_DP_CMD      = 0x1102
-OP_DP_RESP     = 0x1103
+OP_BOND = 0x1002
+OP_BOND_RESP = 0x1003
+OP_WIFI_MQTT = 0x1008
+OP_WIFI_MQTT_RESP = 0x1009
+OP_WIFI_PROGRESS = 0x100B
+OP_OTA_START = 0x1010
+OP_OTA_START_RESP = 0x1011
+OP_OTA_DATA = 0x1012
+OP_OTA_DATA_RESP = 0x1013
+OP_DP_VALUE = 0x1100
+OP_DP_ACK = 0x1101
+OP_DP_CMD = 0x1102
+OP_DP_RESP = 0x1103
 
 # Wire magic bytes (byte index 3)
-MAGIC_SINGLE   = 0x50
-MAGIC_FRAG_FIRST  = 0x51
-MAGIC_FRAG_MID    = 0x52
-MAGIC_FRAG_LAST   = 0x53
-MAGIC_SINGLE_ENC  = 0x54
+MAGIC_SINGLE = 0x50
+MAGIC_FRAG_FIRST = 0x51
+MAGIC_FRAG_MID = 0x52
+MAGIC_FRAG_LAST = 0x53
+MAGIC_SINGLE_ENC = 0x54
 MAGIC_FRAG_FIRST_ENC = 0xD1
-MAGIC_FRAG_MID_ENC   = 0xD2
+MAGIC_FRAG_MID_ENC = 0xD2
 
 # Legacy PDU aliases (ptype/subtype)
-PDU_DATA      = 0x10
-PDU_SESSION   = 0x11
-PDU_CERT      = 0x20
+PDU_DATA = 0x10
+PDU_SESSION = 0x11
+PDU_CERT = 0x20
 PDU_HEARTBEAT = 0x21
-PDU_FRAGMENT  = 0x00
+PDU_FRAGMENT = 0x00
 
-SUB_REQ  = 0x00
+SUB_REQ = 0x00
 SUB_RESP = 0x01
-SUB_CMD  = 0x02
-SUB_ACK  = 0x03
+SUB_CMD = 0x02
+SUB_ACK = 0x03
 
 GATT_SERVICE = "1e2aa501-7292-4263-a8f1-be907f039a1f"
-GATT_CMD     = "1e2aa502-7292-4263-a8f1-be907f039a1f"
-GATT_RSP     = "1e2aa503-7292-4263-a8f1-be907f039a1f"
+GATT_CMD = "1e2aa502-7292-4263-a8f1-be907f039a1f"
+GATT_RSP = "1e2aa503-7292-4263-a8f1-be907f039a1f"
 
 
 def opcode_to_wire(opcode: int) -> tuple[int, int]:
@@ -180,16 +182,21 @@ def _build_body(
 ) -> bytes:
     if len(payload) > 0xFFFF:
         raise ValueError(f"payload too large for single packet: {len(payload)} bytes")
-    return bytes([
-        0x5A,
-        magic2,
-        (seq >> 8) & 0xFF,
-        seq & 0xFF,
-        field6,
-        field7,
-        (len(payload) >> 8) & 0xFF,
-        len(payload) & 0xFF,
-    ]) + payload
+    return (
+        bytes(
+            [
+                0x5A,
+                magic2,
+                (seq >> 8) & 0xFF,
+                seq & 0xFF,
+                field6,
+                field7,
+                (len(payload) >> 8) & 0xFF,
+                len(payload) & 0xFF,
+            ]
+        )
+        + payload
+    )
 
 
 def build_packet(seq: int, ptype: int, subtype: int, payload: bytes) -> bytes:
@@ -253,16 +260,21 @@ def build_packets_fragmented(
             field6 = 0x00
             field7 = 0x00
 
-        body = bytes([
-            0x5A,
-            magic2,
-            (seq >> 8) & 0xFF,
-            seq & 0xFF,
-            field6,
-            field7,
-            0x00,
-            len(chunk) & 0xFF,
-        ]) + chunk
+        body = (
+            bytes(
+                [
+                    0x5A,
+                    magic2,
+                    (seq >> 8) & 0xFF,
+                    seq & 0xFF,
+                    field6,
+                    field7,
+                    0x00,
+                    len(chunk) & 0xFF,
+                ]
+            )
+            + chunk
+        )
         chunks.append(struct.pack(">H", crc16_lepro(body)) + body)
         if not is_last:
             seq += 1

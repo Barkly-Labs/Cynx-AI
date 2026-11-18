@@ -2,6 +2,7 @@
 Main entrypoint for CYN-X.
 Wires configuration, logging, DB, tools, AI client, and starts the selected interface (terminal by default).
 """
+
 import asyncio
 import logging
 from ai.context_manager import ContextManager
@@ -48,28 +49,16 @@ def main():
     tool_router = ToolRouter()
     tool_router.register_configured_lepro()
 
-    tool_router.register_tool(
-        WebSearchTool()
-    )
+    tool_router.register_tool(WebSearchTool())
 
-    tool_router.register_tool(
-        CalculatorTool()
-    )
+    tool_router.register_tool(CalculatorTool())
 
-    tool_router.register_tool(
-        FilesystemTool()
-    )
+    tool_router.register_tool(FilesystemTool())
 
     # Register the smoke counter instance (do not create a second tracker)
-    tool_router.register_tool(
-        smoke_counter
-    )
+    tool_router.register_tool(smoke_counter)
 
-    context_manager = ContextManager(
-    memory_store,
-    memory_extractor
-)
-
+    context_manager = ContextManager(memory_store, memory_extractor)
 
     print(tool_router.describe_tools())
 
@@ -82,7 +71,7 @@ def main():
         mode_manager=mode_manager,
         memory_manager=memory_manager,
         memory_extractor=memory_extractor,
-        context_manager=context_manager,    
+        context_manager=context_manager,
         logger_obj=logger,
     )
 
@@ -94,5 +83,5 @@ def main():
         logger.info("Shutting down...")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

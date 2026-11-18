@@ -7,7 +7,12 @@ import argparse
 import asyncio
 from pathlib import Path
 
-from hardware.lepro.lib.lepro.ota import DEFAULT_FIRMWARE, POST_REBOOT_RETRY_S, POST_REBOOT_WAIT_S, run_ota
+from hardware.lepro.lib.lepro.ota import (
+    DEFAULT_FIRMWARE,
+    POST_REBOOT_RETRY_S,
+    POST_REBOOT_WAIT_S,
+    run_ota,
+)
 
 
 def main() -> None:

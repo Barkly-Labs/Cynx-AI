@@ -1,4 +1,3 @@
-
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -12,16 +11,7 @@ import time
 from ai.knowledge.store import KnowledgeStore
 from memory.sqlite import connect
 
-
-
-sys.path.append(
-    os.path.abspath(
-        os.path.join(
-            os.path.dirname(__file__),
-            "../../"
-        )
-    )
-)
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 
 
 from ai.context_manager import ContextManager
@@ -39,28 +29,13 @@ from tools.SmokeCounterTool import smoke_counter
 from tools.ChartTool import chart_tool
 from tools.filesystem import FilesystemTool
 
+app = FastAPI(title="CYN-X")
 
 
-app = FastAPI(
-    title="CYN-X"
-)
+app.mount("/static", StaticFiles(directory="interfaces/web/static"), name="static")
 
 
-
-app.mount(
-    "/static",
-    StaticFiles(
-        directory="interfaces/web/static"
-    ),
-    name="static"
-)
-
-
-
-templates = Jinja2Templates(
-    directory="interfaces/web/templates"
-)
-
+templates = Jinja2Templates(directory="interfaces/web/templates")
 
 
 # ======================
@@ -76,7 +51,6 @@ prompt_builder = PromptBuilder()
 conn = connect()
 
 
-
 # ======================
 # MEMORY
 # ======================
@@ -84,15 +58,10 @@ conn = connect()
 # MemoryManager is now the single
 # memory system used by CYN-X.
 
-memory_manager = MemoryManager(
-    conn
-)
+memory_manager = MemoryManager(conn)
 
 
-memory_extractor = MemoryExtractor(
-    memory_manager
-)
-
+memory_extractor = MemoryExtractor(memory_manager)
 
 
 # ======================
@@ -103,38 +72,28 @@ memory_extractor = MemoryExtractor(
 tool_router = ToolRouter()
 
 from hardware.lepro.integration import register_selected
+
 try:
     register_selected(tool_router)
 except Exception as exc:
     print(f"[LEPRO] Optional registration unavailable: {exc}")
 
 
-tool_router.register_tool(
-    WebSearchTool()
-)
+tool_router.register_tool(WebSearchTool())
 
 
-tool_router.register_tool(
-    CalculatorTool()
-)
+tool_router.register_tool(CalculatorTool())
 
-tool_router.register_tool(
-    FilesystemTool()
-)
+tool_router.register_tool(FilesystemTool())
 
 
 # Register the smoke_counter tool so Cyn
 # can call it from the web interface
-tool_router.register_tool(
-    smoke_counter
-)
+tool_router.register_tool(smoke_counter)
 
 
 # Register the chart tool for structured visualizations.
-tool_router.register_tool(
-    chart_tool
-)
-
+tool_router.register_tool(chart_tool)
 
 
 # ======================
@@ -145,10 +104,7 @@ tool_router.register_tool(
 mode_manager = ModeManager()
 
 
-knowledge_store = KnowledgeStore(
-    conn
-)
-
+knowledge_store = KnowledgeStore(conn)
 
 
 # ======================
@@ -164,7 +120,6 @@ context_manager = ContextManager(
 )
 
 
-
 # ======================
 # CHAT ENGINE
 # ======================
@@ -178,10 +133,8 @@ chat_engine = ChatEngine(
     mode_manager,
     memory_manager,
     memory_extractor=memory_extractor,
-    context_manager=context_manager
-    
+    context_manager=context_manager,
 )
-
 
 
 # ======================
@@ -190,32 +143,24 @@ chat_engine = ChatEngine(
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home(request:Request):
+async def home(request: Request):
 
-    return templates.TemplateResponse(
-        request=request,
-        name="chat.html",
-        context={}
-    )
+    return templates.TemplateResponse(request=request, name="chat.html", context={})
 
 
 @app.get("/dashboard")
-def dashboard(request:Request):
-    
+def dashboard(request: Request):
+
     return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html",
-        context={}
+        request=request, name="dashboard.html", context={}
     )
-
-
 
 
 chat_request_count = 0
 
 
 @app.post("/chat")
-async def chat(data:dict):
+async def chat(data: dict):
 
     global chat_request_count
 
@@ -223,12 +168,9 @@ async def chat(data:dict):
 
     request_id = str(chat_request_count)
 
-    start=time.perf_counter()
+    start = time.perf_counter()
 
-    message=data.get(
-        "message",
-        ""
-    )
+    message = data.get("message", "")
 
     print(
         f"[CHAT REQUEST] id={request_id} "
@@ -237,25 +179,11 @@ async def chat(data:dict):
     )
 
     response = chat_engine.handle_user_message(
-        user_id="web_user",
-        text=message,
-        request_id=request_id
+        user_id="web_user", text=message, request_id=request_id
     )
 
-    elapsed = round(
-        time.perf_counter()-start,
-        3
-    )
+    elapsed = round(time.perf_counter() - start, 3)
 
-    print(
-        f"[CHAT COMPLETE] id={request_id} "
-        f"elapsed={elapsed}s"
-    )
+    print(f"[CHAT COMPLETE] id={request_id} " f"elapsed={elapsed}s")
 
-    return {
-
-        "response":response,
-
-        "response_time":elapsed
-
-    }
+    return {"response": response, "response_time": elapsed}

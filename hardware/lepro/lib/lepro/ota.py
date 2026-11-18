@@ -51,7 +51,13 @@ from bleak import BleakClient, BleakScanner
 
 from hardware.lepro.lib.lepro.bond import creds_path, load_creds, normalize_mac
 from hardware.lepro.lib.lepro.crypto import derive_session_key, encrypt_cbc, MAIN_IV
-from hardware.lepro.lib.lepro.frame import DecryptedFrame, OP_BOND_RESP_ALT, parse_bond_result, parse_ota_data_resp, parse_ota_start_resp
+from hardware.lepro.lib.lepro.frame import (
+    DecryptedFrame,
+    OP_BOND_RESP_ALT,
+    parse_bond_result,
+    parse_ota_data_resp,
+    parse_ota_start_resp,
+)
 from hardware.lepro.lib.lepro.protocol import (
     GATT_CMD,
     GATT_RSP,
@@ -65,23 +71,28 @@ from hardware.lepro.lib.lepro.protocol import (
     crc16_lepro,
     parse_packet,
 )
-from hardware.lepro.lib.lepro.session import BleakTransport, DryRunTransport, LeproSession, SessionConfig
+from hardware.lepro.lib.lepro.session import (
+    BleakTransport,
+    DryRunTransport,
+    LeproSession,
+    SessionConfig,
+)
 from hardware.lepro.lib.lepro.paths import repo_path
 
 DEFAULT_FIRMWARE = repo_path("firmware/3_le_light_zb1_pid_55_v2.3.18.patched.bin")
 OTA_INNER_SIZE = 0x1400  # 5120 — legacy padded inner (pre-v2.3.18 path)
 OTA_MAX_CHUNK = 0x13F8  # 5112 — max chunk payload bytes
 OTA_SUCCESS = 0
-OTA_ERR_LENGTH = 0x1      # FUN_4200886c: declared len != strlen(json)+1
-OTA_ERR_PARSE = 0x112     # FUN_42008eb0 returned 3 (missing/invalid JSON fields)
+OTA_ERR_LENGTH = 0x1  # FUN_4200886c: declared len != strlen(json)+1
+OTA_ERR_PARSE = 0x112  # FUN_42008eb0 returned 3 (missing/invalid JSON fields)
 OTA_START_ALREADY_ACTIVE = 0x101  # FUN_42009054: OTA ctx exists — proceed to data phase
 OTA_ERR_CHUNK_SIZE = 0x116  # FUN_420095d4: decrypted len != chunk_len+8 or over total
 OTA_ERR_CHUNK_OFFSET = 0x118  # FUN_420095d4: inner offset != bytes written so far
-OTA_ERR_CRC = 9             # FUN_420095d4: CRC16 mismatch on chunk data
-OTA_ERR_SET_BOOT = 0x106    # FUN_42009890: esp_ota_set_boot_partition failed
-OTA_ERR_MD5 = 0x107         # FUN_42009328: running MD5 != JSON hash
-OTA_ERR_NO_CTX = 0x115      # FUN_420095d4: no active OTA context
-OTA_ERR_OTA_END = 0x117     # FUN_42009890: esp_ota_end image verify failed
+OTA_ERR_CRC = 9  # FUN_420095d4: CRC16 mismatch on chunk data
+OTA_ERR_SET_BOOT = 0x106  # FUN_42009890: esp_ota_set_boot_partition failed
+OTA_ERR_MD5 = 0x107  # FUN_42009328: running MD5 != JSON hash
+OTA_ERR_NO_CTX = 0x115  # FUN_420095d4: no active OTA context
+OTA_ERR_OTA_END = 0x117  # FUN_42009890: esp_ota_end image verify failed
 
 POST_REBOOT_WAIT_S = 2.0
 POST_REBOOT_RETRY_S = 90.0
@@ -148,7 +159,6 @@ class OtaLog:
         self.info(f"{msg} (timeout {timeout:.0f}s)…")
 
 
-
 @dataclass
 class OtaTransport(BleakTransport):
     """BLE transport with compact or full TX/RX logging."""
@@ -171,7 +181,9 @@ class OtaTransport(BleakTransport):
 _FRAG_ACK_MAGICS = frozenset({MAGIC_SINGLE_ENC, MAGIC_SINGLE})
 
 
-async def wait_ota_frag_ack(session: LeproSession, seq: int, *, timeout: float = 5.0) -> DecryptedFrame:
+async def wait_ota_frag_ack(
+    session: LeproSession, seq: int, *, timeout: float = 5.0
+) -> DecryptedFrame:
     """Wait for per-fragment ACK with matching seq.
 
     Mid-fragment ACKs use magic 0x54; the final fragment ACK uses magic 0x50 (0xAAAA).
@@ -213,7 +225,9 @@ async def send_ota_packets(
             continue
         last_ack = await wait_ota_frag_ack(session, frag_seq, timeout=5.0)
         if (i + 1) % 10 == 0 or i + 1 == len(packets):
-            log.info(f"  {label}: {i + 1}/{len(packets)} fragments ACK'd (last seq={frag_seq})")
+            log.info(
+                f"  {label}: {i + 1}/{len(packets)} fragments ACK'd (last seq={frag_seq})"
+            )
     return last_ack
 
 
@@ -263,7 +277,9 @@ def _write_u32_be(buf: bytearray, offset: int, value: int) -> None:
 def build_ota_start_inner(json_bytes: bytes) -> bytes:
     """Legacy 5120-byte plaintext inner buffer (older OTA path: JSON at +8)."""
     if len(json_bytes) > OTA_MAX_CHUNK:
-        raise ValueError(f"OTA start JSON too large ({len(json_bytes)} > {OTA_MAX_CHUNK})")
+        raise ValueError(
+            f"OTA start JSON too large ({len(json_bytes)} > {OTA_MAX_CHUNK})"
+        )
     buf = bytearray(OTA_INNER_SIZE)
     buf[8 : 8 + len(json_bytes)] = json_bytes
     return bytes(buf)
@@ -315,7 +331,9 @@ def build_ota_start_packets(
 ) -> tuple[list[bytes], int]:
     plaintext = build_ota_start_plaintext(json_bytes)
     ct = encrypt_ota_inner(mac, session_rand, plaintext)
-    packets = build_packets_fragmented(seq, OP_OTA_START, ct, max_payload, encrypted=True)
+    packets = build_packets_fragmented(
+        seq, OP_OTA_START, ct, max_payload, encrypted=True
+    )
     return packets, seq + len(packets)
 
 
@@ -330,7 +348,9 @@ def build_ota_chunk_packets(
 ) -> tuple[list[bytes], int]:
     plaintext = build_ota_chunk_plaintext(offset, chunk)
     ct = encrypt_ota_inner(mac, session_rand, plaintext)
-    packets = build_packets_fragmented(seq, OP_OTA_DATA, ct, max_payload, encrypted=True)
+    packets = build_packets_fragmented(
+        seq, OP_OTA_DATA, ct, max_payload, encrypted=True
+    )
     return packets, seq + len(packets)
 
 
@@ -366,7 +386,9 @@ def _semver_tuple(version: str) -> tuple[int, int, int]:
     return int(m.group(1)), int(m.group(2)), int(m.group(3))
 
 
-def adjust_ota_version_for_running(running: str | None, ota_ver: str, *, reflash: bool) -> str:
+def adjust_ota_version_for_running(
+    running: str | None, ota_ver: str, *, reflash: bool
+) -> str:
     """Bump JSON/embedded version when --reflash and device already reports >= proposed OTA version.
 
     Only used when --reflash is set. Default BLE OTA sends do_check:0, so the firmware
@@ -407,7 +429,9 @@ def resolve_ota_version(
         return version
     ver = firmware_version_from_path(firmware)
     if not ver:
-        raise SystemExit(f"Cannot infer mcu_ota_version from {firmware.name}; use --ota-json")
+        raise SystemExit(
+            f"Cannot infer mcu_ota_version from {firmware.name}; use --ota-json"
+        )
     return bump_ota_version(ver) if reflash else ver
 
 
@@ -456,7 +480,12 @@ def _encode_xtensa_movi_n_a8(value: int) -> bytes:
 
 def _decode_xtensa_movi_n_a8(data: bytes) -> int | None:
     """Decode `movi.n a8, imm`; return None when the bytes are not that instruction."""
-    if len(data) != 2 or (data[0] & 0x0F) != 0x0C or (data[1] & 0x0F) != 0x08 or data[0] & 0x80:
+    if (
+        len(data) != 2
+        or (data[0] & 0x0F) != 0x0C
+        or (data[1] & 0x0F) != 0x08
+        or data[0] & 0x80
+    ):
         return None
     value = (((data[0] >> 4) & 0x7) << 4) | ((data[1] >> 4) & 0xF)
     return value if _encode_xtensa_movi_n_a8(value) == data else None
@@ -481,7 +510,9 @@ def patch_discovery_version(image: bytearray, version: str) -> int:
     for label, new_value in (("major", major), ("minor", minor), ("patch", patch)):
         site = anchor_off + _DISCOVERY_VERSION_IMM_OFFSETS[label]
         if site < 0 or site + 2 > len(image):
-            raise SystemExit(f"Discovery {label} patch site @ {site:#x} is outside the firmware")
+            raise SystemExit(
+                f"Discovery {label} patch site @ {site:#x} is outside the firmware"
+            )
         old_instr = bytes(image[site : site + 2])
         old_value = _decode_xtensa_movi_n_a8(old_instr)
         if old_value is None:
@@ -501,10 +532,14 @@ def repair_esp_app_image(image: bytearray, *, chip: str = "esp32s3") -> None:
     try:
         import esptool.bin_image as bi
     except ImportError as exc:
-        raise SystemExit("esptool is required for reflash image prep; use: uv run lepro-ota") from exc
+        raise SystemExit(
+            "esptool is required for reflash image prep; use: uv run lepro-ota"
+        ) from exc
 
     if len(image) < 33:
-        raise SystemExit(f"Firmware too small for ESP image footer ({len(image)} bytes)")
+        raise SystemExit(
+            f"Firmware too small for ESP image footer ({len(image)} bytes)"
+        )
     img = bi.LoadFirmwareImage(chip, bytes(image))
     chk_idx = len(image) - 33
     image[chk_idx] = img.calculate_checksum()
@@ -676,7 +711,9 @@ def report_ota_verdict(
                 f"({describe_ota_data_error(fc)})"
             )
     else:
-        log.info(f"Transfer: {transfer.chunks_sent} chunks sent ({transfer.total_bytes} B)")
+        log.info(
+            f"Transfer: {transfer.chunks_sent} chunks sent ({transfer.total_bytes} B)"
+        )
 
     log.info(verdict.message)
     if verdict.running_ver:
@@ -855,7 +892,9 @@ async def _confirm_with_discovery(
     )
     verdict: OtaConfirmVerdict | None = None
     for attempt in range(1, DISCOVERY_CONFIRM_ATTEMPTS + 1):
-        log.info(f"Sending discovery (0x1000) confirm {attempt}/{DISCOVERY_CONFIRM_ATTEMPTS}…")
+        log.info(
+            f"Sending discovery (0x1000) confirm {attempt}/{DISCOVERY_CONFIRM_ATTEMPTS}…"
+        )
         dev_info = await session.run_phase_discovery()
         running_ver = version_from_discovery(dev_info.raw_payload)
         if running_ver:
@@ -885,7 +924,9 @@ async def run_post_reboot_confirm(
 ) -> OtaConfirmVerdict:
     """Reconnect after OTA reboot and run discovery while image is still PENDING_VERIFY."""
     log.phase("Post-reboot confirm")
-    t_start = transfer_finished_at if transfer_finished_at is not None else time.monotonic()
+    t_start = (
+        transfer_finished_at if transfer_finished_at is not None else time.monotonic()
+    )
     log.info(
         f"Device rebooting — must send discovery within ~{retry_s:.0f}s "
         "(FUN_420088d4 → esp_ota_mark_app_valid_cancel_rollback)"
@@ -993,7 +1034,9 @@ class BleOtaSession:
 
         if dry_run:
             log.info(f"Dry-run: would send {total} bytes in {chunk_size}-byte chunks")
-            return OtaTransferResult(chunks_sent=0, total_bytes=total, last_chunk_result=None)
+            return OtaTransferResult(
+                chunks_sent=0, total_bytes=total, last_chunk_result=None
+            )
 
         start_resp: DecryptedFrame | None = None
         if last_ack and last_ack.opcode == OP_OTA_START_RESP:
@@ -1001,12 +1044,20 @@ class BleOtaSession:
         else:
             try:
                 start_resp = await wait_opcode_verbose(
-                    s, OP_OTA_START_RESP, timeout=10.0, log=log, label="OTA start ACK (0x1011)"
+                    s,
+                    OP_OTA_START_RESP,
+                    timeout=10.0,
+                    log=log,
+                    label="OTA start ACK (0x1011)",
                 )
             except TimeoutError:
                 if last_ack and last_ack.opcode == OP_BOND_RESP_ALT:
                     result = parse_bond_result(last_ack)
-                    hint = describe_ota_start_error(result) if result is not None else "unknown"
+                    hint = (
+                        describe_ota_start_error(result)
+                        if result is not None
+                        else "unknown"
+                    )
                     raise SystemExit(
                         f"OTA start rejected (final frag rsp 0xAAAA): result={result:#x} "
                         f"({hint}) payload={last_ack.payload.hex()}"
@@ -1046,7 +1097,9 @@ class BleOtaSession:
                 packets, s.seq = build_ota_chunk_packets(
                     s.mac, s.seq, offset, chunk, session_rand=s.session_rand
                 )
-                data_resp = await send_ota_packets(s, packets, log, label=f"otaData@{offset}")
+                data_resp = await send_ota_packets(
+                    s, packets, log, label=f"otaData@{offset}"
+                )
                 if data_resp is None or data_resp.opcode != OP_OTA_DATA_RESP:
                     try:
                         data_resp = await wait_opcode_verbose(
@@ -1107,7 +1160,9 @@ class BleOtaSession:
                 chunk_ok = True
                 break
             if not chunk_ok:
-                raise RuntimeError(f"chunk {chunk_idx} @ {offset} failed after {max_retries} tries")
+                raise RuntimeError(
+                    f"chunk {chunk_idx} @ {offset} failed after {max_retries} tries"
+                )
 
             if probable_finalize_reboot:
                 break
@@ -1176,7 +1231,10 @@ async def run_ota(args: argparse.Namespace) -> None:
             path_version=getattr(args, "ota_path_version", None),
             ota_secret=args.ota_secret,
         )
-        log.info(f"OTA version:    {ota_ver}" + (" (reflash bump)" if reflash and ota_ver != fw_ver else ""))
+        log.info(
+            f"OTA version:    {ota_ver}"
+            + (" (reflash bump)" if reflash and ota_ver != fw_ver else "")
+        )
     try:
         json_obj = json.loads(json_bytes)
     except json.JSONDecodeError:
@@ -1185,10 +1243,16 @@ async def run_ota(args: argparse.Namespace) -> None:
 
     if args.dry_run:
         transport = DryRunTransport()
-        session = LeproSession(mac, transport, config=SessionConfig(dry_run=True, send_delay=0))
+        session = LeproSession(
+            mac, transport, config=SessionConfig(dry_run=True, send_delay=0)
+        )
         log.phase("Discovery (dry-run)")
         dev_info = await session.run_phase_discovery()
-        log.info(f"session_rand=0x{session.session_rand:08X}" if session.session_rand else "no session_rand")
+        log.info(
+            f"session_rand=0x{session.session_rand:08X}"
+            if session.session_rand
+            else "no session_rand"
+        )
         creds = load_creds(mac)
         if creds:
             log.phase("Auth (dry-run)")
@@ -1208,7 +1272,11 @@ async def run_ota(args: argparse.Namespace) -> None:
         )
 
     transport, client = await _connect(
-        mac, log, debug_rx=args.debug_rx, debug_tx=args.debug_tx, scan_timeout=args.scan_timeout
+        mac,
+        log,
+        debug_rx=args.debug_rx,
+        debug_tx=args.debug_tx,
+        scan_timeout=args.scan_timeout,
     )
     try:
         session = LeproSession(
@@ -1216,12 +1284,18 @@ async def run_ota(args: argparse.Namespace) -> None:
         )
         log.phase("Discovery")
         dev_info = await session.run_phase_discovery()
-        log.info(f"session_rand=0x{session.session_rand:08X}" if session.session_rand else "no session_rand")
+        log.info(
+            f"session_rand=0x{session.session_rand:08X}"
+            if session.session_rand
+            else "no session_rand"
+        )
         running_ver = version_from_discovery(dev_info.raw_payload)
         if running_ver:
             log.info(f"Running fw:     {running_ver}")
         if not args.ota_json:
-            adjusted = adjust_ota_version_for_running(running_ver, ota_ver, reflash=reflash)
+            adjusted = adjust_ota_version_for_running(
+                running_ver, ota_ver, reflash=reflash
+            )
             if adjusted != ota_ver:
                 log.info(
                     f"OTA version bump: {ota_ver} → {adjusted} "
@@ -1272,7 +1346,9 @@ async def run_ota(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    p = argparse.ArgumentParser(description="Lepro ZB1 BLE firmware OTA (0x1010/0x1012)")
+    p = argparse.ArgumentParser(
+        description="Lepro ZB1 BLE firmware OTA (0x1010/0x1012)"
+    )
     p.add_argument("--mac", required=True, help="Target light MAC")
     p.add_argument(
         "--firmware",
@@ -1280,7 +1356,9 @@ def main() -> None:
         default=DEFAULT_FIRMWARE,
         help=f"ESP-IDF image to flash (default: {DEFAULT_FIRMWARE})",
     )
-    p.add_argument("--chunk-size", type=int, default=4096, help="Data chunk size (max 5112)")
+    p.add_argument(
+        "--chunk-size", type=int, default=4096, help="Data chunk size (max 5112)"
+    )
     p.add_argument("--ota-json", type=Path, help="Override OTA start JSON file")
     p.add_argument(
         "--ota-version",
@@ -1299,12 +1377,20 @@ def main() -> None:
         ),
     )
     p.add_argument("--ota-secret", default="", help="secret field (default empty)")
-    p.add_argument("--force", action="store_true", help="Allow cross-version flash (e.g. v2.2.13)")
-    p.add_argument("--dry-run", action="store_true", help="Build packets only; no BLE transfer")
-    p.add_argument("--quiet", "-q", action="store_true", help="Minimal output (errors only)")
+    p.add_argument(
+        "--force", action="store_true", help="Allow cross-version flash (e.g. v2.2.13)"
+    )
+    p.add_argument(
+        "--dry-run", action="store_true", help="Build packets only; no BLE transfer"
+    )
+    p.add_argument(
+        "--quiet", "-q", action="store_true", help="Minimal output (errors only)"
+    )
     p.add_argument("--debug-tx", action="store_true", help="Log full TX wire hex")
     p.add_argument("--debug-rx", action="store_true", help="Log full RX wire hex")
-    p.add_argument("--scan-timeout", type=float, default=15.0, help="BLE scan timeout (seconds)")
+    p.add_argument(
+        "--scan-timeout", type=float, default=15.0, help="BLE scan timeout (seconds)"
+    )
     p.add_argument(
         "--confirm-wait",
         type=float,

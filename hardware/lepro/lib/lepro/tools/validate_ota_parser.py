@@ -150,7 +150,9 @@ class Elf32:
         end = self.data.index(b"\x00", off)
         return self.data[off:end].decode("utf-8", "replace")
 
-    def pool_strings(self, pool_vma: int, count: int) -> list[tuple[int, int, str | None]]:
+    def pool_strings(
+        self, pool_vma: int, count: int
+    ) -> list[tuple[int, int, str | None]]:
         pool_off = self.vma_to_offset(pool_vma)
         if pool_off is None:
             raise ValueError(f"literal pool {pool_vma:#x} not in ELF")
@@ -162,7 +164,9 @@ class Elf32:
         return out
 
 
-def simulate_parse(obj: dict[str, Any], *, ctx0: int = 1, running_version: str = "2.3.18") -> str:
+def simulate_parse(
+    obj: dict[str, Any], *, ctx0: int = 1, running_version: str = "2.3.18"
+) -> str:
     """Walk the FUN_42008eb0 branch logic symbolically; return failing PC label."""
 
     def fail(label: str) -> str:
@@ -248,7 +252,11 @@ def validate(elf_path: Path) -> int:
     print(f"  {action_slot:#10x} -> {action_ptr:#10x}  {action_key!r}")
     print(f"  {value_slot:#10x} -> {value_ptr:#10x}  {action_val!r}  (strcmp target)")
     print(f"  {'0x420009fc':>10} -> {params_ptr:#10x}  {params!r}")
-    if action_key != "action" or action_val != EXPECTED_ACTION_VALUE or params != EXPECTED_PARAMS:
+    if (
+        action_key != "action"
+        or action_val != EXPECTED_ACTION_VALUE
+        or params != EXPECTED_PARAMS
+    ):
         ok = False
 
     print()
@@ -269,7 +277,7 @@ def validate(elf_path: Path) -> int:
     print()
     print("Inferred JSON contract:")
     print("  Flat path (0x4200958d): object with fields above.")
-    print("  Envelope path (0x420090e0): [{\"action\":\"fwUpgrade\",\"params\":{...}}]")
+    print('  Envelope path (0x420090e0): [{"action":"fwUpgrade","params":{...}}]')
     print("  fwType, version, hash, path, size, secret: JSON strings")
     print("  do_check: JSON number (not bool); default 1 if absent")
     print("  size: string, max 10 chars — a JSON number fails cJSON_IsString")
@@ -278,7 +286,9 @@ def validate(elf_path: Path) -> int:
 
     print()
     if ok:
-        print("VALIDATION: PASS — ELF strings and helper pointers match expected schema.")
+        print(
+            "VALIDATION: PASS — ELF strings and helper pointers match expected schema."
+        )
         return 0
     print("VALIDATION: FAIL — see mismatches above.")
     return 1

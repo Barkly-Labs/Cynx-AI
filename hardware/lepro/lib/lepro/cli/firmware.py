@@ -22,9 +22,12 @@ def _resolve(
 ):
     profiles = load_profiles(profiles_path)
     if firmware_path is not None:
-        return resolve_profile(
-            profiles, firmware_path=firmware_path, profile_id=profile_id
-        ), profiles
+        return (
+            resolve_profile(
+                profiles, firmware_path=firmware_path, profile_id=profile_id
+            ),
+            profiles,
+        )
     return resolve_profile(profiles, profile_id=profile_id), profiles
 
 

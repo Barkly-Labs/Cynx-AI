@@ -253,7 +253,10 @@ if __name__ == "__main__":
     print("IOTNativeUtil JNI:", ", ".join(JNI_METHODS))
     print("\nBond → app callback:", "processRevLeDeviceBondState(mac, ackSn, result)")
     print(f"\nZB1 status query: {list(ZB1_STATUS_QUERY)}")
-    print("\nWork modes (d2):", ", ".join(f"{k}={v[0]}" for k, v in WORK_MODES_APK.items()))
+    print(
+        "\nWork modes (d2):",
+        ", ".join(f"{k}={v[0]}" for k, v in WORK_MODES_APK.items()),
+    )
     print("\nDIY effect type ids:", DIY_EFFECT_TYPES_APK)
     print("\nClient coverage:")
     for k, v in ZB1_CLIENT_COVERAGE.items():

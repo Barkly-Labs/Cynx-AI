@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <title>CYN-X DX · Administrator access</title>
+  <link rel="stylesheet" href="/static/cynx-theme.css">
+  <style>
+    :root{color-scheme:dark}body{min-height:100vh;display:grid;place-items:center;margin:0;padding:24px;background:#171522;color:#f7f3ff;font:16px/1.5 system-ui,sans-serif}
+    main{width:min(100%,440px);padding:32px;border:1px solid #494356;border-radius:22px;background:#211e2d;box-shadow:0 20px 60px #09081080}
+    .mark{font-size:14px;letter-spacing:.12em;color:#d6c1ff;font-weight:700}h1{font-size:1.8rem;margin:.5rem 0}p{color:#d0cbd8}label{display:block;margin:18px 0 6px;font-weight:650}input{width:100%;box-sizing:border-box;border:1px solid #696277;border-radius:10px;background:#15131d;color:#fff;padding:12px;font:inherit}input:focus-visible,button:focus-visible{outline:3px solid #d5b8ff;outline-offset:2px}button{width:100%;margin-top:22px;border:0;border-radius:11px;background:#b58cff;color:#21152f;padding:12px;font:inherit;font-weight:750;cursor:pointer}button:disabled{opacity:.65;cursor:wait}.hint{font-size:.9rem}.error{min-height:1.5em;color:#ffb9c2}.local{padding:12px;border-radius:10px;background:#2d2938;font-size:.9rem}
+  </style>
+</head>
+<body>
+  <main>
+    <div class="mark">BARKLY LABS · CYN-X DX</div>
+    {% if setup_required %}
+      <h1>Set up your administrator account</h1>
+      <p>This creates the one administrator account for model settings, experiments, and benchmark controls.</p>
+      <form id="auth-form" data-action="setup">
+        <label for="password">Administrator password</label>
+        <input id="password" name="password" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+        <label for="password-confirmation">Confirm password</label>
+        <input id="password-confirmation" name="password_confirmation" type="password" autocomplete="new-password" minlength="12" maxlength="256" required>
+        <p class="hint">Use at least 12 characters, including a letter and a number.</p>
+        <button type="submit">Create account and open DX</button>
+      </form>
+    {% else %}
+      <h1>Administrator sign in</h1>
+      <p>Sign in to open the private CYN-X research console.</p>
+      <form id="auth-form" data-action="login">
+        <label for="password">Administrator password</label>
+        <input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required autofocus>
+        <button type="submit">Sign in</button>
+      </form>
+    {% endif %}
+    <p class="error" id="auth-error" role="alert" aria-live="polite"></p>
+    <div class="local">Administrative access is limited to this computer by default. Companion chat remains available separately.</div>
+  </main>
+  <script>
+    document.querySelector('#auth-form').addEventListener('submit', async event => {
+      event.preventDefault();
+      const form=event.currentTarget, button=form.querySelector('button'), error=document.querySelector('#auth-error');
+      error.textContent=''; button.disabled=true;
+      const payload=Object.fromEntries(new FormData(form));
+      try {
+        const response=await fetch(`/api/dx/auth/${form.dataset.action}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+        const data=await response.json().catch(()=>({}));
+        if(!response.ok) throw new Error(data.detail||'Administrator access could not be created.');
+        location.replace('/dx');
+      } catch (errorValue) { error.textContent=errorValue.message; button.disabled=false; }
+    });
+  </script>
+</body>
+</html>

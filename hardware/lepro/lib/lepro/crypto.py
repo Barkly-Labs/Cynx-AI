@@ -117,7 +117,9 @@ def decrypt_cbc(ciphertext: bytes, key: bytes, iv: bytes = MAIN_IV) -> bytes:
     return _lepro_unpad(plain)
 
 
-def build_search_hello_plaintext(ctx0: int = 0, ctx1: int = 0, timestamp: int | None = None) -> bytes:
+def build_search_hello_plaintext(
+    ctx0: int = 0, ctx1: int = 0, timestamp: int | None = None
+) -> bytes:
     """Plaintext for searchDeviceInfo (0x1000) before encryption."""
     if timestamp is None:
         timestamp = int(time.time())
@@ -141,7 +143,9 @@ def encrypt_search_hello(
     return encrypt_cbc(plain, key, iv=SEARCH_IV)
 
 
-def decrypt_search_hello(ciphertext: bytes, mac: str | bytes) -> tuple[bytes, int, int, int]:
+def decrypt_search_hello(
+    ciphertext: bytes, mac: str | bytes
+) -> tuple[bytes, int, int, int]:
     """
     Decrypt a 0x10/0x00 hello payload.
 

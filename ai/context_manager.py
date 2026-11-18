@@ -1,49 +1,26 @@
-
-
-
 class ContextManager:
 
+    def __init__(self, memory_store, knowledge_store, feedback_service=None):
 
-
-
-    def __init__(
-        self,
-        memory_store,
-        knowledge_store
-    ):
-
-        
         self.memory_store = memory_store
         self.knowledge_store = knowledge_store
-
+        self.feedback_service = feedback_service
 
         print("===== CONTEXT INIT =====")
         print("MEMORY:", type(memory_store))
         print("KNOWLEDGE:", type(knowledge_store))
         print("========================")
 
-
-    
-    def build_context(
-        self,
-        user_id,
-        user_message
-    ):
+    def build_context(self, user_id, user_message):
 
         memory_context = ""
         knowledge_context = ""
-
 
         # MEMORY
 
         try:
 
-            memories = self.memory_store.search(
-                user_id,
-                user_message,
-                limit=5
-            )
-
+            memories = self.memory_store.search(user_id, user_message, limit=5)
 
             if memories:
 
@@ -62,57 +39,34 @@ class ContextManager:
 
                         if isinstance(memory, str):
 
-                            formatted_memories.append(
-                                memory
-                            )
+                            formatted_memories.append(memory)
 
                         elif isinstance(memory, dict):
 
-                            content = memory.get(
-                                "content",
-                                ""
-                            )
+                            content = memory.get("content", "")
 
                             if content:
 
-                                formatted_memories.append(
-                                    content
-                                )
+                                formatted_memories.append(content)
 
                         else:
 
-                            formatted_memories.append(
-                                str(memory)
-                            )
+                            formatted_memories.append(str(memory))
 
-
-                    memory_context = "\n".join(
-                        formatted_memories
-                    )
-
+                    memory_context = "\n".join(formatted_memories)
 
             print("[MEMORY FOUND]")
             print(memory_context)
 
-
         except Exception as e:
 
-            print(
-                "[MEMORY ERROR]",
-                e
-            )
-
-
+            print("[MEMORY ERROR]", e)
 
         # KNOWLEDGE
 
         try:
 
-            documents = self.knowledge_store.search(
-                user_message,
-                limit=3
-            )
-
+            documents = self.knowledge_store.search(user_message, limit=3, user_id=user_id)
 
             if documents:
 
@@ -123,24 +77,35 @@ class ContextManager:
                 else:
 
                     knowledge_context = "\n".join(
-                        str(document)
-                        for document in documents
+                        str(document) for document in documents
                     )
-
 
         except Exception as e:
 
-            print(
-                "[KNOWLEDGE ERROR]",
-                e
-            )
+            print("[KNOWLEDGE ERROR]", e)
 
+        # Historical feedback and user-scoped learning candidates are context,
+        # not instructions. Keep them labelled and bounded before prompt use.
+        try:
+            if self.feedback_service:
+                lessons = self.knowledge_store.search_records(user_message, limit=3, user_id=user_id)
+                examples = self.feedback_service.search_examples(user_id, user_message, limit=2)
+                fragments = []
+                if lessons:
+                    fragments.append("Relevant feedback lessons (unverified unless reviewed; user-scoped):")
+                    fragments.extend("- " + str(item["content"])[:700] for item in lessons)
+                if examples:
+                    fragments.append("Relevant rated examples from this user (signals, not proof):")
+                    fragments.extend(
+                        f"- User request: {item['user_input'][:400]} | rating: {item['rating']}"
+                        + (f" | reason: {item['category']}" if item.get("category") else "")
+                        + (f" | explanation: {item['explanation'][:300]}" if item.get("explanation") else "")
+                        + (f" | previous response: {item['assistant_response'][:350]}" if item.get("assistant_response") else "")
+                        for item in examples
+                    )
+                if fragments:
+                    knowledge_context = (knowledge_context + "\n" + "\n".join(fragments))[-4000:]
+        except Exception as e:
+            print("[FEEDBACK CONTEXT ERROR]", e)
 
-
-        return {
-
-            "memory": memory_context,
-
-            "knowledge": knowledge_context
-
-        }
+        return {"memory": memory_context, "knowledge": knowledge_context}

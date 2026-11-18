@@ -8,6 +8,8 @@ from the local Ollama server.
 
 import json
 import time
+import threading
+import contextvars
 from typing import Any, Dict, Generator, List, Optional
 
 import requests
@@ -26,7 +28,29 @@ class OllamaClient:
     ):
         self.base_url = base_url.rstrip("/")
         self.model = model
+        self.options = {"num_ctx": 8192, "temperature": 0.7}
+        self._configuration_lock = threading.RLock()
+        self._request_configuration = contextvars.ContextVar("cynx_ollama_request_configuration", default=None)
         self.timeout = timeout
+
+    def configure(self, model: str, options: Dict[str, Any]) -> None:
+        """Swap active model settings together so requests see one configuration."""
+        with self._configuration_lock:
+            self.model = model
+            self.options = dict(options)
+
+    def runtime_configuration(self):
+        request_configuration = self._request_configuration.get()
+        if request_configuration is not None:
+            return request_configuration["model"], dict(request_configuration["options"])
+        with self._configuration_lock:
+            return self.model, dict(self.options)
+
+    def set_request_configuration(self, model: str, options: Dict[str, Any]):
+        return self._request_configuration.set({"model": model, "options": dict(options)})
+
+    def reset_request_configuration(self, token) -> None:
+        self._request_configuration.reset(token)
 
     def generate(
         self,
@@ -38,15 +62,16 @@ class OllamaClient:
 
         url = f"{self.base_url}/api/generate"
 
+        model, active_options = self.runtime_configuration()
+        generation_options = {**active_options, "num_predict": max_tokens}
+        supplied_options = kwargs.pop("options", None)
+        if isinstance(supplied_options, dict):
+            generation_options.update(supplied_options)
         payload = {
-            "model": self.model,
+            "model": model,
             "prompt": prompt,
             "stream": stream,
-            "options": {
-                "num_predict": max_tokens,
-                "num_ctx": 8192,
-                "temperature": 0.7
-            },
+            "options": generation_options,
             **kwargs
         }
 
@@ -114,18 +139,23 @@ class OllamaClient:
 
         url = f"{self.base_url}/api/chat"
 
-        # Allow callers to override context size and temperature.
-        num_ctx = kwargs.pop("num_ctx", 8192)
-        temperature = kwargs.pop("temperature", 0.7)
+        # The active saved config supplies defaults; isolated callers may override them.
+        model, options = self.runtime_configuration()
+        model = kwargs.pop("model", model)
+        supplied_options = kwargs.pop("options", None)
+        if isinstance(supplied_options, dict):
+            options.update(supplied_options)
+        for key in ("num_ctx", "temperature", "top_p", "repeat_penalty"):
+            if key in kwargs:
+                options[key] = kwargs.pop(key)
+        num_ctx = options.get("num_ctx", 8192)
+        temperature = options.get("temperature", 0.7)
 
         payload = {
-            "model": self.model,
+            "model": model,
             "messages": messages,
             "stream": stream,
-            "options": {
-                "num_ctx": num_ctx,
-                "temperature": temperature
-            },
+            "options": options,
             **kwargs
         }
 
@@ -133,7 +163,7 @@ class OllamaClient:
         if tools:
             payload["tools"] = tools
 
-        terminal.ollama("OLLAMA CHAT REQUEST", f"Model={self.model} Messages={len(messages)} Tools={len(tools) if tools else 0} Context={num_ctx} Streaming={stream}")
+        terminal.ollama("OLLAMA CHAT REQUEST", f"Model={model} Messages={len(messages)} Tools={len(tools) if tools else 0} Context={num_ctx} Streaming={stream}")
 
         # Print a shortened debugging version of the request.
         try:
@@ -216,7 +246,7 @@ class OllamaClient:
 
             terminal.timing(
                 "[OLLAMA DIAG] "
-                f"model={self.model} "
+                f"model={model} "
                 f"messages={num_messages} "
                 f"system_prompt_chars={system_prompt_chars} "
                 f"tools={num_tools} "
@@ -244,8 +274,8 @@ class OllamaClient:
                     messages=messages,
                     tools=None,
                     stream=False,
-                    num_ctx=num_ctx,
-                    temperature=temperature,
+                    model=model,
+                    options=options,
                     **kwargs
                 )
 
@@ -259,6 +289,14 @@ class OllamaClient:
         # Streaming chat response.
         output = ""
         tool_calls = {}
+        final_chunk = {}
+        output_observed = False
+
+        def notify_first_output():
+            nonlocal output_observed
+            if not output_observed and on_content is not None:
+                output_observed = True
+                on_content()
 
         for line in response.iter_lines():
 
@@ -283,10 +321,10 @@ class OllamaClient:
             if token:
                 terminal.dim(token)
                 output += token
-                if on_content is not None:
-                    on_content()
+                notify_first_output()
 
             for position, tool_call in enumerate(message.get("tool_calls") or []):
+                notify_first_output()
                 index = tool_call.get("index", position)
                 current = tool_calls.setdefault(index, {})
                 current_function = current.setdefault("function", {})
@@ -319,17 +357,50 @@ class OllamaClient:
                         current_function[key] = value
 
             if data.get("done"):
+                final_chunk = data
                 break
+
+        close = getattr(response, "close", None)
+        if callable(close):
+            close()
+
+        # A disconnected/aborted stream must not be converted into a
+        # successful assistant answer. In particular, never let a partial
+        # prefix flow into ChatEngine's conversation history.
+        if not final_chunk.get("done"):
+            raise RuntimeError(
+                "Ollama chat stream ended before its terminal completion chunk."
+            )
+
+        if str(final_chunk.get("done_reason") or "").lower() in {
+            "length", "max_tokens", "limit"
+        }:
+            raise RuntimeError(
+                "Ollama chat stream ended at its generation limit; response is incomplete."
+            )
+
+        if not output.strip() and not tool_calls:
+            raise RuntimeError("Ollama chat stream contained no completed answer or tool call.")
 
         terminal.result("CYN-X CHAT COMPLETE")
 
+        # Ollama sends its token and duration counters on the final `done`
+        # chunk. Keep those fields when adapting the streamed response to the
+        # dictionary shape consumed by ChatEngine; dropping them made every
+        # benchmark token metric appear unavailable.
+        telemetry_fields = (
+            "model", "created_at", "done_reason", "total_duration",
+            "load_duration", "prompt_eval_count", "prompt_eval_duration",
+            "eval_count", "eval_duration",
+        )
         return {
             "message": {
                 "role": "assistant",
                 "content": output,
                 "tool_calls": list(tool_calls.values())
             },
-            "done": True
+            "done": bool(final_chunk.get("done")),
+            **{key: final_chunk[key] for key in telemetry_fields if key in final_chunk},
         }
 
     def generate_stream(
@@ -341,13 +412,16 @@ class OllamaClient:
 
         url = f"{self.base_url}/api/generate"
 
+        model, active_options = self.runtime_configuration()
+        generation_options = {**active_options, "num_predict": max_tokens}
+        supplied_options = kwargs.pop("options", None)
+        if isinstance(supplied_options, dict):
+            generation_options.update(supplied_options)
         payload = {
-            "model": self.model,
+            "model": model,
             "prompt": prompt,
             "stream": True,
-            "options": {
-                "num_predict": max_tokens
-            },
+            "options": generation_options,
             **kwargs
         }
 

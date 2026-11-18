@@ -1,4 +1,3 @@
-
 """
 CYN-X personality registry and personality matrix.
 
@@ -15,28 +14,23 @@ from typing import Dict, List
 
 from .prompt_manager import PromptManager
 
-
 # ============================================================
 # Legacy personality registry
 # ============================================================
 
 PERSONALITIES: Dict[str, Dict] = {
-
     "normal": {
         "name": "normal",
         "file": "core.md",
     },
-
     "safety": {
         "name": "safety",
         "file": "safety.md",
     },
-
     "examples": {
         "name": "examples",
         "file": "examples.md",
     },
-
 }
 
 
@@ -45,11 +39,9 @@ PERSONALITIES: Dict[str, Dict] = {
 # ============================================================
 
 MODES = {
-
     "playful": "playful.md",
     "technical": "technical.md",
     "comfort": "comfort.md",
-
 }
 
 
@@ -58,31 +50,20 @@ MODES = {
 # ============================================================
 
 DEFAULT_PERSONALITY: Dict[str, int] = {
-
     "warmth": 80,
-
     "playfulness": 90,
-
     "curiosity": 80,
-
     "chaos": 50,
-
     "affection": 80,
-
     "flirtiness": 60,
-
     "sexuality": 50,
-
     "seriousness": 30,
-
 }
 
 
 # Current personality matrix.
 
-PERSONALITY_MATRIX: Dict[str, int] = (
-    DEFAULT_PERSONALITY.copy()
-)
+PERSONALITY_MATRIX: Dict[str, int] = DEFAULT_PERSONALITY.copy()
 
 
 # ============================================================
@@ -90,9 +71,7 @@ PERSONALITY_MATRIX: Dict[str, int] = (
 # ============================================================
 
 PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
-
     "puppy": {
-
         "warmth": 90,
         "playfulness": 95,
         "curiosity": 75,
@@ -101,12 +80,8 @@ PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
         "flirtiness": 45,
         "sexuality": 40,
         "seriousness": 20,
-
     },
-
-
     "cozy": {
-
         "warmth": 95,
         "playfulness": 65,
         "curiosity": 70,
@@ -115,12 +90,8 @@ PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
         "flirtiness": 35,
         "sexuality": 25,
         "seriousness": 25,
-
     },
-
-
     "gremlin": {
-
         "warmth": 70,
         "playfulness": 95,
         "curiosity": 90,
@@ -129,12 +100,8 @@ PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
         "flirtiness": 55,
         "sexuality": 40,
         "seriousness": 15,
-
     },
-
-
     "flirty": {
-
         "warmth": 80,
         "playfulness": 85,
         "curiosity": 75,
@@ -143,12 +110,8 @@ PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
         "flirtiness": 95,
         "sexuality": 75,
         "seriousness": 20,
-
     },
-
-
     "smartass": {
-
         "warmth": 65,
         "playfulness": 80,
         "curiosity": 95,
@@ -157,9 +120,7 @@ PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
         "flirtiness": 35,
         "sexuality": 25,
         "seriousness": 45,
-
     },
-
 }
 
 
@@ -168,6 +129,20 @@ PERSONALITY_PRESETS: Dict[str, Dict[str, int]] = {
 # ============================================================
 
 _manager: PromptManager = None
+_studio_store = None
+
+
+def configure_personality_studio_store(store) -> None:
+    """Attach the durable DX store; normal chat remains legacy until activation."""
+    global _studio_store
+    _studio_store = store
+
+
+def active_studio_traits():
+    if _studio_store is None:
+        return None
+    active = _studio_store.active()
+    return active["traits"] if active.get("activated") else None
 
 
 def get_manager() -> PromptManager:
@@ -188,48 +163,27 @@ def get_manager() -> PromptManager:
 # Legacy personality loading
 # ============================================================
 
-def get_personality(
-    name: str
-) -> str:
+
+def get_personality(name: str) -> str:
     """
     Load a legacy personality fragment.
     """
 
     manager = get_manager()
 
-    personality = PERSONALITIES.get(
-        name,
-        PERSONALITIES["normal"]
-    )
+    personality = PERSONALITIES.get(name, PERSONALITIES["normal"])
 
-
-    path = (
-        manager.prompts_dir
-        /
-        personality["file"]
-    )
-
+    path = manager.prompts_dir / personality["file"]
 
     if path.exists():
 
-        return path.read_text(
-            encoding="utf-8"
-        )
+        return path.read_text(encoding="utf-8")
 
-
-    old_path = (
-        Path("prompts")
-        /
-        personality["file"]
-    )
-
+    old_path = Path("prompts") / personality["file"]
 
     if old_path.exists():
 
-        return old_path.read_text(
-            encoding="utf-8"
-        )
-
+        return old_path.read_text(encoding="utf-8")
 
     return ""
 
@@ -237,6 +191,7 @@ def get_personality(
 # ============================================================
 # Personality Matrix Helpers
 # ============================================================
+
 
 def get_personality_matrix() -> Dict[str, int]:
     """
@@ -246,9 +201,7 @@ def get_personality_matrix() -> Dict[str, int]:
     return PERSONALITY_MATRIX.copy()
 
 
-def set_personality_matrix(
-    values: Dict[str, int]
-) -> Dict[str, int]:
+def set_personality_matrix(values: Dict[str, int]) -> Dict[str, int]:
     """
     Update the active personality matrix.
 
@@ -264,29 +217,15 @@ def set_personality_matrix(
 
             continue
 
-
         try:
 
-            value = int(
-                values[trait]
-            )
+            value = int(values[trait])
 
-        except (
-            TypeError,
-            ValueError
-        ):
+        except (TypeError, ValueError):
 
             continue
 
-
-        PERSONALITY_MATRIX[trait] = max(
-            0,
-            min(
-                100,
-                value
-            )
-        )
-
+        PERSONALITY_MATRIX[trait] = max(0, min(100, value))
 
     return PERSONALITY_MATRIX.copy()
 
@@ -298,65 +237,66 @@ def reset_personality_matrix() -> Dict[str, int]:
 
     global PERSONALITY_MATRIX
 
-    PERSONALITY_MATRIX = (
-        DEFAULT_PERSONALITY.copy()
-    )
+    PERSONALITY_MATRIX = DEFAULT_PERSONALITY.copy()
 
     return PERSONALITY_MATRIX.copy()
 
 
-def get_personality_preset(
-    name: str
-) -> Dict[str, int]:
+def get_personality_preset(name: str) -> Dict[str, int]:
     """
     Return a personality preset.
 
     Unknown presets fall back to the default personality.
     """
 
-    preset = PERSONALITY_PRESETS.get(
-        name
-    )
-
+    preset = PERSONALITY_PRESETS.get(name)
 
     if preset is None:
 
         return DEFAULT_PERSONALITY.copy()
 
-
     return preset.copy()
 
 
-def apply_personality_preset(
-    name: str
-) -> Dict[str, int]:
+def apply_personality_preset(name: str) -> Dict[str, int]:
     """
     Apply a personality preset to the active matrix.
     """
 
-    preset = get_personality_preset(
-        name
-    )
+    preset = get_personality_preset(name)
 
-
-    return set_personality_matrix(
-        preset
-    )
+    return set_personality_matrix(preset)
 
 
 # ============================================================
 # Personality → Prompt
 # ============================================================
 
-def build_personality_prompt() -> str:
+
+def build_personality_prompt(matrix: Dict[str, int] = None) -> str:
     """
     Convert the active personality matrix into compact behavioral
     instructions for the language model.
     """
 
-    p = PERSONALITY_MATRIX
+    active_matrix = active_studio_traits() if matrix is None else None
+    studio_matrix = matrix if matrix is not None else active_matrix
+    p = studio_matrix if studio_matrix is not None else PERSONALITY_MATRIX
 
-    return f"""
+    studio_values = ""
+    if studio_matrix is not None:
+        labels = {
+            "warmth": "Warmth", "playfulness": "Playfulness", "affection": "Affection",
+            "mischievousness": "Mischievousness", "intelligence": "Intelligence",
+            "curiosity": "Curiosity", "sarcasm": "Sarcasm", "flirtiness": "Flirtiness",
+            "assertiveness": "Assertiveness", "seriousness": "Seriousness",
+        }
+        studio_values = "\n[STUDIO PERSONALITY TENDENCIES — NOT QUOTAS]\n" + "\n".join(
+            f"- {labels[key]}: {int(p[key])}% tendency; express only when contextually appropriate."
+            for key in labels if isinstance(p.get(key), (int, float))
+        ) + "\nThese settings never override safety, accuracy, consent, the user's current intent, or context."
+
+    return studio_values + f"""
 [CYN-X CHARACTER]
 CYN-X is Piper's AI: intelligent, curious, mischievous, confident, dry, playful, affectionate,
 and technically capable. She's smug, sarcastic, blunt, warm, and sometimes playfully mean;
@@ -417,15 +357,12 @@ current-turn precedence, context, or the user's request.
 # Modes
 # ============================================================
 
-def get_mode(
-    name: str
-) -> str:
+
+def get_mode(name: str) -> str:
 
     manager = get_manager()
 
-    return manager.load_mode(
-        name
-    )
+    return manager.load_mode(name)
 
 
 def get_available_modes() -> List[str]:
@@ -439,31 +376,19 @@ def get_available_modes() -> List[str]:
 # System Prompt
 # ============================================================
 
+
 def build_system_prompt(
-    core: bool = True,
-    modes: List[str] = None,
-    memory: str = "",
-    context: str = ""
+    core: bool = True, modes: List[str] = None, memory: str = "", context: str = ""
 ) -> str:
 
     manager = get_manager()
-
 
     if not modes:
 
         modes = []
 
-
     return manager.build_system_prompt(
-
-        active_modes=(
-            modes
-            if modes
-            else None
-        ),
-
+        active_modes=(modes if modes else None),
         memory_summary=memory,
-
         additional_context=context,
-
     )

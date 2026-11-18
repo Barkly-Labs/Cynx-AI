@@ -1,6 +1,7 @@
 """
 Base tool primitives: BaseTool and ToolResult dataclasses used by tool implementations and the router.
 """
+
 from dataclasses import dataclass
 from typing import Any, Dict
 
@@ -13,8 +14,8 @@ class ToolResult:
 
 
 class BaseTool:
-    name: str = 'base'
-    description: str = 'Base tool'
+    name: str = "base"
+    description: str = "Base tool"
 
     def call(self, args: Dict) -> ToolResult:
         raise NotImplementedError

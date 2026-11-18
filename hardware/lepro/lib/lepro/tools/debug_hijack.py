@@ -24,7 +24,12 @@ import urllib.request
 from pathlib import Path
 
 from hardware.lepro.lib.lepro.firmware_profile import load_profiles, resolve_profile
-from hardware.lepro.lib.lepro.patch_cdn import build_bundle_record, find_bundle_layout, sha256_hex, split_bundle_record
+from hardware.lepro.lib.lepro.patch_cdn import (
+    build_bundle_record,
+    find_bundle_layout,
+    sha256_hex,
+    split_bundle_record,
+)
 from hardware.lepro.lib.lepro.paths import repo_path
 
 LOG_PATH = repo_path(".cursor/debug-7ed36c.log")
@@ -42,7 +47,9 @@ CDN_LB_IP = "10.1.1.22"
 TRAEFIK_IP = "10.1.1.20"
 
 
-def _log(hypothesis_id: str, location: str, message: str, data: dict, *, run_id: str) -> None:
+def _log(
+    hypothesis_id: str, location: str, message: str, data: dict, *, run_id: str
+) -> None:
     # #region agent log
     payload = {
         "sessionId": SESSION_ID,
@@ -66,7 +73,9 @@ def _pem_der(path: Path) -> bytes:
     )
 
 
-def _bundle_record_at(fw: bytes, firmware_path: Path | None = None) -> tuple[object, bytes]:
+def _bundle_record_at(
+    fw: bytes, firmware_path: Path | None = None
+) -> tuple[object, bytes]:
     profiles = load_profiles()
     profile = resolve_profile(
         profiles,
@@ -86,7 +95,9 @@ def _fetch_peer_der(host: str, port: int, *, connect_host: str | None = None) ->
         with ctx.wrap_socket(raw_sock, server_hostname=host) as tls_sock:
             cert = tls_sock.getpeercert(binary_form=True)
     if not cert:
-        raise OSError(f"Peer at {connect_host or host}:{port} did not present a certificate")
+        raise OSError(
+            f"Peer at {connect_host or host}:{port} did not present a certificate"
+        )
     return cert
 
 
@@ -118,7 +129,9 @@ def check_firmware_pin(stock: Path, patched: Path | None, cert: Path) -> dict:
     }
 
     try:
-        real_record, _, _ = build_bundle_record(_fetch_peer_der("ota-dvc-eu-iot.lepro.com", 443))
+        real_record, _, _ = build_bundle_record(
+            _fetch_peer_der("ota-dvc-eu-iot.lepro.com", 443)
+        )
         out["real_lepro_record_sha256"] = sha256_hex(real_record)
         out["stock_matches_real_lepro_record"] = stock_record == real_record
     except (subprocess.SubprocessError, OSError, TimeoutError):
@@ -250,7 +263,13 @@ def probe_cdn() -> dict:
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
     ctx.verify_mode = ssl.CERT_NONE
-    out: dict = {"url": url, "ok": False, "status": None, "body_len": None, "error": None}
+    out: dict = {
+        "url": url,
+        "ok": False,
+        "status": None,
+        "body_len": None,
+        "error": None,
+    }
     try:
         req = urllib.request.Request(
             url,
@@ -331,10 +350,18 @@ def main() -> None:
     if pin.get("patched_record_sha256"):
         print(f"  patched sha:      {pin['patched_record_sha256'][:16]}…")
         print(f"  patched OK:       {pin['patched_matches_cdn_record']}")
-        print(f"  bytes vs stock:   {pin['patched_diff_from_stock']}/{pin['name_len'] + pin['key_len']}")
+        print(
+            f"  bytes vs stock:   {pin['patched_diff_from_stock']}/{pin['name_len'] + pin['key_len']}"
+        )
     if pin.get("live_traefik_matches_cdn_record") is not None:
         print(f"  live cert OK:     {pin['live_traefik_matches_cdn_record']}")
-    _log("H2", "debug_hijack:firmware_pin", "Firmware CDN pin state", pin, run_id=args.run_id)
+    _log(
+        "H2",
+        "debug_hijack:firmware_pin",
+        "Firmware CDN pin state",
+        pin,
+        run_id=args.run_id,
+    )
 
     pcap_info = analyze_pcap(args.pcap)
     print(f"\nPcap: {pcap_info.get('pcap')}")
@@ -347,22 +374,46 @@ def main() -> None:
         print(f"  TCP :8883 frames: {pcap_info['mqtt_8883_frames']}")
         if pcap_info["mqtt_tls_alerts"]:
             print(f"  MQTT TLS alert:   {pcap_info['mqtt_tls_alerts'][0]['alert']}")
-    _log("H1,H3,H4", "debug_hijack:pcap", "Router capture analysis", pcap_info, run_id=args.run_id)
+    _log(
+        "H1,H3,H4",
+        "debug_hijack:pcap",
+        "Router capture analysis",
+        pcap_info,
+        run_id=args.run_id,
+    )
 
     for host in (CDN_HOST, MQTT_HOST):
         dns = check_dns(host)
         print(f"\nDNS {host}: {dns['answers'] or dns['error']}")
-        _log("H1", f"debug_hijack:dns:{host}", "Resolver check from this host", dns, run_id=args.run_id)
+        _log(
+            "H1",
+            f"debug_hijack:dns:{host}",
+            "Resolver check from this host",
+            dns,
+            run_id=args.run_id,
+        )
 
     cdn = probe_cdn()
     print(f"\nCDN probe: {cdn.get('status') or cdn.get('error')}")
     if cdn.get("body_matches_ca_pem") is not None:
         print(f"  AmazonRootCA13 body matches ca.pem: {cdn['body_matches_ca_pem']}")
-    _log("H4", "debug_hijack:cdn_probe", "HTTPS cert CDN reachability", cdn, run_id=args.run_id)
+    _log(
+        "H4",
+        "debug_hijack:cdn_probe",
+        "HTTPS cert CDN reachability",
+        cdn,
+        run_id=args.run_id,
+    )
 
     mqtt = probe_mqtt_tls()
     print(f"\nMQTT TLS issuer: {mqtt.get('server_issuer') or mqtt.get('error')}")
-    _log("H3", "debug_hijack:mqtt_probe", "MQTT broker TLS cert", mqtt, run_id=args.run_id)
+    _log(
+        "H3",
+        "debug_hijack:mqtt_probe",
+        "MQTT broker TLS cert",
+        mqtt,
+        run_id=args.run_id,
+    )
 
     print(f"\nDebug log: {LOG_PATH.resolve()}")
 
@@ -372,22 +423,30 @@ def main() -> None:
     if not cdn_dns.get("answers"):
         issues.append(f"{CDN_HOST} does not resolve — add DNS on IoT router")
     if not pcap_info.get("cdn_dns_seen") and "error" not in pcap_info:
-        issues.append(f"No DNS lookup for {CDN_HOST} in pcap — add IoT DNS override → {CDN_LB_IP}")
+        issues.append(
+            f"No DNS lookup for {CDN_HOST} in pcap — add IoT DNS override → {CDN_LB_IP}"
+        )
     if pcap_info.get("https_443_frames", 0) == 0 and "error" not in pcap_info:
-        issues.append("No HTTPS :443 traffic — bulb never fetched AmazonRootCA13.pem / client cert")
+        issues.append(
+            "No HTTPS :443 traffic — bulb never fetched AmazonRootCA13.pem / client cert"
+        )
     alert_kinds = {a["alert"] for a in pcap_info.get("mqtt_tls_alerts", [])}
     if "unknown_ca" in alert_kinds or pcap_info.get("mqtt_tls_alert_count", 0) > 0:
         issues.append(
             "MQTT TLS fails (Unknown CA) — bulb has not installed mock AmazonRootCA13.pem from CDN"
         )
     if pin.get("live_traefik_matches_cdn_record") is False:
-        issues.append("Live Traefik cert does not match deploy/lepro-debug/certs/cdn.pem — redeploy certs")
+        issues.append(
+            "Live Traefik cert does not match deploy/lepro-debug/certs/cdn.pem — redeploy certs"
+        )
     if pin.get("patched_matches_cdn_record") is False:
         issues.append(
             "Patched firmware crt-bundle entry does not match deploy/lepro-debug/certs/cdn.pem — re-run lepro-firmware patch"
         )
     elif pin.get("patched_diff_from_stock") == 0:
-        issues.append("Patched firmware identical to stock crt-bundle entry — flash patched.bin via OTA")
+        issues.append(
+            "Patched firmware identical to stock crt-bundle entry — flash patched.bin via OTA"
+        )
 
     if issues:
         print("\nLikely blockers:")

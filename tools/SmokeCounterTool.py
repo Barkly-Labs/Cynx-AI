@@ -44,6 +44,7 @@ DB_FILE = os.path.join(BASE_DIR, "smoking_log.db")
 # Database
 # ============================================================
 
+
 def get_connection() -> sqlite3.Connection:
     """Open the smoke-counter SQLite database."""
     conn = sqlite3.connect(DB_FILE)
@@ -54,8 +55,7 @@ def get_connection() -> sqlite3.Connection:
 def init_db() -> None:
     """Create the smoke-session table if it does not already exist."""
     with get_connection() as conn:
-        conn.execute(
-            """
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS smoke_sessions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL,
@@ -63,8 +63,7 @@ def init_db() -> None:
                 units REAL NOT NULL,
                 cigarettes REAL NOT NULL DEFAULT 0
             )
-            """
-        )
+            """)
         conn.commit()
 
 
@@ -94,9 +93,7 @@ def migrate_json_once() -> None:
         return
 
     with get_connection() as conn:
-        existing = conn.execute(
-            "SELECT COUNT(*) FROM smoke_sessions"
-        ).fetchone()[0]
+        existing = conn.execute("SELECT COUNT(*) FROM smoke_sessions").fetchone()[0]
 
     # Do not import repeatedly.
     if existing > 0:
@@ -113,32 +110,21 @@ def migrate_json_once() -> None:
         with get_connection() as conn:
             for s in sessions:
                 amount = float(s.get("amount", s.get("units", 0)) or 0)
-                smoke_type = str(
-                    s.get("type", "unknown")
-                ).lower().strip()
+                smoke_type = str(s.get("type", "unknown")).lower().strip()
 
                 if smoke_type == "ciggerette":
                     smoke_type = "cigarette"
 
-                timestamp = s.get(
-                    "time",
-                    datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                )
+                timestamp = s.get("time", datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
                 if smoke_type == "cigarette":
-                    cigarettes = float(
-                        s.get("cigarettes", amount) or 0
-                    )
+                    cigarettes = float(s.get("cigarettes", amount) or 0)
 
                     # Old tracker stored cigarettes as 0.5 units each.
-                    units = float(
-                        s.get("units", cigarettes * 0.5) or 0
-                    )
+                    units = float(s.get("units", cigarettes * 0.5) or 0)
                 else:
                     cigarettes = 0.0
-                    units = float(
-                        s.get("units", amount) or 0
-                    )
+                    units = float(s.get("units", amount) or 0)
 
                 conn.execute(
                     """
@@ -170,10 +156,8 @@ migrate_json_once()
 # Core Tracker Functions
 # ============================================================
 
-def log_smoke(
-    smoke_type: str,
-    amount: float = 1
-) -> Dict[str, Any]:
+
+def log_smoke(smoke_type: str, amount: float = 1) -> Dict[str, Any]:
     """
     Log a smoking session into SQLite.
 
@@ -192,16 +176,10 @@ def log_smoke(
     try:
         amount = float(amount)
     except (TypeError, ValueError):
-        return {
-            "success": False,
-            "error": "Amount must be a number."
-        }
+        return {"success": False, "error": "Amount must be a number."}
 
     if amount <= 0:
-        return {
-            "success": False,
-            "error": "Amount must be greater than zero."
-        }
+        return {"success": False, "error": "Amount must be greater than zero."}
 
     if smoke_type == "cigarette":
         cigarettes = amount
@@ -232,10 +210,7 @@ def log_smoke(
             conn.commit()
 
     except sqlite3.Error as e:
-        return {
-            "success": False,
-            "error": f"Database error: {e}"
-        }
+        return {"success": False, "error": f"Database error: {e}"}
 
     session = {
         "time": timestamp,
@@ -275,9 +250,8 @@ def log_smoke(
 # Statistics
 # ============================================================
 
-def normalize_smoke_type(
-    value: Optional[str]
-) -> Optional[str]:
+
+def normalize_smoke_type(value: Optional[str]) -> Optional[str]:
     """Normalize common aliases to canonical smoke types."""
     if value is None:
         return None
@@ -307,10 +281,7 @@ def normalize_smoke_type(
     return aliases.get(v, v)
 
 
-def get_stats(
-    smoke_type: Optional[str] = None,
-    scope: str = "all"
-) -> Dict[str, Any]:
+def get_stats(smoke_type: Optional[str] = None, scope: str = "all") -> Dict[str, Any]:
     """Return smoking statistics directly from SQLite."""
 
     normalized = normalize_smoke_type(smoke_type)
@@ -377,40 +348,31 @@ def get_stats(
                     "sessions": row["sessions"],
                     "today_sessions": today_row["sessions"],
                     "today_units": today_row["units"],
-                    "last_session": (
-                        _row_to_session(last_row)
-                        if last_row else None
-                    ),
+                    "last_session": (_row_to_session(last_row) if last_row else None),
                 }
 
-            today_row = conn.execute(
-                """
+            today_row = conn.execute("""
                 SELECT
                     COUNT(*) AS sessions,
                     COALESCE(SUM(units), 0) AS units
                 FROM smoke_sessions
                 WHERE DATE(timestamp) = DATE('now', 'localtime')
-                """
-            ).fetchone()
+                """).fetchone()
 
-            total_row = conn.execute(
-                """
+            total_row = conn.execute("""
                 SELECT
                     COUNT(*) AS sessions,
                     COALESCE(SUM(units), 0) AS units,
                     COALESCE(SUM(cigarettes), 0) AS cigarettes
                 FROM smoke_sessions
-                """
-            ).fetchone()
+                """).fetchone()
 
-            last_total = conn.execute(
-                """
+            last_total = conn.execute("""
                 SELECT *
                 FROM smoke_sessions
                 ORDER BY id DESC
                 LIMIT 1
-                """
-            ).fetchone()
+                """).fetchone()
 
             return {
                 "success": True,
@@ -419,10 +381,7 @@ def get_stats(
                 "total_sessions": total_row["sessions"],
                 "today_sessions": today_row["sessions"],
                 "today_units": today_row["units"],
-                "last_session": (
-                    _row_to_session(last_total)
-                    if last_total else None
-                ),
+                "last_session": (_row_to_session(last_total) if last_total else None),
                 "scope": "all",
                 "smoke_type": None,
                 "units": total_row["units"],
@@ -430,15 +389,13 @@ def get_stats(
             }
 
     except sqlite3.Error as e:
-        return {
-            "success": False,
-            "error": f"Database error: {e}"
-        }
+        return {"success": False, "error": f"Database error: {e}"}
 
 
 # ============================================================
 # Recent Sessions
 # ============================================================
+
 
 def get_recent(limit: int = 10) -> Dict[str, Any]:
     """Return the most recent smoking sessions from SQLite."""
@@ -463,10 +420,7 @@ def get_recent(limit: int = 10) -> Dict[str, Any]:
             ).fetchall()
 
         # Preserve the old API's oldest -> newest presentation order.
-        sessions = [
-            _row_to_session(row)
-            for row in reversed(rows)
-        ]
+        sessions = [_row_to_session(row) for row in reversed(rows)]
 
         return {
             "success": True,
@@ -475,29 +429,25 @@ def get_recent(limit: int = 10) -> Dict[str, Any]:
         }
 
     except sqlite3.Error as e:
-        return {
-            "success": False,
-            "error": f"Database error: {e}"
-        }
+        return {"success": False, "error": f"Database error: {e}"}
 
 
 # ============================================================
 # Last Session
 # ============================================================
 
+
 def get_last() -> Dict[str, Any]:
     """Return the most recently logged session."""
 
     try:
         with get_connection() as conn:
-            row = conn.execute(
-                """
+            row = conn.execute("""
                 SELECT *
                 FROM smoke_sessions
                 ORDER BY id DESC
                 LIMIT 1
-                """
-            ).fetchone()
+                """).fetchone()
 
         if not row:
             return {
@@ -512,15 +462,13 @@ def get_last() -> Dict[str, Any]:
         }
 
     except sqlite3.Error as e:
-        return {
-            "success": False,
-            "error": f"Database error: {e}"
-        }
+        return {"success": False, "error": f"Database error: {e}"}
 
 
 # ============================================================
 # Reset
 # ============================================================
+
 
 def reset_stats() -> Dict[str, Any]:
     """
@@ -543,15 +491,13 @@ def reset_stats() -> Dict[str, Any]:
         }
 
     except sqlite3.Error as e:
-        return {
-            "success": False,
-            "error": f"Database error: {e}"
-        }
+        return {"success": False, "error": f"Database error: {e}"}
 
 
 # ============================================================
 # Utilities
 # ============================================================
+
 
 def repair_aggregates() -> Dict[str, Any]:
     """
@@ -563,12 +509,12 @@ def repair_aggregates() -> Dict[str, Any]:
     return get_stats()
 
 
-
 # ============================================================
 # Conversational Tool
 # ============================================================
 
 from tools.base import BaseTool, ToolResult
+
 
 class SmokeCounterTool(BaseTool):
     """
@@ -608,7 +554,15 @@ class SmokeCounterTool(BaseTool):
         Reset the entire smoking tracker.
     """
 
-    def call(self, args=None, action: str = "stats", smoke_type: Optional[str] = None, amount: float = 1, limit: int = 10, scope: str = "all") -> ToolResult:
+    def call(
+        self,
+        args=None,
+        action: str = "stats",
+        smoke_type: Optional[str] = None,
+        amount: float = 1,
+        limit: int = 10,
+        scope: str = "all",
+    ) -> ToolResult:
         """
         Flexible call interface:
         - If args is a dict (tool_router), use it.
@@ -619,12 +573,12 @@ class SmokeCounterTool(BaseTool):
         # Normalize args
         if isinstance(args, dict):
             req = args.copy()
-            req.pop('tool', None)
-            action = str(req.get('action', action)).lower().strip()
-            smoke_type = req.get('smoke_type', smoke_type)
-            amount = req.get('amount', amount)
-            limit = req.get('limit', limit)
-            scope = str(req.get('scope', scope)).lower()
+            req.pop("tool", None)
+            action = str(req.get("action", action)).lower().strip()
+            smoke_type = req.get("smoke_type", smoke_type)
+            amount = req.get("amount", amount)
+            limit = req.get("limit", limit)
+            scope = str(req.get("scope", scope)).lower()
         else:
             action = str(action).lower().strip()
             scope = str(scope).lower()
@@ -637,24 +591,20 @@ class SmokeCounterTool(BaseTool):
                     smoke_type = "unknown"
                 result = log_smoke(smoke_type=smoke_type, amount=amount)
 
-                if result.get('success'):
-                    out = (
-                        f"Logged it. That's {result.get('added_units')} units, bringing your total to {result.get('total_units')}."
-                    )
+                if result.get("success"):
+                    out = f"Logged it. That's {result.get('added_units')} units, bringing your total to {result.get('total_units')}."
                 else:
                     out = f"Error logging smoke: {result.get('error', 'Unknown error')}"
 
-                return ToolResult(result.get('success', False), out, metadata=result)
+                return ToolResult(result.get("success", False), out, metadata=result)
 
             elif action == "stats":
                 smoke_type_value = normalize_smoke_type(smoke_type)
-                scope_value = str(scope).lower() if scope else 'all'
+                scope_value = str(scope).lower() if scope else "all"
                 result = get_stats(smoke_type=smoke_type_value, scope=scope_value)
-                if result.get('success'):
+                if result.get("success"):
                     if smoke_type_value:
-                        out = (
-                            f"{smoke_type_value.title()} total for {scope_value}: {result.get('units')} units across {result.get('sessions')} sessions."
-                        )
+                        out = f"{smoke_type_value.title()} total for {scope_value}: {result.get('units')} units across {result.get('sessions')} sessions."
                     else:
                         out = (
                             f"Total units: {result.get('total_units')}. "
@@ -664,39 +614,52 @@ class SmokeCounterTool(BaseTool):
                         )
                 else:
                     out = "Statistics not available."
-                return ToolResult(result.get('success', False), out, metadata=result)
+                return ToolResult(result.get("success", False), out, metadata=result)
 
             elif action == "recent":
                 result = get_recent(limit)
-                if result.get('success'):
-                    sessions = result.get('sessions', [])
+                if result.get("success"):
+                    sessions = result.get("sessions", [])
                     lines = []
                     for s in sessions:
-                        lines.append(f"{s.get('time')} - {s.get('type')} - {s.get('units')} units")
-                    out = "Recent sessions:\n" + "\n".join(lines) if lines else "No recent sessions."
+                        lines.append(
+                            f"{s.get('time')} - {s.get('type')} - {s.get('units')} units"
+                        )
+                    out = (
+                        "Recent sessions:\n" + "\n".join(lines)
+                        if lines
+                        else "No recent sessions."
+                    )
                 else:
                     out = "Could not retrieve recent sessions."
-                return ToolResult(result.get('success', False), out, metadata=result)
+                return ToolResult(result.get("success", False), out, metadata=result)
 
             elif action == "last":
                 result = get_last()
-                if result.get('success'):
-                    last = result.get('last_session')
+                if result.get("success"):
+                    last = result.get("last_session")
                     if last:
                         out = f"Last session: {last.get('time')} - {last.get('type')} - {last.get('units')} units"
                     else:
-                        out = result.get('message', 'No sessions logged yet.')
+                        out = result.get("message", "No sessions logged yet.")
                 else:
                     out = "Could not retrieve last session."
-                return ToolResult(result.get('success', False), out, metadata=result)
+                return ToolResult(result.get("success", False), out, metadata=result)
 
             elif action == "reset":
                 result = reset_stats()
-                out = result.get('message', 'Tracker reset.') if result.get('success') else f"Reset failed: {result.get('error', '')}"
-                return ToolResult(result.get('success', False), out, metadata=result)
+                out = (
+                    result.get("message", "Tracker reset.")
+                    if result.get("success")
+                    else f"Reset failed: {result.get('error', '')}"
+                )
+                return ToolResult(result.get("success", False), out, metadata=result)
 
             else:
-                return ToolResult(False, f"Unknown action: {action}. Valid actions: log, stats, recent, last, reset.")
+                return ToolResult(
+                    False,
+                    f"Unknown action: {action}. Valid actions: log, stats, recent, last, reset.",
+                )
 
         except Exception as e:
             return ToolResult(False, f"SmokeCounter error: {e}")
@@ -713,30 +676,27 @@ smoke_counter = SmokeCounterTool()
 # Optional Direct Python API
 # ============================================================
 
+
 def smoke_counter_call(
     action: str = "stats",
     smoke_type: Optional[str] = None,
     amount: float = 1,
     limit: int = 10,
-    scope: str = "all"
+    scope: str = "all",
 ) -> Dict[str, Any]:
-
     """
     Convenience function for CYN's tool registry.
     """
 
     return smoke_counter.call(
-        action=action,
-        smoke_type=smoke_type,
-        amount=amount,
-        limit=limit,
-        scope=scope
+        action=action, smoke_type=smoke_type, amount=amount, limit=limit, scope=scope
     )
 
 
 # ============================================================
 # Utilities
 # ============================================================
+
 
 def repair_aggregates() -> Dict[str, Any]:
     """Force-recompute and persist aggregate fields from sessions without changing sessions.
@@ -757,11 +717,6 @@ if __name__ == "__main__":
     print("CYN Smoke Counter Tool")
     print("======================")
 
-    result = smoke_counter.call(
-        action="stats"
-    )
+    result = smoke_counter.call(action="stats")
 
-    print(json.dumps(
-        result,
-        indent=4
-    ))
+    print(json.dumps(result, indent=4))

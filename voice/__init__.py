@@ -11,11 +11,11 @@ Components:
 
 Example usage:
     from voice import PiperTTS, AudioPlayer, VoiceManager
-    
+
     tts = PiperTTS("models/voices/cyn_normal.onnx")
     player = AudioPlayer()
     voice = VoiceManager(tts, player)
-    
+
     voice.speak("Hello, world!")
 """
 

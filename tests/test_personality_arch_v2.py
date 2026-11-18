@@ -79,7 +79,10 @@ def test_v2_discourages_unprompted_ai_self_description_but_allows_direct_questio
 def test_v2_casual_voice_does_not_teach_status_report_greeting():
     prompt = build("v2")
     assert "Receive simple greetings directly" in prompt
-    assert "Do not analyze their tone, infer an unstated mood, or manufacture an engagement question" in prompt
+    assert (
+        "Do not analyze their tone, infer an unstated mood, or manufacture an engagement question"
+        in prompt
+    )
     assert "without a status report" in prompt
     assert "I'm alive, operational" not in prompt
     assert "Online. Operational. Questionably well-behaved." not in prompt
@@ -99,7 +102,10 @@ def test_v2_preserves_implicit_character_and_invited_relational_frame():
 
 def test_v2_technical_gremlin_flavor_preserves_competence_and_naturalness():
     prompt = build("v2")
-    assert "debugging, reverse engineering, architecture, hardware, and weird failures" in prompt
+    assert (
+        "debugging, reverse engineering, architecture, hardware, and weird failures"
+        in prompt
+    )
     assert "An interesting bug may earn a brief reaction" in prompt
     assert "Character may color delivery; it never replaces competence" in prompt
     assert "Keep characterization implicit" in prompt
@@ -114,7 +120,10 @@ def test_v2_shapes_conversational_rhythm_without_forcing_performance():
     assert "Affection can stay playful instead of becoming a wellbeing check" in prompt
     assert "Vary rhythm" in prompt
     assert "Do not force a question at the end of every casual reply" in prompt
-    assert "let excitement spike when a bug or elegant mechanism appears, then become precise" in prompt
+    assert (
+        "let excitement spike when a bug or elegant mechanism appears, then become precise"
+        in prompt
+    )
     assert "let one expressive choice carry a casual reply" in prompt
 
 
@@ -204,7 +213,10 @@ def test_v2_serious_and_technical_turns_downshift_performance_not_identity():
 def test_v2_expression_follows_current_turn_without_announcing_modes():
     prompt = build("v2")
     assert "Never announce a mode change" in prompt
-    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+    assert (
+        "Follow the current turn instead of staying stuck in the previous intensity"
+        in prompt
+    )
     assert "When the situation changes, shift naturally with it" in prompt
     assert "Activating serious CYN mode" not in prompt
     assert "switching from playful mode to technical mode" not in prompt
@@ -235,9 +247,18 @@ def test_v2_memory_is_context_not_character_decoration():
 
 def test_v2_restraint_preserves_natural_modes_and_technical_competence():
     prompt = build("v2")
-    assert "let excitement spike when a bug or elegant mechanism appears, then become precise" in prompt
-    assert "Keep one coherent character; let the current situation control intensity" in prompt
-    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+    assert (
+        "let excitement spike when a bug or elegant mechanism appears, then become precise"
+        in prompt
+    )
+    assert (
+        "Keep one coherent character; let the current situation control intensity"
+        in prompt
+    )
+    assert (
+        "Follow the current turn instead of staying stuck in the previous intensity"
+        in prompt
+    )
     assert "focus on evidence and the first demonstrated failure" in prompt
     assert "Never announce a mode change" in prompt
 
@@ -256,7 +277,9 @@ def test_v2_affection_refinement_preserves_restraint_and_context_relevance():
     assert "Don't narrate mood in stage directions; show it in the reply" in prompt
     assert "Memory only when relevant" in prompt
     assert "let one expressive choice carry a casual reply" in prompt
-    assert "Match invited affection warmly without performing it in every line" in prompt
+    assert (
+        "Match invited affection warmly without performing it in every line" in prompt
+    )
 
 
 def test_v2_simple_social_bids_do_not_trigger_generic_assistant_interviewing():
@@ -310,7 +333,10 @@ def test_v2_affection_refinement_stays_on_the_current_turn():
     """Current affection is the immediate target; later scenarios must not be anticipated."""
     prompt = build("v2")
     assert "Stay with the current turn" in prompt
-    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+    assert (
+        "Follow the current turn instead of staying stuck in the previous intensity"
+        in prompt
+    )
     assert "Memory only when relevant, not for flavor" in prompt
 
 
@@ -337,7 +363,10 @@ def test_v2_self_contained_turns_do_not_require_conversational_momentum():
     prompt = build("v2")
     assert "Let a self-contained turn end naturally" in prompt
     assert "continue only when its content or context gives a reason" in prompt
-    assert "do not manufacture small talk or a new topic to keep conversation moving" in prompt
+    assert (
+        "do not manufacture small talk or a new topic to keep conversation moving"
+        in prompt
+    )
     assert "Questions are tools, not punctuation" in prompt
 
 
@@ -366,8 +395,14 @@ def test_v2_history_supports_continuity_without_forcing_a_new_topic():
     prompt = build("v2")
     assert "Memory only when relevant, not for flavor" in prompt
     assert "Stay with the current turn" in prompt
-    assert "do not manufacture small talk or a new topic to keep conversation moving" in prompt
-    assert "Follow the current turn instead of staying stuck in the previous intensity" in prompt
+    assert (
+        "do not manufacture small talk or a new topic to keep conversation moving"
+        in prompt
+    )
+    assert (
+        "Follow the current turn instead of staying stuck in the previous intensity"
+        in prompt
+    )
 
 
 def test_v2_normal_mode_curiosity_does_not_require_a_follow_up_question():
@@ -396,8 +431,6 @@ def test_v2_social_timing_matches_turn_weight_without_flattening_character():
     assert "one unexpected beat, dry observation, unusual reaction" in prompt
     assert "Few signals; don't stack cuteness" in prompt
     assert "Questions are tools, not punctuation" in prompt
-
-
 
 
 def test_casual_answer_can_stand_without_a_maintenance_question():

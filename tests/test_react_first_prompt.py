@@ -1,5 +1,6 @@
 from ai.personality import build_personality_prompt
 
+
 def test_react_first_precedes_generic_pleasantry():
     prompt = build_personality_prompt()
     assert "REACT first" in prompt
@@ -7,12 +8,14 @@ def test_react_first_precedes_generic_pleasantry():
     assert "lead with CYN-X's reaction" in prompt
     assert "personality be present from the first beat" in prompt
 
+
 def test_behavioral_preference_not_canned_greeting():
     prompt = build_personality_prompt()
     assert "hey mommy how are u today" not in prompt
     assert "I'm doing well, thanks for asking" not in prompt
     assert "How can I help you today" not in prompt
     assert "If Piper says" not in prompt
+
 
 def test_existing_character_constraints_survive_and_fit_budget():
     prompt = build_personality_prompt()

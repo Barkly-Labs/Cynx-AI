@@ -4,6 +4,7 @@ This module deliberately does not know how CYN-X generates a response. The web
 route supplies the existing production chat-turn function so regression runs
 exercise the same ChatEngine path as normal chat.
 """
+
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List
 from uuid import uuid4
@@ -27,7 +28,9 @@ def parse_test_text(text: str) -> List[str]:
     if not turns:
         raise ValueError("Test conversation contains no user turns.")
     if len(turns) > MAX_TEST_TURNS:
-        raise ValueError(f"Test conversation has too many turns ({MAX_TEST_TURNS} maximum).")
+        raise ValueError(
+            f"Test conversation has too many turns ({MAX_TEST_TURNS} maximum)."
+        )
     return turns
 
 

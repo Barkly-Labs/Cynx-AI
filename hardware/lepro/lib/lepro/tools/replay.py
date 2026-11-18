@@ -49,13 +49,25 @@ BULK_32B = [
 
 # Main bulk upload (colour program): 80–144 B pages from session 9 (11:17:31–11:17:38)
 BULK_PAGES = [
-    bytes.fromhex("73893f16dffde8fc05e4402cbf9e7b0af6b622afa8fac0b5a25430c2bdd12298c33bb7e2cac1ad215dde17843503341c6d0203ada4c66d078714c23532bbd32803171701a9b2e7f3f4dd5fd8106739ea"),
-    bytes.fromhex("a68f78af9580a48f51598231363df6e87d8ce120323fc3833a8204b9b8239638df2e3e2ac1d073d56ed3f9df35c7b63d09c89e92c0aeba53bae2c3bdead4a6f7b6e78c86d37e85bdbd98afb0b24a2e42beb20db4c89e2a8ceafd6d2ce1e4a98f2fca7e5e0dc0f6e16ddaeef23b4fd0ff"),
-    bytes.fromhex("2e7e3b2c16151c111cc498a164a63560e288c94ba412c8104fc712922935c6d21a9e80afc5df1f25c04f54f8d8b6d34c0917a98f2f6e25a3bd7eeb4e7d0c5f"),
-    bytes.fromhex("6c8e6d1011e8a7f30096edf6c8120b0438b4b3b990d4d6e16bda8ac3ce45f9116c8e6d1011e8a7f30096edf6c8120b0438b4b3b990d4d6e16bda8ac3ce45f9116c8e6d1011e8a7f30096edf6c8120b04"),
-    bytes.fromhex("ff0d626aef27510e70a053d6a923847994b107924ff2678206cd157c2719ddf0c633e0a2d89f8432db1e50a4e5f84f72de73f1c92cf21d73b48c0d459d47b0b88dd8c2e72f2c76b7d0fc2e3b0a"),
+    bytes.fromhex(
+        "73893f16dffde8fc05e4402cbf9e7b0af6b622afa8fac0b5a25430c2bdd12298c33bb7e2cac1ad215dde17843503341c6d0203ada4c66d078714c23532bbd32803171701a9b2e7f3f4dd5fd8106739ea"
+    ),
+    bytes.fromhex(
+        "a68f78af9580a48f51598231363df6e87d8ce120323fc3833a8204b9b8239638df2e3e2ac1d073d56ed3f9df35c7b63d09c89e92c0aeba53bae2c3bdead4a6f7b6e78c86d37e85bdbd98afb0b24a2e42beb20db4c89e2a8ceafd6d2ce1e4a98f2fca7e5e0dc0f6e16ddaeef23b4fd0ff"
+    ),
+    bytes.fromhex(
+        "2e7e3b2c16151c111cc498a164a63560e288c94ba412c8104fc712922935c6d21a9e80afc5df1f25c04f54f8d8b6d34c0917a98f2f6e25a3bd7eeb4e7d0c5f"
+    ),
+    bytes.fromhex(
+        "6c8e6d1011e8a7f30096edf6c8120b0438b4b3b990d4d6e16bda8ac3ce45f9116c8e6d1011e8a7f30096edf6c8120b0438b4b3b990d4d6e16bda8ac3ce45f9116c8e6d1011e8a7f30096edf6c8120b04"
+    ),
+    bytes.fromhex(
+        "ff0d626aef27510e70a053d6a923847994b107924ff2678206cd157c2719ddf0c633e0a2d89f8432db1e50a4e5f84f72de73f1c92cf21d73b48c0d459d47b0b88dd8c2e72f2c76b7d0fc2e3b0a"
+    ),
     bytes.fromhex("4a0ac5b5c0a55451f4c9e89b8a5a5a5a34d3b4c990d4d6e16bda8ac3ce45f911"),
-    bytes.fromhex("404b3ec5b27c4d7e6f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6"),
+    bytes.fromhex(
+        "404b3ec5b27c4d7e6f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6a7b8c9d0a1b2c3d4e5f6"
+    ),
 ]
 
 # Captured raw packet bytes for the bulk pages (from session 9)
@@ -66,6 +78,7 @@ RAW_BULK = """
 
 
 # ── Main flow ────────────────────────────────────────────────────────────────
+
 
 async def run(target_mac: str | None):
     print("Scanning for LP string lights...")

@@ -65,7 +65,9 @@ def parse_hex(value: str, *, field: str) -> bytes:
     if not cleaned:
         raise SystemExit(f"{field}: empty hex string")
     if len(cleaned) % 2:
-        raise SystemExit(f"{field}: hex string must have even length, got {len(cleaned)}")
+        raise SystemExit(
+            f"{field}: hex string must have even length, got {len(cleaned)}"
+        )
     if not _HEX_RE.fullmatch(cleaned):
         raise SystemExit(f"{field}: invalid hex characters in {value!r}")
     return bytes.fromhex(cleaned)
@@ -81,7 +83,9 @@ def _parse_int(value: object, *, field: str) -> int:
 
 def _parse_bundle(raw: dict, *, profile_id: str) -> BundleConfig:
     prefix = f"profile {profile_id!r} bundle"
-    signature = parse_hex(str(raw.get("signature_hex", "")), field=f"{prefix}.signature_hex")
+    signature = parse_hex(
+        str(raw.get("signature_hex", "")), field=f"{prefix}.signature_hex"
+    )
     attach_error = str(raw.get("attach_error", "")).encode()
     if not attach_error:
         raise SystemExit(f"{prefix}.attach_error is required")
@@ -97,8 +101,16 @@ def _parse_bundle(raw: dict, *, profile_id: str) -> BundleConfig:
         attach_error=attach_error,
         lookback=lookback,
         expected_cert_count=expected_cert_count,
-        bundle_off=_parse_int(bundle_off, field=f"{prefix}.bundle_off") if bundle_off is not None else None,
-        entry_off=_parse_int(entry_off, field=f"{prefix}.entry_off") if entry_off is not None else None,
+        bundle_off=(
+            _parse_int(bundle_off, field=f"{prefix}.bundle_off")
+            if bundle_off is not None
+            else None
+        ),
+        entry_off=(
+            _parse_int(entry_off, field=f"{prefix}.entry_off")
+            if entry_off is not None
+            else None
+        ),
     )
 
 
